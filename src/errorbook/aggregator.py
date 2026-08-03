@@ -147,12 +147,42 @@ def _conversion_status(value: object) -> str:
     return "unknown"
 
 
+def _conversion_counts(state: Mapping[str, Any] | None) -> dict[str, int]:
+    if state is None or "records" not in state:
+        return {}
+    records = _items(state.get("records"))
+    status_counts = {"success": 0, "skipped": 0, "failed": 0}
+    usable_counts = {"true": 0, "false": 0, "missing": 0}
+    for record in records:
+        item = _object(record)
+        status = item.get("status")
+        if isinstance(status, str) and status in status_counts:
+            status_counts[status] += 1
+        usable = item.get("target_is_usable")
+        if usable is True or (isinstance(usable, str) and usable.casefold() == "true"):
+            usable_counts["true"] += 1
+        elif usable is False or (isinstance(usable, str) and usable.casefold() == "false"):
+            usable_counts["false"] += 1
+        else:
+            usable_counts["missing"] += 1
+    return {
+        "record_count": len(records),
+        "success_count": status_counts["success"],
+        "skipped_count": status_counts["skipped"],
+        "failed_count": status_counts["failed"],
+        "target_is_usable_true_count": usable_counts["true"],
+        "target_is_usable_false_count": usable_counts["false"],
+        "target_is_usable_missing_count": usable_counts["missing"],
+    }
+
+
 def aggregate_errorbook(
     audit_report: Mapping[str, Any] | None,
     gold: Mapping[str, Any] | None,
     self_score: Mapping[str, Any] | None,
     *,
     conversion_status: str | None = None,
+    conversion_state: Mapping[str, Any] | None = None,
 ) -> dict[str, object]:
     """Aggregate three JSON payloads without retaining document-level data."""
 
@@ -186,6 +216,7 @@ def aggregate_errorbook(
         len(_items(pairing.get("unresolved_report_relative_paths"))),
     )
     conversion = _conversion_status(conversion_status)
+    conversion_counts = _conversion_counts(conversion_state)
 
     statistics: dict[str, object] = {
         "label_count": _first_count(
@@ -226,12 +257,22 @@ def aggregate_errorbook(
         _add_category(categories, f"quality_flag:{code}", count)
     if conversion == "incomplete":
         _add_category(categories, "conversion_incomplete", 1)
+    if conversion_counts:
+        _add_category(categories, "conversion_failed", conversion_counts["failed_count"])
+        _add_category(
+            categories,
+            "conversion_unusable_target",
+            conversion_counts["target_is_usable_false_count"]
+            + conversion_counts["target_is_usable_missing_count"],
+        )
 
+    conversion_summary: dict[str, object] = {"status": conversion}
+    conversion_summary.update(conversion_counts)
     return {
         "version": 1,
         "statistics": statistics,
         "error_categories": dict(sorted(categories.items())),
-        "conversion": {"status": conversion},
+        "conversion": conversion_summary,
     }
 
 
@@ -247,7 +288,8 @@ def render_errorbook_markdown(summary: Mapping[str, Any]) -> str:
 
     statistics = _object(summary.get("statistics"))
     categories = _count_map(summary.get("error_categories"))
-    conversion = _conversion_status(_object(summary.get("conversion")).get("status"))
+    conversion_data = _object(summary.get("conversion"))
+    conversion = _conversion_status(conversion_data.get("status"))
     stat_rows = (
         ("标签数量", "label_count"),
         ("报告数量", "report_count"),
@@ -277,6 +319,20 @@ def render_errorbook_markdown(summary: Mapping[str, Any]) -> str:
     else:
         lines.append("| 无 | 0 |")
     lines.extend(["", "## 转换状态", ""])
+    if "record_count" in conversion_data:
+        lines.extend(
+            [
+                f"- state records：{_display_number(conversion_data.get('record_count'))}",
+                "- success/skipped/failed："
+                f"{_display_number(conversion_data.get('success_count'))}/"
+                f"{_display_number(conversion_data.get('skipped_count'))}/"
+                f"{_display_number(conversion_data.get('failed_count'))}",
+                "- target_is_usable（true/false/missing）："
+                f"{_display_number(conversion_data.get('target_is_usable_true_count'))}/"
+                f"{_display_number(conversion_data.get('target_is_usable_false_count'))}/"
+                f"{_display_number(conversion_data.get('target_is_usable_missing_count'))}",
+            ]
+        )
     if conversion == "incomplete":
         lines.extend(["- 状态：未完成", "- 原因：LibreOffice 缺失导致转换未完成。"])
     elif conversion == "complete":
@@ -303,6 +359,7 @@ def generate_errorbook(
     output_path: str | Path,
     *,
     conversion_status: str | None = None,
+    conversion_state_path: str | Path | None = None,
 ) -> dict[str, object]:
     """Generate a summary-only Markdown errorbook from three JSON files."""
 
@@ -311,6 +368,7 @@ def generate_errorbook(
         load_json(gold_path),
         load_json(self_score_path),
         conversion_status=conversion_status,
+        conversion_state=(load_json(conversion_state_path) if conversion_state_path else None),
     )
     destination = Path(output_path)
     destination.parent.mkdir(parents=True, exist_ok=True)

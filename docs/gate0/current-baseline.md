@@ -20,7 +20,6 @@
 
 | 类别 | 数量 |
 | --- | ---: |
-| `conversion_incomplete` | 1 |
 | `gold_failure:legacy_doc_unsupported` | 1 |
 | `gold_failure:missing_defects_table` | 7 |
 | `label_parse_failure` | 8 |
@@ -31,5 +30,7 @@
 
 ## 转换状态
 
-- 状态：未完成
-- 原因：LibreOffice 缺失导致转换未完成。
+- state records：161
+- success/skipped/failed：161/0/0
+- target_is_usable（true/false/missing）：161/0/0
+- 状态：已完成

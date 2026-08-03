@@ -120,6 +120,49 @@ class ErrorbookAggregatorTests(unittest.TestCase):
         self.assertIn("- 状态：未知", rendered)
         self.assertNotIn("None", rendered)
 
+    def test_synthetic_conversion_state_counts_are_aggregated_without_details(self) -> None:
+        conversion_state = {
+            "records": [
+                {"source": r"D:\private\source.doc", "status": "success", "target_is_usable": True},
+                {"target": r"C:\private\target.docx", "status": "skipped", "target_is_usable": False},
+                {"status": "failed", "target_is_usable": None},
+                {"status": "unexpected", "target_is_usable": "unknown"},
+            ]
+        }
+
+        summary = aggregate_errorbook(
+            {},
+            {},
+            {},
+            conversion_status="complete",
+            conversion_state=conversion_state,
+        )
+
+        self.assertEqual(
+            summary["conversion"],
+            {
+                "status": "complete",
+                "record_count": 4,
+                "success_count": 1,
+                "skipped_count": 1,
+                "failed_count": 1,
+                "target_is_usable_true_count": 1,
+                "target_is_usable_false_count": 1,
+                "target_is_usable_missing_count": 2,
+            },
+        )
+        self.assertEqual(
+            summary["error_categories"],
+            {"conversion_failed": 1, "conversion_unusable_target": 3},
+        )
+        rendered = render_errorbook_markdown(summary)
+        self.assertIn("- state records：4", rendered)
+        self.assertIn("- success/skipped/failed：1/1/1", rendered)
+        self.assertIn("- target_is_usable（true/false/missing）：1/1/2", rendered)
+        for forbidden in (r"D:\private\source.doc", r"C:\private\target.docx"):
+            self.assertNotIn(forbidden, json.dumps(summary, ensure_ascii=False))
+            self.assertNotIn(forbidden, rendered)
+
     def test_repeated_rendering_is_deterministic_and_summary_only(self) -> None:
         audit, gold, self_score = synthetic_payloads()
         first = aggregate_errorbook(audit, gold, self_score, conversion_status="incomplete")
