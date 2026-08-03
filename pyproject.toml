@@ -1,12 +1,29 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "inspection-report-extractor"
-version = "0.1.0"
-description = "Word-first extraction contracts for city infrastructure inspection reports"
+version = "0.1.1"
+description = "Word-first extraction pipeline for city infrastructure inspection reports"
 requires-python = ">=3.11"
+dependencies = [
+  "python-docx>=1.1,<2",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8,<10",
+]
+
+[project.scripts]
+inspection = "inspection.cli:main"
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["."]
+include = ["inspection*", "src*"]
+exclude = ["tests*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

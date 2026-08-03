@@ -61,8 +61,13 @@ class ConversionTests(unittest.TestCase):
                 "target",
                 "status",
                 "duration",
+                "duration_ms",
                 "source_size",
+                "source_sha256",
+                "source_mtime_ns",
                 "target_size",
+                "target_mtime_ns",
+                "target_is_usable",
                 "error",
             }
             for record in records.values():
@@ -116,6 +121,35 @@ class ConversionTests(unittest.TestCase):
             ]
             self.assertEqual(len(profiles), 2)
             self.assertEqual(len(set(profiles)), 2)
+
+    def test_same_size_source_change_is_not_skipped(self) -> None:
+        holder, input_dir, output_dir, state_path = self.make_workspace()
+        with holder:
+            source = input_dir / "report.doc"
+            source.write_bytes(b"AAAA")
+            first_fake = FakeSoffice()
+            convert_directory(input_dir, output_dir, state_path, "fake-soffice", runner=first_fake)
+
+            source.write_bytes(b"BBBB")
+            second_fake = FakeSoffice()
+            second = convert_directory(input_dir, output_dir, state_path, "fake-soffice", runner=second_fake)
+            self.assertEqual(second.records[0]["status"], "success")
+            self.assertEqual(len(second_fake.calls), 1)
+
+    def test_timeout_is_recorded_as_failure(self) -> None:
+        holder, input_dir, output_dir, state_path = self.make_workspace()
+        with holder:
+            (input_dir / "slow.doc").write_bytes(b"synthetic")
+
+            def timeout_runner(command: list[str]):
+                raise TimeoutError("synthetic timeout")
+
+            result = convert_directory(
+                input_dir, output_dir, state_path, "fake-soffice", runner=timeout_runner
+            )
+            self.assertEqual(result.counts["failed"], 1)
+            self.assertIn("TimeoutError", result.records[0]["error"])
+            self.assertFalse(result.records[0]["target_is_usable"])
 
 
 if __name__ == "__main__":

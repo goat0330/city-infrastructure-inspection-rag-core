@@ -8,7 +8,7 @@ from typing import Iterable
 
 from docx import Document
 
-from ..audit.core import label_base, relative_path
+from ..audit.core import label_base, label_quality_flags, relative_path
 
 
 class LabelParseError(RuntimeError):
@@ -50,22 +50,53 @@ def _row_cells(row: object) -> list[str]:
 
 
 def _looks_like_header(cells: list[str], markers: Iterable[str]) -> bool:
-    joined = "|".join(cells)
-    return any(marker in joined for marker in markers)
+    joined = "|".join(cells).replace(" ", "")
+    return all(marker.replace(" ", "") in joined for marker in markers)
 
 
-def _data_rows(table: object, markers: Iterable[str]) -> list[list[str]]:
+def _header_index(table: object, marker_groups: Iterable[Iterable[str]]) -> int | None:
     rows = [_row_cells(row) for row in table.rows]  # type: ignore[attr-defined]
-    if rows and _looks_like_header(rows[0], markers):
-        return rows[1:]
-    return rows
+    for index, cells in enumerate(rows[:8]):
+        if any(_looks_like_header(cells, markers) for markers in marker_groups):
+            return index
+    return None
+
+
+def _find_table(document: object, marker_groups: Iterable[Iterable[str]], label: str) -> object:
+    matches = []
+    for table in document.tables:  # type: ignore[attr-defined]
+        header_index = _header_index(table, marker_groups)
+        if header_index is not None:
+            matches.append((table, header_index))
+    if not matches:
+        raise LabelParseError("missing_%s_table" % label, f"cannot locate {label} table by headers")
+    if len(matches) > 1:
+        # Prefer the table with the most rows. This is deterministic and avoids
+        # selecting a short explanatory table with similar words.
+        matches.sort(key=lambda item: len(item[0].rows), reverse=True)  # type: ignore[attr-defined]
+    return matches[0][0]
+
+
+def _data_rows(table: object, marker_groups: Iterable[Iterable[str]]) -> list[list[str]]:
+    rows = [_row_cells(row) for row in table.rows]  # type: ignore[attr-defined]
+    header_index = _header_index(table, marker_groups)
+    return rows[(header_index + 1) if header_index is not None else 0 :]
 
 
 def _summary_rows(document: object) -> dict[str, str]:
-    table = document.tables[0]  # type: ignore[attr-defined]
-    rows = _data_rows(table, ("序号", "项目", "检测项目", "检测内容"))
+    table = _find_table(
+        document,
+        (("字段", "内容"), ("桥梁名称",), ("总体评分",)),
+        "summary",
+    )
+    rows = _data_rows(table, (("字段", "内容"), ("项目", "值")))
     values: dict[str, str] = {}
     for cells in rows:
+        # Official labels are usually 3 columns (field/value/note), but some
+        # variants use two field/value pairs in four columns.
+        if len(cells) >= 3 and _normalise_summary_key(cells[0]) in SUMMARY_FIELDS:
+            values[cells[0]] = cells[1]
+            continue
         for index in range(0, len(cells) - 1, 2):
             key = cells[index].rstrip("：:").strip()
             value = cells[index + 1]
@@ -110,8 +141,12 @@ def _summary(document: object) -> dict[str, str]:
 
 
 def _recommendations(document: object) -> list[dict[str, str]]:
-    table = document.tables[1]  # type: ignore[attr-defined]
-    rows = _data_rows(table, ("序号", "编号", "建议类别", "建议内容", "维修建议"))
+    table = _find_table(
+        document,
+        (("建议类别", "建议内容"), ("维修建议", "病害部位")),
+        "recommendations",
+    )
+    rows = _data_rows(table, (("建议类别", "建议内容"), ("维修建议", "病害部位")))
     result: list[dict[str, str]] = []
     for cells in rows:
         cells = (cells + [""] * 4)[:4]
@@ -128,8 +163,12 @@ def _recommendations(document: object) -> list[dict[str, str]]:
 
 
 def _defects(document: object) -> list[dict[str, str]]:
-    table = document.tables[2]  # type: ignore[attr-defined]
-    rows = _data_rows(table, ("序号", "编号", "病害部位", "病害类型", "病害描述"))
+    table = _find_table(
+        document,
+        (("病害部位", "病害类型", "病害描述"),),
+        "defects",
+    )
+    rows = _data_rows(table, (("病害部位", "病害类型", "病害描述"),))
     result: list[dict[str, str]] = []
     for cells in rows:
         cells = (cells + [""] * 7)[:7]
@@ -202,12 +241,6 @@ def parse_label_docx(
         document = Document(str(label_path))
     except Exception as exc:
         raise LabelParseError("docx_read_failed", f"cannot read label {label_path.name}: {exc}") from exc
-    if len(document.tables) < 3:
-        raise LabelParseError(
-            "expected_three_tables",
-            f"label {label_path.name} has {len(document.tables)} table(s); expected at least 3",
-        )
-
     paragraphs = _paragraphs(document)
     recommendations = _recommendations(document)
     defects = _defects(document)
@@ -216,7 +249,7 @@ def parse_label_docx(
     label_name = label_base(label_path.stem)
     parent = label_path.relative_to(labels_root).parent.as_posix()
     sample_id = label_name if parent == "." else f"{parent.replace('/', '-')}-{label_name}"
-    return {
+    record = {
         "sample_id": sample_id,
         "split": _split_from_path(label_path, labels_root),
         "summary": _summary(document),
@@ -240,3 +273,5 @@ def parse_label_docx(
             "derivation": "Structured from a locally held label DOCX; raw source files are not redistributed.",
         },
     }
+    record["quality_flags"] = label_quality_flags(record)
+    return record

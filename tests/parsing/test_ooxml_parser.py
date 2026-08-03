@@ -53,6 +53,9 @@ def test_preserves_body_order_merges_and_source_anchors(tmp_path: Path) -> None:
     assert parsed_table.rows[1].cells[0].row_span == 2
     continuation = parsed_table.rows[2].cells[0]
     assert continuation.raw_text == ""
+    assert continuation.is_merge_continuation is True
+    assert continuation.merge_origin_row == 1
+    assert continuation.merge_origin_column == 0
     assert continuation.row_index == 2
     assert continuation.column_index == 0
     assert continuation.source is not None
@@ -73,3 +76,31 @@ def test_repeated_parsing_is_stable(tmp_path: Path) -> None:
 
     assert first == second
     assert first.to_dict() == second.to_dict()
+
+
+def test_heading_images_and_visible_text_only() -> None:
+    from tests.fixtures.word.ooxml_factory import document_xml
+    from src.parsing import parse_document_xml
+
+    xml = document_xml(
+        '<w:p><w:pPr><w:pStyle w:val="HeadingX"/></w:pPr>'
+        '<w:r><w:t>当前</w:t></w:r>'
+        '<w:del><w:r><w:delText>删除</w:delText></w:r></w:del>'
+        '<w:r><w:instrText>PAGE</w:instrText></w:r>'
+        '<w:r><w:drawing><a:blip xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="rId9"/>'
+        '</w:drawing></w:r></w:p>'
+    )
+    model = parse_document_xml(
+        xml,
+        source_file="fixture.docx",
+        relationships={"rId9": "media/image1.png"},
+        heading_styles={"HeadingX": 2},
+    )
+    paragraph_block = model.blocks[0]
+    assert paragraph_block.raw_text == "当前"
+    assert paragraph_block.heading_level == 2
+    assert paragraph_block.style_id == "HeadingX"
+    assert len(model.images) == 1
+    assert model.images[0].relationship_id == "rId9"
+    assert model.images[0].target == "media/image1.png"

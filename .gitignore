@@ -11,6 +11,33 @@
 *.pdf
 *.xlsx
 *.xls
+
+# Local datasets, conversions, predictions, submissions, and run state.
+/data/raw/
+/data/local/
+/data/private/
+/converted/
+/runs/
+/outputs/
+/submission/
+/artifacts/
+/configs/local.*
+*.state.json
+.env
+.env.*
+
+# Python/build/editor caches.
 *.pyc
 __pycache__/
+.pytest_cache/
 .venv/
+venv/
+build/
+dist/
+*.egg-info/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.vscode/
+.idea/

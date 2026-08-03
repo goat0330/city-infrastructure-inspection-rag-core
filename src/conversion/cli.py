@@ -16,6 +16,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--state-path", type=Path, required=True)
     parser.add_argument("--soffice-path", type=Path)
+    parser.add_argument("--timeout-seconds", type=float, default=300.0)
     return parser
 
 
@@ -28,8 +29,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.output_dir,
             args.state_path,
             args.soffice_path,
+            timeout_seconds=args.timeout_seconds,
         )
-    except (FileNotFoundError, NotADirectoryError) as exc:
+    except (FileNotFoundError, NotADirectoryError, ValueError) as exc:
         parser.error(str(exc))
 
     counts = result.counts

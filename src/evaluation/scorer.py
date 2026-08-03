@@ -509,7 +509,13 @@ def _aggregate_section(
             missing.append({"sample_id": sample_id, **item} if isinstance(item, Mapping) else {"sample_id": sample_id, "value": item})
         for item in result["extra"]:
             extra.append({"sample_id": sample_id, **item} if isinstance(item, Mapping) else {"sample_id": sample_id, "value": item})
-    return _section_result(section, weight, true_positive, false_positive, false_negative, missing, extra)
+    aggregate = _section_result(section, weight, true_positive, false_positive, false_negative, missing, extra)
+    sample_f1 = [float(result["f1"]) for _, result in results]
+    macro_f1 = sum(sample_f1) / len(sample_f1) if sample_f1 else 1.0
+    aggregate["macro_f1"] = _round(macro_f1)
+    aggregate["macro_score"] = _round(weight * macro_f1)
+    aggregate["sample_count"] = len(results)
+    return aggregate
 
 
 def score_dataset(
@@ -535,8 +541,15 @@ def score_dataset(
         for section in SECTION_ORDER
     }
     total_score = sum(aggregate_sections[section]["score"] for section in SECTION_ORDER)
+    macro_total_score = (
+        sum(float(result["total_score"]) for result in record_results) / len(record_results)
+        if record_results
+        else 100.0
+    )
     return {
         "total_score": _round(total_score),
+        "micro_total_score": _round(total_score),
+        "macro_total_score": _round(macro_total_score),
         "max_score": 100.0,
         "record_count": len(aligned),
         "weights": {section: _round(validated[section]) for section in SECTION_ORDER},

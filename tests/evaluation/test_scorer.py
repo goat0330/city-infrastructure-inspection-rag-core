@@ -131,6 +131,17 @@ class ScorerTests(unittest.TestCase):
             self.assertEqual(completed.stdout, "")
             self.assertEqual(json.loads(output_path.read_text(encoding="utf-8"))["total_score"], 100.0)
 
+    def test_dataset_reports_macro_and_micro_scores(self) -> None:
+        good = record()
+        bad = copy.deepcopy(good)
+        bad["sample_id"] = "synthetic-2"
+        empty = {"sample_id": "synthetic-2"}
+        result = score_dataset([good, bad], [copy.deepcopy(good), empty])
+        self.assertIn("micro_total_score", result)
+        self.assertIn("macro_total_score", result)
+        self.assertIn("macro_f1", result["sections"]["defects"])
+        self.assertLess(result["macro_total_score"], 100.0)
+
 
 if __name__ == "__main__":
     unittest.main()

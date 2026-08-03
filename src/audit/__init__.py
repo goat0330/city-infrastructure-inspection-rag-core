@@ -1,5 +1,21 @@
-"""Dataset file auditing and deterministic label/report pairing."""
+from .core import (
+    audit_dataset,
+    clean_name,
+    document_files,
+    label_base,
+    label_quality_flags,
+    normalise_name,
+    pair_documents,
+    render_audit_markdown,
+)
 
-from .core import audit_dataset, document_files, label_base, normalise_name
-
-__all__ = ["audit_dataset", "document_files", "label_base", "normalise_name"]
+__all__ = [
+    "audit_dataset",
+    "clean_name",
+    "document_files",
+    "label_base",
+    "label_quality_flags",
+    "normalise_name",
+    "pair_documents",
+    "render_audit_markdown",
+]

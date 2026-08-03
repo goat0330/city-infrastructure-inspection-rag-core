@@ -25,11 +25,20 @@ class ContractTests(unittest.TestCase):
         anchor = SourceAnchor("sample.docx", 0, "桥梁名称", paragraph_index=0)
         document = DocumentModel("sample.docx", (ParagraphBlock(0, "桥梁名称", anchor),))
         prediction = InspectionPrediction(
-            summary=BridgeSummary(bridge_name="示例桥"),
-            defects=(DefectObservation(location="桥面", defect_type="裂缝", evidence=(anchor,)),),
+            sample_id="sample-1",
+            summary=BridgeSummary(
+                bridge_name="示例桥",
+                trend="无",
+                overall_conclusion="总体良好",
+                risk_points="裂缝",
+                recommendations_summary="1条尽快维修",
+            ),
+            defects=(DefectObservation(index="1", location="桥面", defect_type="裂缝", evidence=(anchor,)),),
         )
         self.assertEqual(document.to_dict()["source_file"], "sample.docx")
         self.assertEqual(prediction.to_dict()["summary"]["bridge_name"], "示例桥")
+        self.assertEqual(prediction.to_dict()["sample_id"], "sample-1")
+        self.assertEqual(prediction.to_dict()["defects"][0]["index"], "1")
 
     def test_stage_status_is_stable(self) -> None:
         self.assertEqual(StageStatus.SUCCEEDED.value, "succeeded")

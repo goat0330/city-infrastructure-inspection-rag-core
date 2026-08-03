@@ -1,4 +1,4 @@
-"""Audit all Word labels/reports and write a deterministic JSON report."""
+"""Audit all Word labels/reports and write deterministic JSON and Markdown."""
 
 from __future__ import annotations
 
@@ -7,9 +7,11 @@ import json
 from pathlib import Path
 import sys
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-from src.audit import audit_dataset  # noqa: E402
+from src.audit import audit_dataset, render_audit_markdown  # noqa: E402
 
 
 def main() -> int:
@@ -21,12 +23,27 @@ def main() -> int:
 
     report = audit_dataset(args.labels_dir, args.reports_dir)
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = args.output_dir / "audit_report.json"
-    output_path.write_text(
+    (args.output_dir / "audit_report.json").write_text(
         json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-    print(json.dumps(report, ensure_ascii=False, sort_keys=True))
+    (args.output_dir / "audit_report.md").write_text(
+        render_audit_markdown(report), encoding="utf-8"
+    )
+    print(
+        json.dumps(
+            {
+                "audit_json": "audit_report.json",
+                "audit_markdown": "audit_report.md",
+                "labels": report["file_statistics"]["labels"]["total_files"],  # type: ignore[index]
+                "reports": report["file_statistics"]["reports"]["total_files"],  # type: ignore[index]
+                "parse_failed": report["label_parsing"]["failed"],  # type: ignore[index]
+                "quality_flags": report["label_parsing"]["quality_flag_count"],  # type: ignore[index]
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+    )
     return 0
 
 

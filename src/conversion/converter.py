@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
+import signal
 import subprocess
 import tempfile
 import time
@@ -59,6 +61,14 @@ def _path_key(path: str | Path) -> str:
     return os.path.normcase(str(Path(path).resolve()))
 
 
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _load_records(state_path: Path) -> dict[str, Record]:
     if not state_path.is_file():
         return {}
@@ -87,7 +97,7 @@ def _load_records(state_path: Path) -> dict[str, Record]:
 def _write_state(state_path: Path, records: dict[str, Record]) -> None:
     state_path.parent.mkdir(parents=True, exist_ok=True)
     ordered = [records[key] for key in sorted(records)]
-    payload = {"version": 1, "records": ordered}
+    payload = {"version": 2, "records": ordered}
     temporary_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
@@ -117,7 +127,10 @@ def _record(
     status: str,
     duration: float,
     source_size: int | None,
+    source_sha256: str | None,
+    source_mtime_ns: int | None,
     target_size: int | None,
+    target_mtime_ns: int | None,
     error: str | None,
 ) -> Record:
     return {
@@ -125,8 +138,13 @@ def _record(
         "target": str(target),
         "status": status,
         "duration": duration,
+        "duration_ms": round(duration * 1000, 3),
         "source_size": source_size,
+        "source_sha256": source_sha256,
+        "source_mtime_ns": source_mtime_ns,
         "target_size": target_size,
+        "target_mtime_ns": target_mtime_ns,
+        "target_is_usable": status in {"success", "skipped"},
         "error": error,
     }
 
@@ -156,14 +174,11 @@ def _can_skip(previous: Record, source: Path, target: Path) -> bool:
 
     if previous.get("source_size") != source_stat.st_size:
         return False
+    previous_hash = previous.get("source_sha256")
+    if not isinstance(previous_hash, str) or previous_hash != _sha256(source):
+        return False
     previous_target_size = previous.get("target_size")
     if isinstance(previous_target_size, int) and previous_target_size != target_stat.st_size:
-        return False
-
-    # A newly written target is newer than the source. This also catches a
-    # same-size source edit without adding a second fingerprint field to the
-    # small state record.
-    if source_stat.st_mtime_ns > target_stat.st_mtime_ns:
         return False
     return _is_valid_docx(target)
 
@@ -191,13 +206,44 @@ def _find_converted_file(temp_output: Path, source: Path) -> Path:
     raise RuntimeError("LibreOffice produced multiple ambiguous .docx files")
 
 
-def _default_runner(command: Sequence[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
+def _terminate_process_tree(process: subprocess.Popen[str]) -> None:
+    if process.poll() is not None:
+        return
+    if os.name == "nt":
+        subprocess.run(
+            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    else:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+
+def _default_runner(
+    command: Sequence[str], timeout_seconds: float
+) -> subprocess.CompletedProcess[str]:
+    creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if os.name == "nt" else 0
+    process = subprocess.Popen(
         list(command),
-        check=False,
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
+        start_new_session=os.name != "nt",
+        creationflags=creationflags,
     )
+    try:
+        stdout, stderr = process.communicate(timeout=timeout_seconds)
+    except subprocess.TimeoutExpired as exc:
+        _terminate_process_tree(process)
+        stdout, stderr = process.communicate()
+        raise TimeoutError(
+            f"LibreOffice conversion timed out after {timeout_seconds:g}s"
+        ) from exc
+    return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
 
 
 def _convert_one(
@@ -208,11 +254,14 @@ def _convert_one(
 ) -> Record:
     started = time.perf_counter()
     source_size: int | None = None
+    source_hash: str | None = None
+    source_mtime_ns: int | None = None
     try:
-        source_size = source.stat().st_size
+        source_stat = source.stat()
+        source_size = source_stat.st_size
+        source_mtime_ns = source_stat.st_mtime_ns
+        source_hash = _sha256(source)
         target.parent.mkdir(parents=True, exist_ok=True)
-        # Keeping the temporary directory beside the target avoids a
-        # cross-volume replace and gives every invocation a unique profile.
         with tempfile.TemporaryDirectory(
             prefix=".conversion-", dir=str(target.parent)
         ) as temporary:
@@ -226,7 +275,7 @@ def _convert_one(
                 f"-env:UserInstallation={profile.resolve().as_uri()}",
                 "--headless",
                 "--convert-to",
-                "docx",
+                "docx:Office Open XML Text",
                 "--outdir",
                 str(temp_output),
                 str(source),
@@ -238,12 +287,34 @@ def _convert_one(
             converted = _find_converted_file(temp_output, source)
             _validate_docx(converted)
             os.replace(converted, target)
-            target_size = target.stat().st_size
+            target_stat = target.stat()
         duration = time.perf_counter() - started
-        return _record(source, target, "success", duration, source_size, target_size, None)
+        return _record(
+            source,
+            target,
+            "success",
+            duration,
+            source_size,
+            source_hash,
+            source_mtime_ns,
+            target_stat.st_size,
+            target_stat.st_mtime_ns,
+            None,
+        )
     except Exception as exc:
         duration = time.perf_counter() - started
-        return _record(source, target, "failed", duration, source_size, None, str(exc))
+        return _record(
+            source,
+            target,
+            "failed",
+            duration,
+            source_size,
+            source_hash,
+            source_mtime_ns,
+            None,
+            None,
+            f"{type(exc).__name__}: {exc}",
+        )
 
 
 def _discover_sources(input_dir: Path) -> list[Path]:
@@ -259,14 +330,13 @@ def convert_directory(
     state_path: str | Path,
     soffice_path: str | Path | None = None,
     *,
+    timeout_seconds: float = 300.0,
     runner: CommandRunner | None = None,
 ) -> BatchResult:
-    """Convert all legacy Word files, persisting state after every file.
+    """Convert all legacy Word files, persisting state after every file."""
 
-    ``runner`` is an injection point for tests and can emulate a soffice
-    invocation without requiring LibreOffice or any source documents.
-    """
-
+    if timeout_seconds <= 0:
+        raise ValueError("timeout_seconds must be positive")
     input_root = Path(input_dir).resolve()
     if not input_root.exists():
         raise FileNotFoundError(f"Input directory not found: {input_root}")
@@ -281,7 +351,7 @@ def convert_directory(
 
     if runner is None:
         executable = find_soffice(soffice_path) if sources else "soffice"
-        command_runner = _default_runner
+        command_runner: CommandRunner = lambda command: _default_runner(command, timeout_seconds)
     else:
         executable = str(soffice_path) if soffice_path is not None else "soffice"
         command_runner = runner
@@ -295,15 +365,18 @@ def convert_directory(
         previous_record = previous.get(key)
         if previous_record is not None and _can_skip(previous_record, source, target):
             started = time.perf_counter()
-            source_size = source.stat().st_size
-            target_size = target.stat().st_size
+            source_stat = source.stat()
+            target_stat = target.stat()
             records[key] = _record(
                 source,
                 target,
                 "skipped",
                 time.perf_counter() - started,
-                source_size,
-                target_size,
+                source_stat.st_size,
+                _sha256(source),
+                source_stat.st_mtime_ns,
+                target_stat.st_size,
+                target_stat.st_mtime_ns,
                 None,
             )
         else:

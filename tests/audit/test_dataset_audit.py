@@ -105,6 +105,29 @@ class DatasetAuditTests(unittest.TestCase):
             self.assertEqual(saved["pairing"]["status_counts"]["paired_exact"], 1)
             self.assertNotIn(str(root), result.stdout)
 
+    def test_audit_surfaces_label_consistency_flags(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            labels = root / "labels"
+            reports = root / "reports"
+            path = labels / "2012年/冲突桥-无对比年度的信息提取报告.docx"
+            write_label(path, "冲突桥")
+            document = Document(str(path))
+            summary = document.tables[0]
+            summary.add_row().cells[0].text = "上一次总体评分"
+            summary.rows[-1].cells[1].text = "无"
+            summary.add_row().cells[0].text = "上一次总体等级"
+            summary.rows[-1].cells[1].text = "无"
+            summary.add_row().cells[0].text = "病害发展趋势与具体说明"
+            summary.rows[-1].cells[1].text = "病害有发展"
+            document.save(path)
+            reports.mkdir()
+            (reports / "冲突桥.doc").write_bytes(b"report")
+            report = audit_dataset(labels, reports)
+            self.assertGreaterEqual(report["label_parsing"]["quality_flag_count"], 1)
+            codes = report["label_parsing"]["quality_flag_counts"]
+            self.assertIn("trend_without_previous_score", codes)
+
 
 if __name__ == "__main__":
     unittest.main()

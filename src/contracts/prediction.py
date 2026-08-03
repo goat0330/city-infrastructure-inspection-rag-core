@@ -8,6 +8,7 @@ from .evidence import SourceAnchor
 @dataclass(frozen=True)
 class BridgeSummary:
     bridge_name: str = ""
+    bridge_id: str = ""
     report_date: str = ""
     overall_score: str = ""
     overall_grade: str = ""
@@ -19,10 +20,15 @@ class BridgeSummary:
     deck_grade: str = ""
     previous_overall_score: str = ""
     previous_overall_grade: str = ""
+    trend: str = ""
+    overall_conclusion: str = ""
+    risk_points: str = ""
+    recommendations_summary: str = ""
 
 
 @dataclass(frozen=True)
 class Recommendation:
+    index: str = ""
     category: str = ""
     content: str = ""
     location: str = ""
@@ -31,6 +37,7 @@ class Recommendation:
 
 @dataclass(frozen=True)
 class DefectObservation:
+    index: str = ""
     location: str = ""
     defect_type: str = ""
     description: str = ""
@@ -42,6 +49,9 @@ class DefectObservation:
 
 @dataclass(frozen=True)
 class InspectionPrediction:
+    sample_id: str = ""
+    source_file: str = ""
+    schema_version: str = "prediction-v1"
     summary: BridgeSummary = field(default_factory=BridgeSummary)
     detailed_conclusion: tuple[str, ...] = field(default_factory=tuple)
     recommendations: tuple[Recommendation, ...] = field(default_factory=tuple)
