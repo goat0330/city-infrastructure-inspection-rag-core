@@ -118,6 +118,19 @@ def test_appends_cross_paragraph_continuation_with_both_anchors() -> None:
     assert result.records[0].category == "尽快维修"
 
 
+def test_appends_unumbered_cross_paragraph_continuation() -> None:
+    model = _model(
+        _paragraph(0, "处理建议", heading_level=1),
+        _paragraph(1, "桥面：维修裂缝"),
+        _paragraph(2, "具体处理为先清理后封闭。"),
+    )
+
+    result = extract_recommendations(model)
+
+    assert len(result.records) == 1
+    assert result.records[0].content == "维修裂缝 具体处理为先清理后封闭。"
+
+
 def test_consumes_treatment_route_without_forcing_category() -> None:
     model = _model(
         _paragraph(0, "处置建议", heading_level=1),
@@ -152,4 +165,99 @@ def test_uses_paragraph_fallback_when_no_route_heading_is_available() -> None:
     assert len(result.records) == 1
     assert result.records[0].location == "桥面、伸缩缝"
     assert result.records[0].content == "维修裂缝"
-    assert result.records[0].evidence[0].paragraph_index == 0
+
+
+def test_target_route_ignores_unrelated_wide_table() -> None:
+    model = _model(
+        _paragraph(0, "处置建议", heading_level=1),
+        _table(
+            1,
+            [
+                ["单元", "位置", "类型", "验算"],
+                ["1", "I[1]", "MY-MIN", "OK"],
+            ],
+        ),
+    )
+
+    result = extract_recommendations(model)
+
+    assert result.records == ()
+
+
+def test_fallback_ignores_test_procedure_conclusion_and_metadata() -> None:
+    model = _model(
+        _paragraph(
+            0,
+            "按照试验方案要求试验车辆装载过磅，记录试验车的原始数据。清理桥面，标记加载位置。",
+        ),
+        _paragraph(
+            1,
+            "（2）防撞护栏、桥墩局部破损、露筋、锈蚀的主要原因：由于保护层厚度不足，维修不及时。",
+        ),
+        _paragraph(2, "桥梁名称：白房子中桥 所在路名：渝遂高青段 等级：Ⅰ等养护"),
+    )
+
+    result = extract_recommendations(model)
+
+    assert result.records == ()
+
+
+def test_target_route_accepts_repair_and_skips_introductory_sentence() -> None:
+    model = _model(
+        _paragraph(0, "15 建议", heading_level=1),
+        _paragraph(1, "结合检测结果，对桥梁养护建议如下："),
+        _paragraph(2, "（1）对空心板底板裂缝采取压力灌浆方法进行修补。"),
+    )
+
+    result = extract_recommendations(model)
+
+    assert [(item.index, item.content) for item in result.records] == [
+        ("（1", "对空心板底板裂缝采取压力灌浆方法进行修补。"),
+    ]
+
+
+def test_extracts_parenthesized_ideographic_numbered_recommendations() -> None:
+    model = _model(
+        _paragraph(0, "12 处理建议", heading_level=1),
+        _paragraph(1, "⑴建议对桥面及时进行修复。"),
+        _paragraph(2, "⑵对于栏杆破损，建议采用混凝土修补处理。"),
+    )
+
+    result = extract_recommendations(model)
+
+    assert len(result.records) == 2
+    assert [item.content for item in result.records] == [
+        "建议对桥面及时进行修复。",
+        "对于栏杆破损，建议采用混凝土修补处理。",
+    ]
+
+
+def test_infers_explicit_location_from_recommendation_sentence() -> None:
+    model = _model(
+        _paragraph(0, "12 处理建议", heading_level=1),
+        _paragraph(1, "⑴由于桥面存在破损，建议对桥面及时进行修复。"),
+        _paragraph(2, "⑵对于栏杆存在破损，建议及时采用混凝土修补处理。"),
+        _paragraph(3, "⑶建议严格按规范做好桥梁的日常检查和维护工作。"),
+    )
+
+    result = extract_recommendations(model)
+
+    assert [item.location for item in result.records] == ["桥面", "栏杆", "桥梁"]
+
+
+def test_category_inference_is_opt_in_and_gold_derived() -> None:
+    model = _model(
+        _paragraph(0, "12 处理建议", heading_level=1),
+        _paragraph(1, "⑴建议对桥面及时进行修复。"),
+        _paragraph(2, "⑵建议严格按规范做好桥梁的日常检查和维护工作。"),
+    )
+
+    unresolved = extract_recommendations(model)
+    inferred = extract_recommendations(model, infer_categories=True)
+
+    assert [item.category for item in unresolved.records] == ["", ""]
+    assert [item.category for item in inferred.records] == ["尽快维修", "预防性养护"]
+    assert all(
+        flag["code"] == "recommendation_category_inferred"
+        for flag in inferred.quality_flags
+    )

@@ -170,7 +170,7 @@ _SOURCE_PRIORITY = {
 
 _DATE_PRIORITY = {"cover": 300, "sign": 250, "detection": 200}
 _DATE_RE = re.compile(
-    r"(?:19|20)\d{2}(?:年\s*\d{1,2}月(?:\s*\d{1,2}日)?|[./-]\s*\d{1,2}(?:[./-]\s*\d{1,2})?)"
+    r"(?:19|20)\d{2}(?:年\s*(?:0?[1-9]|1[0-2])月(?:\s*(?:0?[1-9]|[12]\d|3[01])日)?|[./-]\s*(?:0?[1-9]|1[0-2])(?:[./-]\s*(?:0?[1-9]|[12]\d|3[01]))?)"
 )
 _SCORE_RE = re.compile(r"(?<![\d.])\d+(?:\.\d+)?")
 _GRADE_RE = re.compile(r"(?:[A-Ea-e]\s*级?|优等?|良好?|中等?|差)")
@@ -553,6 +553,8 @@ def _is_summary_table(table: TableBlock) -> bool:
 
 
 def _looks_like_score_table(compact: str) -> bool:
+    if "bci" in compact.casefold() and "技术状况" in compact:
+        return True
     return sum(marker in compact for marker in _SCORE_MARKERS) >= 2 and any(
         marker in compact for marker in ("总体", "上部", "下部", "桥面", "评分")
     )
@@ -623,7 +625,7 @@ def _extract_header_columns(
             for cell in header.cells
             if _field_for_key(cell.raw_text) is not None
         }
-        if not header_fields:
+        if len(header_fields) < 2:
             continue
         for row in rows[header_index + 1 :]:
             for cell in row.cells:
@@ -653,10 +655,10 @@ def _extract_score_matrix(
         for cell in header.cells:
             kind = _score_column_kind(cell.raw_text)
             if kind is not None:
-                if kind == "score":
-                    score_columns[cell.column_index] = "score"
-                elif kind == "grade":
-                    grade_columns[cell.column_index] = "grade"
+                if kind == "grade" or kind.endswith("_grade"):
+                    grade_columns[cell.column_index] = kind
+                elif kind == "score" or kind.endswith("_score"):
+                    score_columns[cell.column_index] = kind
         if not score_columns and not grade_columns:
             continue
         for row in rows[header_index + 1 :]:
@@ -664,22 +666,40 @@ def _extract_score_matrix(
             if category_cell is None:
                 continue
             base = _field_base_for_category(category_cell.raw_text)
-            if base is None:
-                continue
             for cell in row.cells:
                 if cell.column_index in score_columns:
+                    if not _clean(cell.raw_text):
+                        continue
+                    column_kind = score_columns[cell.column_index]
+                    field = (
+                        f"{base}_score"
+                        if column_kind == "score" and base is not None
+                        else column_kind
+                    )
+                    if field == "score":
+                        continue
                     _add_field(
                         collector,
-                        f"{base}_score",
+                        field,
                         cell.raw_text,
                         source_kind,
                         cell.source or table.source,
                         label=category_cell.raw_text,
                     )
                 if cell.column_index in grade_columns:
+                    if not _clean(cell.raw_text):
+                        continue
+                    column_kind = grade_columns[cell.column_index]
+                    field = (
+                        f"{base}_grade"
+                        if column_kind == "grade" and base is not None
+                        else column_kind
+                    )
+                    if field == "grade":
+                        continue
                     _add_field(
                         collector,
-                        f"{base}_grade",
+                        field,
                         cell.raw_text,
                         source_kind,
                         cell.source or table.source,
@@ -690,10 +710,28 @@ def _extract_score_matrix(
 
 def _score_column_kind(value: str) -> str | None:
     compact = _compact(value)
+    folded = compact.casefold()
+    if folded == "bcim":
+        return "deck_score"
+    if folded == "bcik":
+        return "superstructure_score"
+    if folded == "bcix":
+        return "substructure_score"
+    if folded == "bci":
+        return "overall_score"
+    if "桥梁整体" in compact and ("等级" in compact or "级别" in compact):
+        return "overall_grade"
     if "等级" in compact or "级别" in compact:
         return "grade"
-    if "评分" in compact or "分数" in compact or "得分" in compact:
+    if (
+        "评分" in compact
+        or "分数" in compact
+        or "得分" in compact
+        or "指数" in compact
+    ):
         return "score"
+    if compact == "技术状况":
+        return "grade"
     return None
 
 
@@ -967,6 +1005,9 @@ def _date_value(value: str) -> str:
 
 def _normalise_field_value(field: str, value: str) -> str:
     cleaned = _clean(value).strip("：:=，,；;。．")
+    if field == "bridge_name":
+        cleaned = re.split(r"(?:所在路名|路名|桥梁编号|桥梁ID|等级)\s*[:：=]", cleaned, maxsplit=1, flags=re.IGNORECASE)[0]
+        return cleaned.strip("：:=，,；;。． ")
     if field.endswith("_score"):
         if not cleaned or cleaned in {"无", "暂无", "不适用"}:
             return cleaned
@@ -976,7 +1017,10 @@ def _normalise_field_value(field: str, value: str) -> str:
         if not cleaned or cleaned in {"无", "暂无", "不适用"}:
             return cleaned
         match = _GRADE_RE.search(cleaned)
-        return match.group(0).replace(" ", "") if match else cleaned
+        if match is None:
+            return cleaned
+        grade = match.group(0).replace(" ", "")
+        return f"{grade}级" if re.fullmatch(r"[A-Ea-e]", grade) else grade
     if field == "report_date":
         return _date_value(cleaned)
     if field == "recommendation_count":

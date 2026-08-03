@@ -15,7 +15,8 @@
 - 161/161报告转换成功且可用。
 - Gold：86成功、8个明确失败，自评分100。
 - 已具备：原生结构解析、章节路由、评分器、DOCX渲染、校验、Gate 0错题本。
-- 当前进入 B2：病害、概要/评分、建议三个高权重抽取器。
+- B2 已进入真实 Word 验证：病害、概要/评分、建议三个高权重抽取器和批量预测主链已接通。
+- 最新本地验证：161/161份 DOCX 成功抽取，86/86份 Gold 可按来源报告对齐；内部确定性代理分为 36.22594（不是比赛平台最终分）。
 
 详见：[当前状态](docs/status.md)｜[路线图](docs/roadmap.md)｜[范围边界](docs/current_scope.md)。
 
@@ -33,6 +34,8 @@ python -m inspection build-gold --labels-dir ... --reports-dir ... --output-dir 
 python -m inspection convert --input-dir ... --output-dir ... --state-path ...
 python -m inspection parse --input report.docx --output parsed.json
 python -m inspection route --input report.docx --output routes.json
+python -m inspection predict --input report.docx --output prediction.json
+python -m inspection predict-batch --input-dir converted-docx --output predictions.jsonl --report batch-report.json
 python -m inspection score --gold gold.json --predictions predictions.json
 python -m inspection render --input prediction.json --output result.docx
 python -m inspection validate --input result.docx --output validation.json
@@ -40,7 +43,7 @@ python -m inspection package --input-dir final-doc --output submission.tar.gz --
 python -m inspection validate-package --input submission.tar.gz --manifest expected.csv
 ```
 
-`predict` 保持显式未实现，直到 B2 抽取器完成；系统不会生成伪预测。
+`predict` 和 `predict-batch` 使用 Word 结构、章节路由和确定性规则生成 `prediction-v1`。单文件失败会显式写入 sidecar 报告；批量模式不会用伪记录掩盖失败。当前 `causes`、`treatments`、`safety_impact` 仍保持显式未实现并记录质量标记。
 
 ## 最终提交包约束
 

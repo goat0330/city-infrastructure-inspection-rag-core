@@ -124,6 +124,14 @@ def test_report_date_candidates_preserve_cover_sign_and_detection_sources(tmp_pa
     assert any(flag["code"] == CONFLICTING_CANDIDATES for flag in result.quality_flags)
 
 
+def test_report_number_is_not_treated_as_a_date(tmp_path: Path) -> None:
+    document = _parse(tmp_path, paragraph("报告编号：bql2012-00121"))
+
+    result = extract_summary(document)
+
+    assert result.summary.report_date == ""
+
+
 def test_explicit_empty_official_bridge_id_is_preserved_as_a_candidate(tmp_path: Path) -> None:
     document = _parse(
         tmp_path,
@@ -139,3 +147,33 @@ def test_explicit_empty_official_bridge_id_is_preserved_as_a_candidate(tmp_path:
         flag["code"] == MISSING_VALUE and flag["details"]["field"] == "bridge_id"
         for flag in result.quality_flags
     )
+
+
+def test_extracts_bci_score_matrix_fields(tmp_path: Path) -> None:
+    document = _parse(
+        tmp_path,
+        table(
+            row(
+                cell("部位名称"),
+                cell("技术状况指数"),
+                cell("技术状况"),
+                cell("权重"),
+                cell("BCI"),
+                cell("桥梁整体技术状况等级"),
+            ),
+            row(cell("桥面系"), cell("86.00"), cell("B"), cell("0.15"), cell("82.00"), cell("B（良好状态）")),
+            row(cell("上部结构"), cell("71.49"), cell("C"), cell("0.40"), cell(""), cell("")),
+            row(cell("下部结构"), cell("90.00"), cell("A"), cell("0.45"), cell(""), cell("")),
+        ),
+    )
+
+    result = extract_summary(document)
+
+    assert result.summary.overall_score == "82.00"
+    assert result.summary.overall_grade == "B级"
+    assert result.summary.deck_score == "86.00"
+    assert result.summary.deck_grade == "B级"
+    assert result.summary.superstructure_score == "71.49"
+    assert result.summary.superstructure_grade == "C级"
+    assert result.summary.substructure_score == "90.00"
+    assert result.summary.substructure_grade == "A级"

@@ -15,6 +15,7 @@ COMMANDS = (
     "route",
     "score",
     "predict",
+    "predict-batch",
     "render",
     "validate",
     "package",
@@ -61,9 +62,17 @@ def build_parser() -> argparse.ArgumentParser:
     score.add_argument("--output", type=Path)
     score.add_argument("--weights", type=Path)
 
-    predict = subparsers.add_parser("predict", help="reserved for the B2 extraction pipeline")
-    predict.add_argument("--input", type=Path)
-    predict.add_argument("--output", type=Path)
+    predict = subparsers.add_parser("predict", help="extract one DOCX into a prediction JSON record")
+    predict.add_argument("--input", type=Path, required=True)
+    predict.add_argument("--output", type=Path, required=True)
+    predict.add_argument("--report", type=Path)
+
+    predict_batch = subparsers.add_parser(
+        "predict-batch", help="extract a DOCX directory into prediction JSONL"
+    )
+    predict_batch.add_argument("--input-dir", type=Path, required=True)
+    predict_batch.add_argument("--output", type=Path, required=True)
+    predict_batch.add_argument("--report", type=Path)
 
     render = subparsers.add_parser("render", help="render one Gold or prediction JSON record to DOCX")
     render.add_argument("--input", type=Path, required=True)
@@ -187,6 +196,45 @@ def main(argv: Sequence[str] | None = None) -> int:
         _write_json(result, args.output)
         return 0
 
+    if args.command == "predict":
+        from src.extraction import extract_report
+
+        report_path = args.report or args.output.with_suffix(".report.json")
+        try:
+            result = extract_report(args.input)
+        except (OSError, ValueError, TypeError, KeyError) as exc:
+            _write_json(
+                {
+                    "status": "failed",
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                },
+                report_path,
+            )
+            return 1
+        _write_json(result.prediction.to_dict(), args.output)
+        status = result.status_record()
+        status.update(
+            {
+                "output": str(args.output),
+                "report": str(report_path),
+                "unimplemented_sections": ["causes", "treatments", "safety_impact"],
+            }
+        )
+        _write_json(status, report_path)
+        _write_json(status)
+        return 0
+
+    if args.command == "predict-batch":
+        from src.extraction import predict_batch
+
+        try:
+            result = predict_batch(args.input_dir, args.output, report_path=args.report)
+        except (OSError, ValueError, TypeError) as exc:
+            parser.error(str(exc))
+        _write_json(result)
+        return 0 if result["failed_count"] == 0 else 1
+
     if args.command == "render":
         from src.rendering import render_report
 
@@ -230,11 +278,5 @@ def main(argv: Sequence[str] | None = None) -> int:
         _write_json(result, args.output)
         return 0 if result.get("valid") is True else 1
 
-    _write_json(
-        {
-            "command": args.command,
-            "status": "not_implemented",
-            "message": "B2 字段抽取器尚未完成；该命令不会生成伪预测。",
-        }
-    )
+    parser.error(f"unknown command: {args.command}")
     return 2

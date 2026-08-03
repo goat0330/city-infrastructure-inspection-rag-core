@@ -49,7 +49,7 @@ def test_parse_command_writes_document_model(tmp_path: Path) -> None:
     assert payload["blocks"][0]["raw_text"] == "桥梁名称"
 
 
-def test_unimplemented_commands_fail_explicitly() -> None:
+def test_predict_requires_input_and_output_after_b2_integration() -> None:
     result = subprocess.run(
         [sys.executable, "-m", "inspection", "predict"],
         cwd=REPO_ROOT,
@@ -57,4 +57,5 @@ def test_unimplemented_commands_fail_explicitly() -> None:
         text=True,
     )
     assert result.returncode == 2
-    assert json.loads(result.stdout)["status"] == "not_implemented"
+    assert "--input" in result.stderr
+    assert "--output" in result.stderr

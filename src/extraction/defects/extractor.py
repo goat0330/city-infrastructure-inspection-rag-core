@@ -38,12 +38,29 @@ _FIELD_ORDER = (
 )
 _REQUIRED_FIELDS = frozenset(("index", "location", "defect_type", "description"))
 _INHERITED_FIELDS = frozenset(("index", "location", "defect_type"))
+_DEFAULT_FIELDS = {"is_new": "否", "previous_status": "无", "development": "无"}
 
 _HEADER_ALIASES: dict[str, tuple[str, ...]] = {
     "index": ("序号", "编号", "病害编号", "缺陷编号", "病害序号", "缺陷序号"),
     "location": ("病害部位", "病害位置", "缺陷位置", "所在部位", "部位", "位置"),
-    "defect_type": ("病害类型", "缺陷类型", "病害名称", "缺陷名称", "类型"),
-    "description": ("病害描述", "缺陷描述", "具体描述", "病害情况", "病害特征", "病害内容", "描述"),
+    "defect_type": (
+        "病害类型",
+        "病害种类",
+        "缺陷类型",
+        "病害名称",
+        "缺陷名称",
+        "类型",
+    ),
+    "description": (
+        "病害描述",
+        "缺陷描述",
+        "具体描述",
+        "具体位置",
+        "病害情况",
+        "病害特征",
+        "病害内容",
+        "描述",
+    ),
     "is_new": ("是否新增", "新增情况", "是否新病害", "新旧"),
     "previous_status": ("上一次定检状态", "历史状态", "上次状态", "既有病害状态", "既往状态"),
     "development": ("发展程度", "发展趋势", "病害发展", "变化趋势", "发展"),
@@ -55,7 +72,12 @@ _EXPLICIT_TABLE_MARKERS = (
     "缺陷明细",
     "缺陷表",
 )
-_EXACT_ONLY_ALIASES = frozenset(("序号", "编号", "部位", "位置", "类型", "描述", "发展", "新旧"))
+_EXACT_ONLY_ALIASES = frozenset(
+    ("序号", "编号", "部位", "位置", "类型", "描述", "具体位置", "发展", "新旧")
+)
+_PHOTO_REFERENCE_RE = re.compile(
+    r"[，,;；。]?\s*(?:见\s*)?(?:照片|照|附图|图)\s*[\w./+#-]+\s*[。；;]?$"
+)
 
 
 @dataclass(frozen=True)
@@ -192,9 +214,33 @@ def _unique_tables(tables: Sequence[TableBlock] | Iterator[TableBlock]) -> tuple
 
 def _looks_like_defect_table(table: TableBlock) -> bool:
     analysis = _analyse_headers(table)
-    core_count = len(analysis.seen_fields & _REQUIRED_FIELDS)
-    compact_text = _normalise_header(table.raw_text)
-    return core_count >= 2 or any(marker in compact_text for marker in _EXPLICIT_TABLE_MARKERS)
+    # ``位置`` and ``类型`` also occur in structural calculation tables.
+    # Require a description field plus an identity field so those tables and
+    # recommendation tables are not re-read as defects on router fallback.
+    has_description = "description" in analysis.seen_fields
+    has_location = "location" in analysis.seen_fields
+    header_text = _normalise_header(
+        "".join(
+            cell.raw_text
+            for row in table.rows[:8]
+            for cell in row.cells
+        )
+    )
+    has_explicit_domain_header = any(
+        marker in header_text for marker in ("病害", "缺陷")
+    )
+    has_coherent_header = any(
+        "description" in row.mapping
+        and bool(set(row.mapping) & {"location", "defect_type"})
+        for row in analysis.rows
+    )
+    return (
+        has_description
+        and has_coherent_header
+        and (has_location or has_explicit_domain_header)
+    ) or any(
+        marker in header_text for marker in _EXPLICIT_TABLE_MARKERS
+    )
 
 
 def _extract_table(table: TableBlock) -> tuple[list[DefectObservation], list[QualityFlag]]:
@@ -260,6 +306,7 @@ def _extract_table(table: TableBlock) -> tuple[list[DefectObservation], list[Qua
     first_header = min(header_by_row) if header_by_row else None
     inherited_values: dict[str, str] = {}
     inherited_anchors: dict[str, SourceAnchor] = {}
+    defaulted_fields: set[str] = set()
     result: list[DefectObservation] = []
 
     for row in table.rows:
@@ -283,6 +330,8 @@ def _extract_table(table: TableBlock) -> tuple[list[DefectObservation], list[Qua
             column = column_map.get(field)
             cell = _cell_at(row, column) if column is not None else None
             value = _display_text(cell.raw_text) if cell is not None else ""
+            if field == "description":
+                value = _clean_description(value)
             if value:
                 values[field] = value
                 origins[field] = _cell_anchor(table, cell)
@@ -292,6 +341,9 @@ def _extract_table(table: TableBlock) -> tuple[list[DefectObservation], list[Qua
             elif field in _INHERITED_FIELDS and field in inherited_values:
                 values[field] = inherited_values[field]
                 origins[field] = inherited_anchors[field]
+            elif field in _DEFAULT_FIELDS:
+                values[field] = _DEFAULT_FIELDS[field]
+                defaulted_fields.add(field)
             else:
                 values[field] = ""
 
@@ -312,6 +364,14 @@ def _extract_table(table: TableBlock) -> tuple[list[DefectObservation], list[Qua
                 previous_status=values["previous_status"],
                 development=values["development"],
                 evidence=tuple(anchors),
+            )
+        )
+    if defaulted_fields:
+        flags.append(
+            _flag(
+                "defaulted_defect_fields",
+                "Missing defect status fields use the current Gold template defaults.",
+                fields=_ordered_fields(defaulted_fields),
             )
         )
     return result, flags
@@ -420,6 +480,12 @@ def _display_text(value: str) -> str:
     # Preserve internal line breaks and punctuation in descriptions; only
     # surrounding layout whitespace is not part of a cell value.
     return (value or "").replace("\u00a0", " ").strip()
+
+
+def _clean_description(value: str) -> str:
+    """Remove a trailing photo/figure citation from a defect description."""
+
+    return _PHOTO_REFERENCE_RE.sub("", value).strip()
 
 
 def _ordered_fields(fields: Sequence[str] | set[str] | frozenset[str] | dict[str, object]) -> list[str]:

@@ -153,3 +153,82 @@ def test_routed_table_without_headers_uses_positions_and_flags_uncertainty() -> 
     assert result[0].defect_type == "裂缝"
     assert result[0].description == "无表头仍保留"
     assert {"missing_defect_header", "fallback_positional_columns"} <= codes
+
+
+def test_structural_fallback_ignores_calculation_table_with_position_and_type() -> None:
+    xml = document_xml(
+        table(
+            row(cell("单元"), cell("位置"), cell("类型"), cell("验算")),
+            row(cell("1"), cell("I[1]"), cell("MY-MIN"), cell("OK")),
+        )
+    )
+    document = parse_document_xml(xml, source_file="calculation.docx")
+
+    result = extract_defects(document)
+
+    assert result.records == ()
+    assert "missing_defect_table" in {flag["code"] for flag in result.quality_flags}
+
+
+def test_structural_fallback_ignores_generic_load_table_with_description() -> None:
+    xml = document_xml(
+        table(
+            row(cell("编号"), cell("名称"), cell("类型"), cell("描述")),
+            row(cell("1"), cell("自重"), cell("施工阶段荷载"), cell("")),
+            row(cell("2"), cell("二期"), cell("施工阶段荷载"), cell("桥面铺装")),
+        )
+    )
+    document = parse_document_xml(xml, source_file="load.docx")
+
+    result = extract_defects(document)
+
+    assert result.records == ()
+    assert "missing_defect_table" in {flag["code"] for flag in result.quality_flags}
+
+
+def test_structural_fallback_maps_common_kind_and_specific_location_headers() -> None:
+    xml = document_xml(
+        table(
+            row(cell("位置"), cell("病害种类"), cell("具体位置")),
+            row(cell("桥面系"), cell("裂缝"), cell("伸缩缝处纵向裂缝")),
+        )
+    )
+    document = parse_document_xml(xml, source_file="variant.docx")
+
+    result = extract_defects(document)
+
+    assert len(result) == 1
+    assert result[0].location == "桥面系"
+    assert result[0].defect_type == "裂缝"
+    assert result[0].description == "伸缩缝处纵向裂缝"
+
+
+def test_defect_description_drops_trailing_photo_reference() -> None:
+    xml = document_xml(
+        table(
+            row(cell("位置"), cell("病害种类"), cell("具体位置")),
+            row(cell("桥面系"), cell("裂缝"), cell("伸缩缝处纵向裂缝，见照片5.1.1-1")),
+        )
+    )
+    document = parse_document_xml(xml, source_file="photo.docx")
+
+    result = extract_defects(document)
+
+    assert result[0].description == "伸缩缝处纵向裂缝"
+
+
+def test_missing_status_fields_use_auditable_gold_template_defaults() -> None:
+    xml = document_xml(
+        table(
+            row(cell("位置"), cell("病害种类"), cell("具体位置")),
+            row(cell("桥面系"), cell("裂缝"), cell("伸缩缝处纵向裂缝")),
+        )
+    )
+    document = parse_document_xml(xml, source_file="defaults.docx")
+
+    result = extract_defects(document)
+
+    assert result[0].is_new == "否"
+    assert result[0].previous_status == "无"
+    assert result[0].development == "无"
+    assert "defaulted_defect_fields" in {flag["code"] for flag in result.quality_flags}
