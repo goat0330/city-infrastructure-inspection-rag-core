@@ -5,7 +5,7 @@ from pathlib import Path
 from docx import Document
 
 from src.contracts import BridgeSummary, DefectObservation, InspectionPrediction, Recommendation
-from src.rendering import render_gold, render_prediction
+from src.rendering import render_report
 
 
 def _prediction(*, long_text: str = "") -> InspectionPrediction:
@@ -41,7 +41,7 @@ def _all_text(document: Document) -> str:
 
 
 def test_renders_prediction_sections_and_reopens(tmp_path: Path) -> None:
-    output = render_prediction(_prediction(), tmp_path / "prediction.docx")
+    output = render_report(_prediction(), tmp_path / "prediction.docx")
 
     document = Document(output)
     text = _all_text(document)
@@ -70,7 +70,7 @@ def test_renders_gold_json_record_with_empty_lists(tmp_path: Path) -> None:
         "treatments": [],
         "safety_impact": [],
     }
-    output = render_gold({"gold_version": 1, "records": [record]}, tmp_path / "empty.docx")
+    output = render_report({"gold_version": 1, "records": [record]}, tmp_path / "empty.docx")
 
     document = Document(output)
     assert len(document.tables) == 3
@@ -80,7 +80,7 @@ def test_renders_gold_json_record_with_empty_lists(tmp_path: Path) -> None:
 
 
 def test_merges_only_consecutive_equal_indexes(tmp_path: Path) -> None:
-    output = render_prediction(_prediction(), tmp_path / "merged.docx")
+    output = render_report(_prediction(), tmp_path / "merged.docx")
     document = Document(output)
     table = document.tables[2]
 
@@ -95,7 +95,7 @@ def test_merges_only_consecutive_equal_indexes(tmp_path: Path) -> None:
 
 def test_preserves_long_text_without_truncation(tmp_path: Path) -> None:
     long_text = "长文本-" + "关键事实。" * 1200
-    output = render_prediction(_prediction(long_text=long_text), tmp_path / "long.docx")
+    output = render_report(_prediction(long_text=long_text), tmp_path / "long.docx")
 
     document = Document(output)
     assert long_text in _all_text(document)
