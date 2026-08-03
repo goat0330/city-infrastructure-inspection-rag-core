@@ -69,6 +69,20 @@ def test_valid_docx_is_deterministic_and_json_serializable(tmp_path: Path) -> No
     json.dumps(first, ensure_ascii=False, sort_keys=True)
 
 
+def test_empty_bridge_id_is_allowed_for_valid_gold_summary(tmp_path: Path) -> None:
+    path = _write_document(tmp_path / "gold-bridge-id-empty.docx")
+    document = Document(str(path))
+    bridge_id = document.tables[0].add_row().cells
+    bridge_id[0].text = "桥梁编号"
+    bridge_id[1].text = ""
+    document.save(path)
+
+    result = validate_submission(path)
+
+    assert result["valid"] is True
+    assert result["failures"] == []
+
+
 def test_corrupt_docx_is_reported_without_silent_content_skip(tmp_path: Path) -> None:
     path = tmp_path / "broken.docx"
     path.write_bytes(b"not a docx package")
