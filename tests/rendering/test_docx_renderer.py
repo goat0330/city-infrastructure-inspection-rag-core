@@ -40,23 +40,27 @@ def _all_text(document: Document) -> str:
     return "\n".join(paragraphs + cells)
 
 
-def test_renders_prediction_sections_and_reopens(tmp_path: Path) -> None:
+def test_renders_official_sections_and_reopens(tmp_path: Path) -> None:
     output = render_report(_prediction(), tmp_path / "prediction.docx")
 
     document = Document(output)
     text = _all_text(document)
     assert output.is_file()
-    assert "概要表" in text
-    assert "建议明细" in text
-    assert "病害列表" in text
-    assert "详细结论" in text
-    assert "病害成因" in text
-    assert "处置建议" in text
-    assert "安全影响" in text
-    assert "synthetic-sample" in text
+    assert "1、简要信息（20 分）" in text
+    assert "2、详细信息（80 分）" in text
+    assert "（1）详细结论（15 分）" in text
+    assert "（2）建议明细（20 分）" in text
+    assert "（3）病害列表（30 分）" in text
+    assert "病害成因（5 分）" in text
+    assert "处置建议（5 分）" in text
+    assert "安全影响（5 分）" in text
+    assert "synthetic-sample" not in text
+    assert "桥梁编号" not in text
     assert len(document.tables) == 3
     assert document.tables[1].rows[1].cells[0].text == "1"
     assert document.tables[2].rows[1].cells[3].text == "第一处"
+    assert document.tables[2].rows[0].cells[5].text == "上一次定检状态"
+    assert document.tables[2].rows[0].cells[6].text == "发展程度"
 
 
 def test_renders_gold_json_record_with_empty_lists(tmp_path: Path) -> None:
@@ -76,7 +80,7 @@ def test_renders_gold_json_record_with_empty_lists(tmp_path: Path) -> None:
     assert len(document.tables) == 3
     assert len(document.tables[1].rows) == 1
     assert len(document.tables[2].rows) == 1
-    assert "empty-sample" in _all_text(document)
+    assert "empty-sample" not in _all_text(document)
 
 
 def test_merges_only_consecutive_equal_indexes(tmp_path: Path) -> None:

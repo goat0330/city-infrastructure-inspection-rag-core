@@ -41,3 +41,6 @@ htmlcov/
 .ruff_cache/
 .vscode/
 .idea/
+/final-doc/
+*.tar.gz
+*.zip

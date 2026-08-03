@@ -1,66 +1,51 @@
-# 城市基础设施定检报告：核心公开数据包
+# 城市基础设施定检报告：Word-first 核心仓库
 
-这是“城市基础设施定检报告问答分析”赛题的最小公开派生数据包，服务于定检报告结构化抽取、跨期病害对齐、证据约束文本生成和固定 Word 报告渲染。
-
-本赛题当前的直接评测对象是：
+本仓库服务于“城市基础设施定检报告问答分析”赛题。当前直接评测链路是：
 
 ```text
-原始定检报告 → 固定模板信息提取报告（Word）
+原始定检报告 → 结构化预测 → 固定 Word 信息提取报告 → tar.gz
 ```
 
-在线 RAG、向量库和知识图谱只属于后续辅助能力，不是第一阶段提分主线。
+在线 RAG、向量库和知识图谱属于后续展示和问答能力，不是当前提分主线。
 
-## 公开内容
+## 当前基线
 
-- `data/core/train.jsonl`：16 个核心训练样本，来自 2012 年训练标签。
-- `data/core/validation.jsonl`：6 个核心验证样本，来自 2013 年训练标签。
-- `data/core/manifest.json`：样本清单、来源映射、字段统计和划分说明。
-- `data/core/score_weights.json`：按官方模板整理的本地加权评分口径。
-- `schema/inspection_record.schema.json`：结构化记录 Schema。
-- `scripts/build_public_dataset.py`：从本地训练标签文档重建派生数据的脚本。
-- `docs/task_definition.md`：比赛任务和结果导向架构说明。
-- `docs/label_conventions.md`：当前已观察到的标签口径和待审计事项。
+- 主线：`.doc → LibreOffice → .docx → python-docx/OOXML`。
+- 94个标签、161份报告完成审计。
+- 161/161报告转换成功且可用。
+- Gold：86成功、8个明确失败，自评分100。
+- 已具备：原生结构解析、章节路由、评分器、DOCX渲染、校验、Gate 0错题本。
+- 当前进入 B2：病害、概要/评分、建议三个高权重抽取器。
 
-每条记录包含桥梁概要、评分等级、总体结论、风险点、建议、病害明细、病害成因、处置建议、安全影响以及来源定位信息。
+详见：[当前状态](docs/status.md)｜[路线图](docs/roadmap.md)｜[范围边界](docs/current_scope.md)。
+
+## 核心合同
+
+- `schema/gold_record.schema.json`：标签/Gold数据合同，包含 split、provenance 和质量标记。
+- `schema/prediction_record.schema.json`：运行时预测合同，不包含训练标签来源字段。
+- `schema/inspection_record.schema.json`：早期兼容Schema，暂保留，不作为B2新代码入口。
+
+## CLI
+
+```bash
+python -m inspection audit --labels-dir ... --reports-dir ... --output-dir ...
+python -m inspection build-gold --labels-dir ... --reports-dir ... --output-dir ...
+python -m inspection convert --input-dir ... --output-dir ... --state-path ...
+python -m inspection parse --input report.docx --output parsed.json
+python -m inspection route --input report.docx --output routes.json
+python -m inspection score --gold gold.json --predictions predictions.json
+python -m inspection render --input prediction.json --output result.docx
+python -m inspection validate --input result.docx --output validation.json
+python -m inspection package --input-dir final-doc --output submission.tar.gz --manifest expected.csv
+python -m inspection validate-package --input submission.tar.gz --manifest expected.csv
+```
+
+`predict` 保持显式未实现，直到 B2 抽取器完成；系统不会生成伪预测。
+
+## 最终提交包约束
+
+`package` 默认要求输入目录根部只包含 `.doc` 文件，并生成确定性的 `tar.gz`。可选 manifest 用于严格检查测试集输出文件名和数量。它校验压缩格式、根目录结构、重复/临时文件、扩展名、缺失和多余文件；不尝试解析旧版二进制 `.doc` 内容。
 
 ## 公开边界
 
-本仓库不包含官方 `.doc`、`.docx` 原始报告、测试集文件、图片、账号、密钥或内部规划文档。`data/core/` 是从本地赛事训练标签文档生成的结构化派生结果；仓库不对赛事原始材料主张新的数据再许可。使用者应自行核验赛事规则、来源要求和再分发边界。
-
-代码和 Schema 采用 MIT License；派生数据的来源说明优先于代码许可证，不能据此推断官方原始数据属于 MIT 或 CC 开源许可。
-
-## 划分说明
-
-训练集选择覆盖大型桥梁、立交匝道、人行天桥、中小桥和不同复杂度病害，并排除了杨公桥族群，避免与当前验证集直接共享桥梁族群。验证集按 2013 年文件夹留出，主要用于检查不同报告结构下的抽取与报告生成流程。
-
-注意：验证集目前集中在杨公桥立交相关设施，仍不是严格的跨设施独立泛化测试集；正式评测应继续按桥梁身份、版式、报告年份和病害规模建立分组验证集。
-
-## 当前 Word-first 技术主线
-
-```text
-.doc → LibreOffice → .docx
-     → python-docx + OOXML 原生结构解析
-     → 章节路由
-     → 评分、建议、病害字段抽取
-     → 跨年度病害匹配
-     → 证据约束文本生成
-     → 数字/等级/行数校验
-     → Word 模板渲染
-```
-
-优先级按分值排序为：病害列表 30 分、建议明细 20 分、简要信息 20 分、详细结论 15 分、病害成因/处置建议/安全影响 15 分。
-
-当前阶段只处理 Word 训练集、验证集和 Word 交付物。Docling 作为后续统一文档结构对照方案；MinerU、PaddleOCR、PDF/OCR 兜底、Milvus、Neo4j 和在线 RAG 均暂不进入主路径。
-
-## 从原始标签重建
-
-原始资料不随本仓库发布。若你拥有合法的本地赛事数据副本，可运行：
-
-```bash
-python scripts/build_public_dataset.py \
-  --labels-dir "<训练标签目录>" \
-  --reports-dir "<训练报告目录>" \
-  --output-dir data/core
-```
-
-依赖见 `requirements.txt`。脚本只读取标签 `.docx`，不会复制原始报告到输出目录。
+仓库不包含官方原始 `.doc/.docx`、测试集、图片、账号、密钥、绝对路径或本地 `runs/` 产物。代码采用 MIT License；派生数据的来源说明优先于代码许可证，不能据此推断官方原始数据获得再分发许可。

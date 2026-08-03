@@ -1,0 +1,305 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/goat0330/city-infrastructure-inspection-rag-core/schema/gold_record.schema.json",
+  "title": "InspectionGoldRecord",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "sample_id",
+    "split",
+    "summary",
+    "recommendations",
+    "defects",
+    "provenance"
+  ],
+  "$defs": {
+    "source_anchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_file",
+        "block_index"
+      ],
+      "properties": {
+        "source_file": {
+          "type": "string"
+        },
+        "block_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "table_index": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "row_index": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "column_index": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "paragraph_index": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "raw_text": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "properties": {
+    "sample_id": {
+      "type": "string"
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bridge_name",
+        "bridge_id",
+        "report_date",
+        "overall_score",
+        "overall_grade",
+        "superstructure_score",
+        "superstructure_grade",
+        "substructure_score",
+        "substructure_grade",
+        "deck_score",
+        "deck_grade",
+        "previous_overall_score",
+        "previous_overall_grade",
+        "trend",
+        "overall_conclusion",
+        "risk_points",
+        "recommendations_summary"
+      ],
+      "properties": {
+        "bridge_name": {
+          "type": "string"
+        },
+        "bridge_id": {
+          "type": "string"
+        },
+        "report_date": {
+          "type": "string"
+        },
+        "overall_score": {
+          "type": "string"
+        },
+        "overall_grade": {
+          "type": "string"
+        },
+        "superstructure_score": {
+          "type": "string"
+        },
+        "superstructure_grade": {
+          "type": "string"
+        },
+        "substructure_score": {
+          "type": "string"
+        },
+        "substructure_grade": {
+          "type": "string"
+        },
+        "deck_score": {
+          "type": "string"
+        },
+        "deck_grade": {
+          "type": "string"
+        },
+        "previous_overall_score": {
+          "type": "string"
+        },
+        "previous_overall_grade": {
+          "type": "string"
+        },
+        "trend": {
+          "type": "string"
+        },
+        "overall_conclusion": {
+          "type": "string"
+        },
+        "risk_points": {
+          "type": "string"
+        },
+        "recommendations_summary": {
+          "type": "string"
+        }
+      }
+    },
+    "detailed_conclusion": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "recommendations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "index",
+          "category",
+          "content",
+          "location"
+        ],
+        "properties": {
+          "index": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/source_anchor"
+            }
+          }
+        }
+      }
+    },
+    "defects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "index",
+          "location",
+          "defect_type",
+          "description",
+          "is_new",
+          "previous_status",
+          "development"
+        ],
+        "properties": {
+          "index": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          },
+          "defect_type": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "is_new": {
+            "type": "string"
+          },
+          "previous_status": {
+            "type": "string"
+          },
+          "development": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/source_anchor"
+            }
+          }
+        }
+      }
+    },
+    "causes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "treatments": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "safety_impact": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "quality_flags": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "code"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "details": {
+            "type": "object"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "split": {
+      "enum": [
+        "train",
+        "validation",
+        "unknown"
+      ]
+    },
+    "statistics": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "label_relative_path",
+        "raw_report_included"
+      ],
+      "properties": {
+        "label_relative_path": {
+          "type": "string"
+        },
+        "source_report_relative_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "raw_report_included": {
+          "const": false
+        },
+        "derivation": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}
