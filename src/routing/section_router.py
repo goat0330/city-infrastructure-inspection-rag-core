@@ -26,59 +26,14 @@ class SectionCategory(StrEnum):
     TREATMENT_RECOMMENDATIONS = "treatment_recommendations"
 
 
-SectionKind = SectionCategory
-SectionType = SectionCategory
-
-
 @dataclass(frozen=True)
 class SectionRoute:
-    """One routed section, retaining the title and its source evidence.
-
-    ``blocks`` includes the title block.  The content-only view is available
-    through ``content_blocks`` so callers do not have to discard the title's
-    provenance themselves.
-    """
+    """One routed section, retaining its source evidence."""
 
     category: SectionCategory
     heading: DocumentBlock
     blocks: tuple[DocumentBlock, ...]
     source: SourceAnchor
-
-    @property
-    def section_type(self) -> SectionCategory:
-        return self.category
-
-    @property
-    def kind(self) -> SectionCategory:
-        return self.category
-
-    @property
-    def section(self) -> SectionCategory:
-        return self.category
-
-    @property
-    def anchor(self) -> SourceAnchor:
-        return self.source
-
-    @property
-    def title(self) -> str:
-        return self.heading.raw_text
-
-    @property
-    def heading_block(self) -> DocumentBlock:
-        return self.heading
-
-    @property
-    def content_blocks(self) -> tuple[DocumentBlock, ...]:
-        return self.blocks[1:]
-
-    @property
-    def content(self) -> tuple[DocumentBlock, ...]:
-        return self.content_blocks
-
-    @property
-    def anchors(self) -> tuple[SourceAnchor, ...]:
-        return tuple(block.source for block in self.blocks)
 
 
 _CATEGORY_ORDER = (
@@ -173,19 +128,6 @@ _NUMBER_PREFIX_RE = re.compile(
     r"|[零一二三四五六七八九十百千万]+[、.:：)）]"
     r")"
 )
-
-
-class SectionRouter:
-    """Route a :class:`DocumentModel` without changing the model."""
-
-    def route(self, document: DocumentModel) -> tuple[SectionRoute, ...]:
-        return route_sections(document)
-
-
-def route_document(document: DocumentModel) -> tuple[SectionRoute, ...]:
-    """Alias for :func:`route_sections` for document-oriented callers."""
-
-    return route_sections(document)
 
 
 def route_sections(document: DocumentModel) -> tuple[SectionRoute, ...]:
