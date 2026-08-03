@@ -264,12 +264,6 @@ def validate_submission(path: str | Path) -> dict[str, Any]:
     }
 
 
-def validate_docx(path: str | Path) -> dict[str, Any]:
-    """Compatibility name for callers that describe the input by its format."""
-
-    return validate_submission(path)
-
-
 def _add_check(
     checks: list[dict[str, Any]],
     name: str,
