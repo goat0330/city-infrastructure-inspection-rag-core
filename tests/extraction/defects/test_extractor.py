@@ -232,3 +232,65 @@ def test_missing_status_fields_use_auditable_gold_template_defaults() -> None:
     assert result[0].previous_status == "无"
     assert result[0].development == "无"
     assert "defaulted_defect_fields" in {flag["code"] for flag in result.quality_flags}
+
+
+def test_location_gets_lane_prefix_when_description_leads_with_lane() -> None:
+    xml = document_xml(
+        table(
+            row(cell("位置"), cell("病害种类"), cell("具体位置")),
+            row(cell("车行道"), cell("破损"), cell("右幅0#桥台附近桥面铺装局部破损")),
+        )
+    )
+    document = parse_document_xml(xml, source_file="lane.docx")
+
+    result = extract_defects(document)
+
+    assert len(result) == 1
+    assert result[0].location == "右幅车行道"
+    assert result[0].description == "右幅0#桥台附近桥面铺装局部破损"
+
+
+def test_location_lane_prefix_skips_when_lane_already_present() -> None:
+    xml = document_xml(
+        table(
+            row(cell("位置"), cell("病害种类"), cell("具体位置")),
+            row(cell("右幅桥面"), cell("破损"), cell("右幅桥面局部破损")),
+        )
+    )
+    document = parse_document_xml(xml, source_file="lane-already.docx")
+
+    result = extract_defects(document)
+
+    assert len(result) == 1
+    assert result[0].location == "右幅桥面"
+
+
+def test_bare_lane_location_is_expanded_with_section_heading() -> None:
+    xml = document_xml(
+        paragraph("5.1.2 上部结构"),
+        table(
+            row(cell("位置"), cell("病害种类"), cell("具体位置")),
+            row(cell("左幅"), cell("纵裂"), cell("第1跨1#板跨中1条纵裂")),
+        ),
+    )
+    document = parse_document_xml(xml, source_file="section.docx")
+
+    result = extract_defects(document)
+
+    assert len(result) == 1
+    assert result[0].location == "左幅上部结构"
+
+
+def test_bare_lane_location_unchanged_without_section_heading() -> None:
+    xml = document_xml(
+        table(
+            row(cell("位置"), cell("病害种类"), cell("具体位置")),
+            row(cell("左幅"), cell("纵裂"), cell("第1跨1#板跨中1条纵裂")),
+        )
+    )
+    document = parse_document_xml(xml, source_file="section-missing.docx")
+
+    result = extract_defects(document)
+
+    assert len(result) == 1
+    assert result[0].location == "左幅"

@@ -17,6 +17,7 @@ import unicodedata
 from ...contracts import (
     DefectObservation,
     DocumentModel,
+    ParagraphBlock,
     SourceAnchor,
     TableBlock,
     TableCell,
@@ -78,6 +79,8 @@ _EXACT_ONLY_ALIASES = frozenset(
 _PHOTO_REFERENCE_RE = re.compile(
     r"[，,;；。]?\s*(?:见\s*)?(?:照片|照|附图|图)\s*[\w./+#-]+\s*[。；;]?$"
 )
+_LANE_PREFIX_RE = re.compile(r"^(左幅|右幅)")
+_SECTION_MARKERS = ("上部结构", "下部结构", "桥面系")
 
 
 @dataclass(frozen=True)
@@ -159,7 +162,10 @@ def extract_defects(
 
     records: list[DefectObservation] = []
     for table in tables:
-        table_records, table_flags = _extract_table(table)
+        table_records, table_flags = _extract_table(
+            table,
+            section_label=_section_label_for_table(document, table),
+        )
         records.extend(table_records)
         flags.extend(table_flags)
     if not records:
@@ -243,7 +249,39 @@ def _looks_like_defect_table(table: TableBlock) -> bool:
     )
 
 
-def _extract_table(table: TableBlock) -> tuple[list[DefectObservation], list[QualityFlag]]:
+def _section_label_for_table(document: DocumentModel, table: TableBlock) -> str:
+    """Return the nearest preceding section name (桥面系/上部结构/下部结构).
+
+    The section heading immediately before a defect table is used to expand
+    bare lane locations (``左幅``/``右幅``) that only name the lane but not
+    the member, e.g. ``左幅`` + ``上部结构`` -> ``左幅上部结构``.
+    """
+
+    table_position: int | None = None
+    for index, block in enumerate(document.blocks):
+        if (
+            isinstance(block, TableBlock)
+            and block.block_index == table.block_index
+            and block.table_index == table.table_index
+        ):
+            table_position = index
+            break
+    if table_position is None:
+        return ""
+    for block in reversed(document.blocks[:table_position]):
+        if not isinstance(block, ParagraphBlock):
+            continue
+        text = _normalise_header(block.raw_text)
+        for marker in _SECTION_MARKERS:
+            if marker in text:
+                return marker
+    return ""
+
+
+def _extract_table(
+    table: TableBlock,
+    section_label: str = "",
+) -> tuple[list[DefectObservation], list[QualityFlag]]:
     analysis = _analyse_headers(table)
     flags: list[QualityFlag] = []
     details = {"table_index": table.table_index, "block_index": table.block_index}
@@ -349,6 +387,8 @@ def _extract_table(table: TableBlock) -> tuple[list[DefectObservation], list[Qua
 
         if not any(values[field] for field in _REQUIRED_FIELDS):
             continue
+
+        _expand_lane_and_section(values, section_label)
 
         anchors = _row_anchors(table, row)
         for field in _INHERITED_FIELDS:
@@ -480,6 +520,28 @@ def _display_text(value: str) -> str:
     # Preserve internal line breaks and punctuation in descriptions; only
     # surrounding layout whitespace is not part of a cell value.
     return (value or "").replace("\u00a0", " ").strip()
+
+
+def _expand_lane_and_section(values: dict[str, str], section_label: str) -> None:
+    """Expand a bare location into a fuller location using the description.
+
+    A lane token (``左幅``/``右幅``) that appears at the start of the
+    description but not in the location cell is prepended to the location
+    (``车行道`` + ``右幅`` -> ``右幅车行道``).  A location that contains
+    only a lane token is expanded with the table's section name
+    (``左幅`` + ``上部结构`` -> ``左幅上部结构``).
+    """
+
+    location = values.get("location") or ""
+    if not location:
+        return
+    lane_match = _LANE_PREFIX_RE.match(values.get("description") or "")
+    if lane_match and not location.startswith(lane_match.group(1)):
+        location = lane_match.group(1) + location
+    if location in ("左幅", "右幅") and section_label and not location.endswith(section_label):
+        location = location + section_label
+    if location != (values.get("location") or ""):
+        values["location"] = location
 
 
 def _clean_description(value: str) -> str:
