@@ -1184,7 +1184,28 @@ def _select_value(field: str, values: Sequence[SummaryCandidate]) -> str:
         ),
     )
     nonempty = [candidate for candidate in ordered if candidate.value.strip()]
-    return (nonempty[0] if nonempty else ordered[0]).value
+    selected = (nonempty[0] if nonempty else ordered[0]).value
+    if field.endswith("_score"):
+        numeric = _numeric_value(selected)
+        if numeric is not None:
+            decimal_forms = [
+                candidate.value
+                for candidate in (nonempty or ordered)
+                if "." in candidate.value and _numeric_value(candidate.value) == numeric
+            ]
+            if decimal_forms:
+                selected = decimal_forms[0]
+    return selected
+
+
+def _numeric_value(value: str) -> float | None:
+    match = _SCORE_RE.search(_clean(value))
+    if match is None:
+        return None
+    try:
+        return float(match.group(0))
+    except ValueError:
+        return None
 
 
 def _selected_or_missing(field: str, values: Sequence[SummaryCandidate]) -> str:
