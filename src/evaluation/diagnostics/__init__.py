@@ -10,6 +10,7 @@ from .b2 import (
     diagnose_record,
     diagnose_records,
     load_json_records,
+    subset_summaries,
     write_diagnostics,
 )
 
@@ -23,5 +24,6 @@ __all__ = [
     "diagnose_record",
     "diagnose_records",
     "load_json_records",
+    "subset_summaries",
     "write_diagnostics",
 ]
