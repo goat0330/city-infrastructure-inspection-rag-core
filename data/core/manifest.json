@@ -1,0 +1,189 @@
+{
+  "dataset_name": "city-infrastructure-inspection-rag-core",
+  "dataset_version": "core-v1",
+  "selection": {
+    "train_count": 16,
+    "validation_count": 6,
+    "train_source_group": "2012年",
+    "validation_source_group": "2013年",
+    "note": "The validation group is concentrated in Yangongqiao interchange facilities and is not a strict facility-disjoint generalization benchmark."
+  },
+  "records": [
+    {
+      "sample_id": "2012年-丁家院大桥",
+      "split": "train",
+      "bridge_name": "丁家院大桥",
+      "report_date": "2013年2月",
+      "defect_count": 42,
+      "source_report_relative_path": "2012年/丁家院大桥.doc"
+    },
+    {
+      "sample_id": "2012年-上界路K40+924人行天桥检测报告",
+      "split": "train",
+      "bridge_name": "上界路K40+924人行天桥",
+      "report_date": "2012年6月12日",
+      "defect_count": 3,
+      "source_report_relative_path": "2012年/上界路K40+924人行天桥检测报告.doc"
+    },
+    {
+      "sample_id": "2012年-南山立交A-1匝道桥",
+      "split": "train",
+      "bridge_name": "南山立交A-1匝道桥",
+      "report_date": "2013年2月",
+      "defect_count": 3,
+      "source_report_relative_path": "2012年/南山立交A-1匝道 .doc"
+    },
+    {
+      "sample_id": "2012年-四公里连接线桥",
+      "split": "train",
+      "bridge_name": "四公里连接线桥",
+      "report_date": "2013年2月",
+      "defect_count": 16,
+      "source_report_relative_path": "2012年/四公里连接线桥.doc"
+    },
+    {
+      "sample_id": "2012年-大堡桥",
+      "split": "train",
+      "bridge_name": "大堡桥",
+      "report_date": "2012年11月",
+      "defect_count": 23,
+      "source_report_relative_path": "2012年/大堡桥.doc"
+    },
+    {
+      "sample_id": "2012年-大田坝大桥",
+      "split": "train",
+      "bridge_name": "大田坝大桥",
+      "report_date": "2012年12月",
+      "defect_count": 67,
+      "source_report_relative_path": "2012年/大田坝大桥.doc"
+    },
+    {
+      "sample_id": "2012年-成渝2号人行天桥",
+      "split": "train",
+      "bridge_name": "成渝2号人行天桥",
+      "report_date": "2012年6月27日",
+      "defect_count": 6,
+      "source_report_relative_path": "2012年/成渝2号人行天桥检测报告.doc"
+    },
+    {
+      "sample_id": "2012年-杨公桥两孔石拱桥",
+      "split": "train",
+      "bridge_name": "杨公桥两孔石拱桥",
+      "report_date": "2013年2月",
+      "defect_count": 14,
+      "source_report_relative_path": "2012年/杨公桥两孔石拱桥.doc"
+    },
+    {
+      "sample_id": "2012年-果园大桥",
+      "split": "train",
+      "bridge_name": "果园大桥",
+      "report_date": "2013年2月",
+      "defect_count": 64,
+      "source_report_relative_path": "2012年/果园大桥.doc"
+    },
+    {
+      "sample_id": "2012年-柏杨湾大桥",
+      "split": "train",
+      "bridge_name": "柏杨湾大桥",
+      "report_date": "2013年2月",
+      "defect_count": 42,
+      "source_report_relative_path": "2012年/柏杨湾大桥.doc"
+    },
+    {
+      "sample_id": "2012年-桂花新村大桥",
+      "split": "train",
+      "bridge_name": "桂花新村大桥",
+      "report_date": "2013年2月",
+      "defect_count": 123,
+      "source_report_relative_path": "2012年/桂花新村大桥.doc"
+    },
+    {
+      "sample_id": "2012年-界石立交主线VI号桥",
+      "split": "train",
+      "bridge_name": "界石立交主线VI号桥",
+      "report_date": "2013年2月",
+      "defect_count": 39,
+      "source_report_relative_path": "2012年/界石立交主线VI号桥.doc"
+    },
+    {
+      "sample_id": "2012年-茶亭大桥",
+      "split": "train",
+      "bridge_name": "茶亭大桥",
+      "report_date": "2013年2月",
+      "defect_count": 35,
+      "source_report_relative_path": "2012年/茶亭大桥.doc"
+    },
+    {
+      "sample_id": "2012年-道角村大桥",
+      "split": "train",
+      "bridge_name": "道角村大桥",
+      "report_date": "2013年2月",
+      "defect_count": 45,
+      "source_report_relative_path": "2012年/道角村大桥.doc"
+    },
+    {
+      "sample_id": "2012年-鸡冠嘴中桥",
+      "split": "train",
+      "bridge_name": "鸡冠嘴中桥",
+      "report_date": "2013年2月",
+      "defect_count": 40,
+      "source_report_relative_path": "2012年/鸡冠嘴中桥.doc"
+    },
+    {
+      "sample_id": "2012年-黄桷湾主线桥",
+      "split": "train",
+      "bridge_name": "黄桷湾主线桥",
+      "report_date": "2013年2月",
+      "defect_count": 38,
+      "source_report_relative_path": "2012年/黄桷湾主线桥.doc"
+    },
+    {
+      "sample_id": "2013年-12-025杨公桥立交DA1匝道桥",
+      "split": "validation",
+      "bridge_name": "杨公桥立交DA1匝道桥",
+      "report_date": "2013年12月",
+      "defect_count": 33,
+      "source_report_relative_path": "2013年/12-025杨公桥立交DA1匝道桥.doc"
+    },
+    {
+      "sample_id": "2013年-12-027杨公桥立交DA-ED匝道桥",
+      "split": "validation",
+      "bridge_name": "杨公桥立交DA-ED匝道桥",
+      "report_date": "2013年12月",
+      "defect_count": 223,
+      "source_report_relative_path": "2013年/12-027杨公桥立交DA-ED匝道桥.doc"
+    },
+    {
+      "sample_id": "2013年-12-028杨公桥DB-DC匝道桥",
+      "split": "validation",
+      "bridge_name": "杨公桥DB-DC匝道桥",
+      "report_date": "2013年12月",
+      "defect_count": 51,
+      "source_report_relative_path": "2013年/12-028杨公桥DB-DC匝道桥.doc"
+    },
+    {
+      "sample_id": "2013年-12-030杨公桥DC匝道桥",
+      "split": "validation",
+      "bridge_name": "杨公桥立交DC匝道桥",
+      "report_date": "2013年12月",
+      "defect_count": 221,
+      "source_report_relative_path": "2013年/12-030杨公桥DC匝道桥.doc"
+    },
+    {
+      "sample_id": "2013年-12-031杨公桥AC匝道桥",
+      "split": "validation",
+      "bridge_name": "杨公桥立交AC匝道桥",
+      "report_date": "2013年12月",
+      "defect_count": 190,
+      "source_report_relative_path": "2013年/12-031杨公桥AC匝道桥.doc"
+    },
+    {
+      "sample_id": "2013年-12-035杨公桥立交EC匝道桥",
+      "split": "validation",
+      "bridge_name": "杨公桥立交EC匝道桥",
+      "report_date": "2013年12月",
+      "defect_count": 237,
+      "source_report_relative_path": "2013年/12-035杨公桥立交EC匝道桥.doc"
+    }
+  ]
+}

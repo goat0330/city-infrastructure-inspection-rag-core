@@ -1,0 +1,16 @@
+# Official source material is intentionally excluded from the public repository.
+/官方训练集+测试集/
+/官方比赛提交要求/
+/开发目标与完成定义.md
+/上游源码版本与研究治理.md
+/总架构与边界.md
+
+# Never publish raw office documents or local runtime artifacts.
+*.doc
+*.docx
+*.pdf
+*.xlsx
+*.xls
+*.pyc
+__pycache__/
+.venv/

@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/goat0330/city-infrastructure-inspection-rag-core/schema/inspection_record.schema.json",
+  "title": "InspectionReportRecord",
+  "type": "object",
+  "required": ["sample_id", "split", "summary", "recommendations", "defects", "provenance"],
+  "properties": {
+    "sample_id": {"type": "string"},
+    "split": {"enum": ["train", "validation"]},
+    "summary": {
+      "type": "object",
+      "additionalProperties": {"type": "string"}
+    },
+    "detailed_conclusion": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "recommendations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["index", "category", "content", "location"],
+        "properties": {
+          "index": {"type": "string"},
+          "category": {"type": "string"},
+          "content": {"type": "string"},
+          "location": {"type": "string"}
+        }
+      }
+    },
+    "defects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["index", "location", "defect_type", "description", "is_new", "previous_status", "development"],
+        "properties": {
+          "index": {"type": "string"},
+          "location": {"type": "string"},
+          "defect_type": {"type": "string"},
+          "description": {"type": "string"},
+          "is_new": {"type": "string"},
+          "previous_status": {"type": "string"},
+          "development": {"type": "string"}
+        }
+      }
+    },
+    "causes": {"type": "array", "items": {"type": "string"}},
+    "treatments": {"type": "array", "items": {"type": "string"}},
+    "safety_impact": {"type": "array", "items": {"type": "string"}},
+    "provenance": {
+      "type": "object",
+      "required": ["label_relative_path", "raw_report_included"],
+      "properties": {
+        "label_relative_path": {"type": "string"},
+        "source_report_relative_path": {"type": ["string", "null"]},
+        "raw_report_included": {"const": false},
+        "derivation": {"type": "string"}
+      }
+    }
+  }
+}
