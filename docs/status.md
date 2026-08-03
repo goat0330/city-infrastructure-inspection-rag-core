@@ -8,6 +8,7 @@
 - 标签解析：86 成功、8 个明确失败；Gold 自评分 100。
 - 原生 Word 结构模型：段落、标题、表格、合并单元格、图片关系、证据锚点。
 - 六类章节路由：评分、病害表、建议、检测结论、安全评估、处置建议。
+- P1 全量章节路由审计：161/161 DOCX 解析成功；Gold 交集 86/86；审计基线见 `docs/gate0/route-audit-baseline.md`。
 - 本地100分加权评分器及 Gate 0 聚合错题本。
 - 最小 DOCX 渲染器和单文档结构校验器。
 - 本轮补齐：Gold/Prediction Schema 分离、route/render/validate CLI、tar.gz 打包与包结构校验。
