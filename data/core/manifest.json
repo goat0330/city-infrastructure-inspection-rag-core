@@ -26,6 +26,14 @@
       "source_report_relative_path": "2012年/上界路K40+924人行天桥检测报告.doc"
     },
     {
+      "sample_id": "2012年-华岩寺大桥",
+      "split": "train",
+      "bridge_name": "华岩寺大桥",
+      "report_date": "2013年2月",
+      "defect_count": 30,
+      "source_report_relative_path": "2012年/华岩寺大桥.doc"
+    },
+    {
       "sample_id": "2012年-南山立交A-1匝道桥",
       "split": "train",
       "bridge_name": "南山立交A-1匝道桥",
@@ -64,14 +72,6 @@
       "report_date": "2012年6月27日",
       "defect_count": 6,
       "source_report_relative_path": "2012年/成渝2号人行天桥检测报告.doc"
-    },
-    {
-      "sample_id": "2012年-杨公桥两孔石拱桥",
-      "split": "train",
-      "bridge_name": "杨公桥两孔石拱桥",
-      "report_date": "2013年2月",
-      "defect_count": 14,
-      "source_report_relative_path": "2012年/杨公桥两孔石拱桥.doc"
     },
     {
       "sample_id": "2012年-果园大桥",

@@ -1,0 +1,18 @@
+{
+  "total_score": 100,
+  "weights": [
+    {"section": "summary", "label": "简要信息", "points": 20},
+    {"section": "detailed_conclusion", "label": "详细结论", "points": 15},
+    {"section": "recommendations", "label": "建议明细", "points": 20},
+    {"section": "defects", "label": "病害列表", "points": 30},
+    {"section": "causes", "label": "病害成因", "points": 5},
+    {"section": "treatments", "label": "处置建议", "points": 5},
+    {"section": "safety_impact", "label": "安全影响", "points": 5}
+  ],
+  "priority_order": ["defects", "recommendations", "summary", "detailed_conclusion", "causes", "treatments", "safety_impact"],
+  "notes": [
+    "数字和等级应优先采用原始评分表证据并做一致性校验。",
+    "病害和建议应按行评估，不能把同序号下的多条位置描述合并后丢失颗粒度。",
+    "长文本生成必须受结构化事实和来源证据约束。"
+  ]
+}
