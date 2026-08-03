@@ -66,7 +66,7 @@ def _normalised_key(value: str) -> str:
 # These are intentionally labels, not semantic guesses.  A score and a grade
 # are added independently whenever the source states them independently.
 _ALIASES: dict[str, tuple[str, ...]] = {
-    "bridge_name": ("桥梁名称", "桥名"),
+    "bridge_name": ("桥梁名称", "桥名", "项目名称"),
     "bridge_id": ("桥梁编号", "桥梁ID", "桥梁Id", "桥梁id"),
     "report_date": ("报告日期", "出具日期", "报告出具日期", "签发日期", "签字日期", "检测日期", "检测时间"),
     "overall_score": (
@@ -166,6 +166,8 @@ _SOURCE_PRIORITY = {
     "safety_assessment": 100,
     "paragraph": 80,
     "recommendations_table": 300,
+    "bci": 500,
+    "project_name": 50,
 }
 
 _DATE_PRIORITY = {"cover": 300, "sign": 250, "detection": 200}
@@ -173,8 +175,22 @@ _DATE_RE = re.compile(
     r"(?:19|20)\d{2}(?:年\s*(?:0?[1-9]|1[0-2])月(?:\s*(?:0?[1-9]|[12]\d|3[01])日)?|[./-]\s*(?:0?[1-9]|1[0-2])(?:[./-]\s*(?:0?[1-9]|[12]\d|3[01]))?)"
 )
 _SCORE_RE = re.compile(r"(?<![\d.])\d+(?:\.\d+)?")
-_GRADE_RE = re.compile(r"(?:[A-Ea-e]\s*级?|优等?|良好?|中等?|差)")
+_GRADE_RE = re.compile(r"(?:[A-Ea-e]\s*级?|[一二三四五六]类|优等?|良好?|中等?|差)")
 _RECOMMENDATION_COUNT_RE = re.compile(r"(\d+)\s*条")
+
+_BCI_SCORE_RE = re.compile(r"BCI\s*([mMsSxX]?)\s*[=＝]\s*(\d+(?:\.\d+)?)")
+_BCI_COMPONENT = {"m": "deck", "s": "superstructure", "x": "substructure"}
+_GRADE_AFTER_RE = re.compile(r"评定(?:为)?\s*([A-Ea-e]\s*级|[一二三四五六]类)")
+_OVERALL_GRADE_RE = re.compile(
+    r"(?<!下部结构)(?<!上部结构)(?<!桥面系)整体技术状况等级(?:评定|定)?为\s*([A-Ea-e]\s*级)"
+)
+_UNDERPASS_GRADE_RE = re.compile(r"技术状况总评\s*[，,、\t\s]*([一二三四五六]类)")
+
+_CN_DIGIT: dict[str, int] = {character: 0 for character in "〇零○ＯＯO0"}
+_CN_DIGIT.update({"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9})
+_CN_DATE_RE = re.compile(
+    r"([〇零○ＯＯO0一二三四五六七八九]{4})年\s*([〇零○ＯＯO0一二三四五六七八九十]+)月(?:\s*([〇零○ＯＯO0一二三四五六七八九十]+)日)?"
+)
 
 _SCORE_MARKERS = ("评分", "分数", "得分", "等级", "级别")
 _OVERALL_ASSESSMENT_MARKERS = (
@@ -423,7 +439,7 @@ def extract_summary(
 
     summary = BridgeSummary(
         **{
-            field: _select_value(field, collector.values[field])
+            field: _selected_or_missing(field, collector.values[field])
             for field in _SUMMARY_FIELDS
         }
     )
@@ -575,11 +591,16 @@ def _extract_table(
             key_field = _field_for_key(cell.raw_text)
             if key_field is not None and index + 1 < len(cells):
                 value_cell = cells[index + 1]
+                candidate_kind = (
+                    "project_name"
+                    if key_field == "bridge_name" and _compact(cell.raw_text) == "项目名称"
+                    else source_kind
+                )
                 _add_field(
                     collector,
                     key_field,
                     value_cell.raw_text,
-                    source_kind,
+                    candidate_kind,
                     value_cell.source or cell.source or table.source,
                     label=cell.raw_text,
                 )
@@ -594,6 +615,8 @@ def _extract_table(
     _extract_header_columns(table, source_kind, collector)
     if source_kind in {"overall_assessment_table", "section_score_table"}:
         _extract_score_matrix(table, source_kind, collector)
+
+    _extract_bci_scores(_clean(table.raw_text), table.source, collector)
 
     recommendation_header = _recommendation_header_index(rows)
     if recommendation_header is not None:
@@ -802,6 +825,80 @@ def _extract_embedded_fields(
             date_kind=date_kind,
         )
 
+    _extract_bci_scores(text, source, collector)
+
+
+def _extract_bci_scores(
+    text: str,
+    source: SourceAnchor | None,
+    collector: _CandidateCollector,
+) -> None:
+    """Extract BCI/BCIm/BCIs/BCIx score phrases and their attached grades.
+
+    These phrases appear in technical-condition-index reports (often inside
+    large cover tables) where the component scores are written as
+    ``桥面系BCIm=89.00，评定为B级`` style sentences.  The text phrase is the
+    authoritative statement; a dedicated high-priority source kind lets it win
+    over the score matrix when the matrix carries a misprint.
+    """
+
+    for match in _BCI_SCORE_RE.finditer(text):
+        suffix = (match.group(1) or "").lower()
+        base = _BCI_COMPONENT.get(suffix, "overall")
+        _add_field(
+            collector,
+            f"{base}_score",
+            match.group(2),
+            "bci",
+            source,
+            label="BCI指数",
+        )
+        window = text[match.end(): match.end() + 200]
+        if base == "overall":
+            overall_match = _OVERALL_GRADE_RE.search(window)
+            if overall_match:
+                _add_field(
+                    collector,
+                    "overall_grade",
+                    overall_match.group(1),
+                    "bci",
+                    source,
+                    label="整体技术状况等级",
+                )
+            else:
+                fallback = _GRADE_AFTER_RE.search(window)
+                if fallback:
+                    _add_field(
+                        collector,
+                        "overall_grade",
+                        fallback.group(1),
+                        "bci",
+                        source,
+                        label="整体技术状况等级",
+                    )
+        else:
+            grade_match = _GRADE_AFTER_RE.search(window)
+            if grade_match:
+                _add_field(
+                    collector,
+                    f"{base}_grade",
+                    grade_match.group(1),
+                    "bci",
+                    source,
+                    label="BCI等级",
+                )
+
+    underpass = _UNDERPASS_GRADE_RE.search(text)
+    if underpass:
+        _add_field(
+            collector,
+            "overall_grade",
+            underpass.group(1),
+            "bci",
+            source,
+            label="技术状况总评",
+        )
+
 
 def _extract_score_phrases(
     raw_text: str,
@@ -930,6 +1027,34 @@ def _extract_route_text(
                 )
 
 
+def _cn_units(value: str) -> int:
+    digits = _CN_DIGIT
+    if "十" in value:
+        tens_part, _, ones_part = value.partition("十")
+        tens = digits.get(tens_part, 1) if tens_part else 1
+        ones = digits.get(ones_part, 0) if ones_part else 0
+        return tens * 10 + ones
+    return digits.get(value, 0)
+
+
+def _extract_cn_date(text: str) -> str | None:
+    """Convert a Chinese-numeral cover date like ``二○一三年二月`` to ``2013年2月``."""
+
+    match = _CN_DATE_RE.search(text)
+    if match is None:
+        return None
+    year = "".join(str(_CN_DIGIT.get(character, 0)) for character in match.group(1))
+    month = _cn_units(match.group(2))
+    if not year or month < 1 or month > 12:
+        return None
+    result = f"{year}年{month}月"
+    if match.group(3):
+        day = _cn_units(match.group(3))
+        if 1 <= day <= 31:
+            result += f"{day}日"
+    return result
+
+
 def _extract_cover_dates(
     blocks: Sequence[object],
     first_heading: int,
@@ -939,6 +1064,16 @@ def _extract_cover_dates(
         if not isinstance(block, ParagraphBlock) or block.block_index >= first_heading:
             continue
         text = _clean(block.raw_text)
+        cn_date = _extract_cn_date(text)
+        if cn_date is not None:
+            collector.add(
+                "report_date",
+                cn_date,
+                "cover",
+                block.source,
+                label="封面中文日期",
+                date_kind="cover",
+            )
         if any(_compact(alias) in _compact(text) for alias in _ALIASES["report_date"]):
             continue
         for match in _DATE_RE.finditer(text):
@@ -1006,7 +1141,13 @@ def _date_value(value: str) -> str:
 def _normalise_field_value(field: str, value: str) -> str:
     cleaned = _clean(value).strip("：:=，,；;。．")
     if field == "bridge_name":
-        cleaned = re.split(r"(?:所在路名|路名|桥梁编号|桥梁ID|等级)\s*[:：=]", cleaned, maxsplit=1, flags=re.IGNORECASE)[0]
+        cleaned = re.split(
+            r"(?:所在路名|在路名|路名|桥梁编号|桥梁ID|等级)\s*[:：=]",
+            cleaned,
+            maxsplit=1,
+            flags=re.IGNORECASE,
+        )[0]
+        cleaned = re.sub(r"(?:检测评估|评估报告|外观检查)\s*$", "", cleaned)
         return cleaned.strip("：:=，,；;。． ")
     if field.endswith("_score"):
         if not cleaned or cleaned in {"无", "暂无", "不适用"}:
@@ -1046,10 +1187,18 @@ def _select_value(field: str, values: Sequence[SummaryCandidate]) -> str:
     return (nonempty[0] if nonempty else ordered[0]).value
 
 
+def _selected_or_missing(field: str, values: Sequence[SummaryCandidate]) -> str:
+    value = _select_value(field, values)
+    if not value.strip() and field in _SCORE_FIELDS:
+        return "无"
+    return value
+
+
 def _selection_priority(field: str, candidate: SummaryCandidate) -> int:
     if field not in _SCORE_FIELDS:
         return candidate.priority
     return {
+        "bci": 500,
         "overall_assessment_table": 400,
         "section_score_table": 300,
         "section_score": 280,
