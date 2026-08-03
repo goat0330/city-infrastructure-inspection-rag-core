@@ -8,7 +8,7 @@ from src.contracts import (
     TableCell,
     TableRow,
 )
-from src.routing import SectionCategory, SectionRouter, route_sections
+from src.routing import SectionCategory, route_sections
 
 
 def _paragraph(
@@ -80,7 +80,7 @@ def test_routes_styled_sections_and_preserves_boundaries_and_anchors() -> None:
     assert [block.block_index for block in routes[0].blocks] == [0, 1]
     assert routes[1].blocks[1].source.table_index == 0
     assert all(route.source == route.heading.source for route in routes)
-    assert all(route.anchors for route in routes)
+    assert all(isinstance(route.source, SourceAnchor) for route in routes)
 
 
 def test_keyword_fallback_accepts_numbering_variants_without_bridge_name() -> None:
@@ -93,7 +93,7 @@ def test_keyword_fallback_accepts_numbering_variants_without_bridge_name() -> No
         _paragraph(5, "12.1 处置建议"),
     )
 
-    routes = SectionRouter().route(model)
+    routes = route_sections(model)
 
     assert [route.category for route in routes] == [
         SectionCategory.SCORING,
@@ -103,7 +103,9 @@ def test_keyword_fallback_accepts_numbering_variants_without_bridge_name() -> No
         SectionCategory.SAFETY_ASSESSMENT,
         SectionCategory.TREATMENT_RECOMMENDATIONS,
     ]
-    assert [route.title for route in routes] == [block.raw_text for block in model.blocks]
+    assert [route.heading.raw_text for route in routes] == [
+        block.raw_text for block in model.blocks
+    ]
     assert all(route.source.source_file == "fixture.docx" for route in routes)
 
 
