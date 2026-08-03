@@ -242,17 +242,3 @@ def render_report(source: Any, output_path: Path | str) -> Path:
     """Render one Gold record or :class:`InspectionPrediction` to ``output_path``."""
 
     return _render_record(_record(source), output_path)
-
-
-def render_prediction(prediction: Any, output_path: Path | str) -> Path:
-    return render_report(prediction, output_path)
-
-
-def render_gold(record: Any, output_path: Path | str) -> Path:
-    return render_report(record, output_path)
-
-
-render_docx = render_report
-render_prediction_to_docx = render_prediction
-render_inspection_prediction = render_prediction
-render_gold_to_docx = render_gold
