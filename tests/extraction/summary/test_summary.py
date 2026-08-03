@@ -87,7 +87,7 @@ def test_missing_values_are_flagged_without_inventing_scores_or_grades(tmp_path:
 
     result = extract_summary(document)
 
-    assert result.summary.overall_score == ""
+    assert result.summary.overall_score == "无"
     assert result.summary.overall_grade == "B级"
     missing_fields = {
         flag["details"]["field"]
@@ -96,7 +96,7 @@ def test_missing_values_are_flagged_without_inventing_scores_or_grades(tmp_path:
     }
     assert "overall_score" in missing_fields
     assert "superstructure_score" in missing_fields
-    assert result.summary.superstructure_grade == ""
+    assert result.summary.superstructure_grade == "无"
 
 
 def test_report_date_candidates_preserve_cover_sign_and_detection_sources(tmp_path: Path) -> None:
@@ -177,3 +177,110 @@ def test_extracts_bci_score_matrix_fields(tmp_path: Path) -> None:
     assert result.summary.superstructure_grade == "C级"
     assert result.summary.substructure_score == "90.00"
     assert result.summary.substructure_grade == "A级"
+
+
+def test_extracts_bci_phrase_scores_and_grades(tmp_path: Path) -> None:
+    document = _parse(
+        tmp_path,
+        paragraph("桥面系BCIm=89.00，评定为B级，处于良好状态。"),
+        paragraph("上部结构BCIs=79.00，评定为C级。"),
+        paragraph("下部结构BCIx=100.00，评定为A级。"),
+        paragraph("桥梁BCI=89.95，整体技术状况等级评定为B级，为良好状态。"),
+    )
+
+    result = extract_summary(document)
+
+    assert result.summary.deck_score == "89.00"
+    assert result.summary.deck_grade == "B级"
+    assert result.summary.superstructure_score == "79.00"
+    assert result.summary.superstructure_grade == "C级"
+    assert result.summary.substructure_score == "100.00"
+    assert result.summary.substructure_grade == "A级"
+    assert result.summary.overall_score == "89.95"
+    assert result.summary.overall_grade == "B级"
+
+
+def test_bci_phrase_wins_over_misprinted_matrix_grade(tmp_path: Path) -> None:
+    document = _parse(
+        tmp_path,
+        table(
+            row(
+                cell("部位名称"),
+                cell("技术状况指数"),
+                cell("技术状况"),
+                cell("权重"),
+                cell("BCI"),
+                cell("桥梁整体技术状况等级"),
+            ),
+            row(cell("桥面系"), cell("83.57"), cell("B"), cell("0.15"), cell("85.46"), cell("C（良好状态）")),
+        ),
+        paragraph("桥梁BCI=85.46，整体技术状况等级评定为B级，为良好状态。"),
+    )
+
+    result = extract_summary(document)
+
+    assert result.summary.overall_score == "85.46"
+    assert result.summary.overall_grade == "B级"
+
+
+def test_component_grade_phrase_is_not_taken_as_overall_grade(tmp_path: Path) -> None:
+    document = _parse(
+        tmp_path,
+        paragraph("BCIx=96.25，故下部结构整体技术状况等级评定为A级。"),
+        paragraph("本桥BCI=87.06，综合评定桥梁的整体技术状况等级为B级。"),
+    )
+
+    result = extract_summary(document)
+
+    assert result.summary.substructure_score == "96.25"
+    assert result.summary.substructure_grade == "A级"
+    assert result.summary.overall_score == "87.06"
+    assert result.summary.overall_grade == "B级"
+
+
+def test_previous_scores_default_to_none_when_not_documented(tmp_path: Path) -> None:
+    document = _parse(tmp_path, _summary_table(("桥梁名称", "示例桥")))
+
+    result = extract_summary(document)
+
+    assert result.summary.previous_overall_score == "无"
+    assert result.summary.previous_overall_grade == "无"
+
+
+def test_chinese_numeral_cover_date_is_converted(tmp_path: Path) -> None:
+    document = _parse(
+        tmp_path,
+        paragraph("示例桥检测报告"),
+        paragraph("二○一三年二月"),
+        paragraph("桥梁名称：示例桥"),
+    )
+
+    result = extract_summary(document)
+
+    assert result.summary.report_date == "2013年2月"
+
+
+def test_chinese_numeral_cover_date_with_tens_month(tmp_path: Path) -> None:
+    document = _parse(
+        tmp_path,
+        paragraph("示例桥检测报告"),
+        paragraph("二○一二年十二月"),
+        paragraph("桥梁名称：示例桥"),
+    )
+
+    result = extract_summary(document)
+
+    assert result.summary.report_date == "2012年12月"
+
+
+def test_underpass_grade_from_general_review(tmp_path: Path) -> None:
+    document = _parse(
+        tmp_path,
+        table(
+            row(cell("11.人行通道技术状况总评"), cell("一类，良好的状态")),
+        ),
+    )
+
+    result = extract_summary(document)
+
+    assert result.summary.overall_grade == "一类"
