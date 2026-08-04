@@ -21,7 +21,7 @@ Word-first 是硬边界：`.doc` 先经 LibreOffice 转换为 `.docx`，再以 `
 
 当前仍有明确的后续提分项：`recommendations` 的误召回及部位/内容边界，以及嵌套在长文本中的病害识别与拆分。
 
-详见：[当前状态](docs/status.md)｜[路线图](docs/roadmap.md)｜[范围边界](docs/current_scope.md)。
+详见：[当前状态](docs/status.md)｜[路线图](docs/roadmap.md)｜[范围边界](docs/current_scope.md)｜[LLM + RAG 单样本增强报告](docs/reports/llm-rag-narrative-enhancement-k46-20260804.md)。
 
 ## 核心合同
 
