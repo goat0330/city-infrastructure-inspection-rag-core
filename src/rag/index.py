@@ -16,6 +16,7 @@ import numpy as np
 
 METADATA_FILENAME = "metadata.jsonl"
 VECTORS_FILENAME = "vectors.npy"
+_EMBED_BATCH_SIZE = 64
 _LABEL_KINDS = {"gold", "gold_label", "label", "label_example"}
 _HOLDOUT_SPLITS = {"holdout", "test", "val", "validation"}
 
@@ -56,7 +57,9 @@ def _fit_only_records(
             raise ValueError("each RAG entry must have a non-empty id")
         if "kind" not in record or not _text(record.get("kind")):
             raise ValueError("each RAG entry must have a non-empty kind")
-        if exclude_sample_id is not None and _same_sample(record, exclude_sample_id):
+        # Keep current-report evidence available; only the corresponding Gold
+        # label examples are forbidden to prevent leakage.
+        if exclude_sample_id is not None and _is_label(record) and _same_sample(record, exclude_sample_id):
             continue
         if fit_only and _is_label(record) and _text(record.get("split")).lower() != "fit":
             continue
@@ -94,6 +97,19 @@ def _query_vector(value: object) -> np.ndarray:
     if not np.isfinite(array).all():
         raise ValueError("query embedding must contain only finite values")
     return array
+
+
+def _embed_in_batches(client: Any, texts: Sequence[str]) -> np.ndarray:
+    """Embed a large index in small requests and retain input order."""
+
+    if not texts:
+        return np.empty((0, 0), dtype=np.float32)
+    batches: list[np.ndarray] = []
+    for start in range(0, len(texts), _EMBED_BATCH_SIZE):
+        batch = list(texts[start : start + _EMBED_BATCH_SIZE])
+        result = client.embed_texts(batch)
+        batches.append(_embedding_matrix(_result_value(result), len(batch)))
+    return np.ascontiguousarray(np.vstack(batches), dtype=np.float32)
 
 
 def _cosine_scores(vectors: np.ndarray, query: np.ndarray) -> np.ndarray:
@@ -135,8 +151,7 @@ def build_index(
     output.mkdir(parents=True, exist_ok=True)
 
     if records:
-        result = client.embed_texts([record["text"] for record in records])
-        vectors = _embedding_matrix(_result_value(result), len(records))
+        vectors = _embed_in_batches(client, [record["text"] for record in records])
     else:
         vectors = np.empty((0, 0), dtype=np.float32)
 

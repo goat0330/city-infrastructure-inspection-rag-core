@@ -42,3 +42,5 @@ Validation errors from the previous attempt (empty on the first attempt):
 {{VALIDATION_ERRORS}}
 
 Produce the smallest evidence-grounded enhancement that satisfies the schema.
+Keep each generated item concise (preferably under 100 Chinese characters) and
+do not repeat the full report.

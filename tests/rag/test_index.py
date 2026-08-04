@@ -61,7 +61,7 @@ def _entries(count: int = 3) -> list[dict[str, object]]:
     ]
 
 
-def test_build_persists_metadata_and_vectors_and_excludes_sample(tmp_path: Path) -> None:
+def test_build_persists_metadata_and_vectors_and_excludes_current_gold(tmp_path: Path) -> None:
     client = FakeClient()
     entries = _entries() + [{"id": "blank", "text": "  ", "kind": "evidence"}]
     entries.append({"id": "same", "text": "same", "kind": "gold", "sample_id": "sample-1"})
@@ -74,8 +74,8 @@ def test_build_persists_metadata_and_vectors_and_excludes_sample(tmp_path: Path)
     assert vectors_path.is_file()
     metadata = [json.loads(line) for line in metadata_path.read_text(encoding="utf-8").splitlines()]
     vectors = np.load(vectors_path, allow_pickle=False)
-    assert [record["id"] for record in metadata] == ["doc-0", "doc-2"]
-    assert vectors.shape == (2, 2)
+    assert [record["id"] for record in metadata] == ["doc-0", "doc-1", "doc-2"]
+    assert vectors.shape == (3, 2)
     assert np.array_equal(vectors, index.vectors)
 
     loaded = LightRagIndex.load(tmp_path, client=client)

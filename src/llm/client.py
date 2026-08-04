@@ -14,7 +14,7 @@ from openai import OpenAI
 
 
 _MISSING = object()
-_DEFAULT_CHAT_MAX_TOKENS = 2048
+_DEFAULT_CHAT_MAX_TOKENS = 8192
 
 
 @dataclass(frozen=True)
@@ -194,7 +194,13 @@ class OpenAIModelClient:
         try:
             value = json.loads(text)
         except json.JSONDecodeError as exc:
-            raise ValueError("chat response is not valid JSON") from exc
+            start, end = text.find("{"), text.rfind("}")
+            if start < 0 or end <= start:
+                raise ValueError("chat response is not valid JSON") from exc
+            try:
+                value = json.loads(text[start : end + 1])
+            except json.JSONDecodeError:
+                raise ValueError("chat response is not valid JSON") from exc
         if not isinstance(value, dict):
             raise ValueError("chat response JSON must be an object")
         return value
@@ -273,6 +279,7 @@ class OpenAIModelClient:
         }
         if "qwen" in model_name.casefold():
             options["extra_body"] = {"chat_template_kwargs": {"enable_thinking": False}}
+            options["response_format"] = {"type": "json_object"}
         return self._run(
             operation="chat_json",
             model=model_name,

@@ -1,0 +1,607 @@
+#!/usr/bin/env python3
+"""Run one inspection report through the narrative A/B/C/D experiment.
+
+This is deliberately a single-sample runner.  The deterministic extractor is
+the source of the baseline; the model may replace only the four narrative
+fields.  No credential is written to an artifact.
+"""
+
+from __future__ import annotations
+
+import argparse
+from copy import deepcopy
+import hashlib
+import json
+import os
+from pathlib import Path, PurePosixPath
+import re
+import sys
+from time import perf_counter
+from typing import Any, Mapping, Sequence
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from src.agent.narrative import run_narrative_enhancement  # noqa: E402
+from src.extraction.pipeline import extract_report  # noqa: E402
+from src.llm.client import ModelCallResult, OpenAIModelClient  # noqa: E402
+from src.parsing import parse_docx  # noqa: E402
+from src.rag import LightRagIndex  # noqa: E402
+from src.routing import route_sections  # noqa: E402
+
+
+TARGET_FIELDS = ("detailed_conclusion", "causes", "treatments", "safety_impact")
+_SECRET_RE = re.compile(r"(?i)(api[_ -]?key|authorization|bearer|token|secret)\s*[:=]\s*[^,;\s]+")
+
+
+class ExperimentConfigurationError(RuntimeError):
+    """Raised when a real-model run cannot be configured safely."""
+
+
+def _safe_error(error: BaseException) -> str:
+    message = " ".join(str(error).split())
+    message = _SECRET_RE.sub(lambda match: f"{match.group(1)}=<redacted>", message)
+    return message[:300]
+
+
+def _write_json(path: Path, value: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _plain(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, Mapping):
+        return {str(key): _plain(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain(item) for item in value]
+    to_dict = getattr(value, "to_dict", None)
+    if callable(to_dict):
+        return _plain(to_dict())
+    return str(value)
+
+
+def _prediction_dict(value: Any) -> dict[str, Any]:
+    if hasattr(value, "prediction"):
+        value = value.prediction
+    if isinstance(value, Mapping):
+        return deepcopy(_plain(value))
+    to_dict = getattr(value, "to_dict", None)
+    if callable(to_dict):
+        return _prediction_dict(to_dict())
+    raise TypeError("baseline prediction must be a mapping or prediction object")
+
+
+def _load_baseline(input_docx: Path, baseline_json: Path | None) -> dict[str, Any]:
+    if baseline_json is None:
+        return _prediction_dict(extract_report(input_docx))
+    return _prediction_dict(json.loads(baseline_json.read_text(encoding="utf-8")))
+
+
+def _stable_evidence_id(source_file: str, block: Any) -> str:
+    anchor = _plain(getattr(block, "source", None))
+    anchor = anchor if isinstance(anchor, Mapping) else {}
+    payload = {
+        "source_file": source_file,
+        "block_index": getattr(block, "block_index", anchor.get("block_index")),
+        "table_index": anchor.get("table_index"),
+        "row_index": anchor.get("row_index"),
+        "column_index": anchor.get("column_index"),
+        "paragraph_index": anchor.get("paragraph_index"),
+        "raw_text": str(getattr(block, "raw_text", anchor.get("raw_text", ""))),
+    }
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return "docx:" + hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:20]
+
+
+def _report_facts(input_docx: Path, source_file: str) -> list[dict[str, Any]]:
+    document = parse_docx(input_docx, source_file=source_file)
+    routes = route_sections(document)
+    categories: dict[int, list[str]] = {}
+    for route in routes:
+        category = str(getattr(getattr(route, "category", ""), "value", getattr(route, "category", "")))
+        for block in getattr(route, "blocks", ()):
+            categories.setdefault(int(block.block_index), [])
+            if category not in categories[int(block.block_index)]:
+                categories[int(block.block_index)].append(category)
+
+    facts: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for block in document.blocks:
+        text = str(getattr(block, "raw_text", "")).strip()
+        if not text:
+            continue
+        evidence_id = _stable_evidence_id(source_file, block)
+        if evidence_id in seen:
+            continue
+        seen.add(evidence_id)
+        anchor = _plain(getattr(block, "source", None))
+        facts.append(
+            {
+                "evidence_id": evidence_id,
+                "text": text,
+                "section": categories.get(int(block.block_index), ["unrouted"])[0],
+                "source": anchor if isinstance(anchor, Mapping) else {},
+            }
+        )
+    return facts
+
+
+def _text_values(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, Mapping):
+        return [text for key in ("text", "content", "value") for text in _text_values(value.get(key))]
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        result: list[str] = []
+        for item in value:
+            result.extend(_text_values(item))
+        return result
+    return []
+
+
+def _evidence_ids(value: Any) -> list[str]:
+    result: list[str] = []
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            if str(key) in {"evidence_id", "evidence_ids"}:
+                for identifier in _text_values(item):
+                    if identifier not in result:
+                        result.append(identifier)
+            else:
+                result.extend(identifier for identifier in _evidence_ids(item) if identifier not in result)
+    elif isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        for item in value:
+            result.extend(identifier for identifier in _evidence_ids(item) if identifier not in result)
+    return result
+
+
+def _normalised_fields(value: Any) -> dict[str, Any]:
+    value = value if isinstance(value, Mapping) else {}
+    return {field: deepcopy(value.get(field, [])) for field in TARGET_FIELDS}
+
+
+def _call_metrics(result: ModelCallResult | None, *, model: str, duration_ms: float, calls: int = 1) -> dict[str, Any]:
+    return {
+        "model": getattr(result, "model", model) if result is not None else model,
+        "duration_ms": round(float(getattr(result, "duration_ms", duration_ms)), 3),
+        "prompt_tokens": int(getattr(result, "prompt_tokens", 0) or 0) if result is not None else 0,
+        "completion_tokens": int(getattr(result, "completion_tokens", 0) or 0) if result is not None else 0,
+        "total_tokens": int(getattr(result, "total_tokens", 0) or 0) if result is not None else 0,
+        "calls": calls,
+        "token_usage_known": result is not None and getattr(result, "total_tokens", None) is not None,
+    }
+
+
+class TrackingClient:
+    """Small recording wrapper; it does not store request text or credentials."""
+
+    def __init__(self, client: Any, *, default_chat_max_tokens: int = 4096) -> None:
+        self.client = client
+        self.default_chat_max_tokens = default_chat_max_tokens
+        self.calls: list[dict[str, Any]] = []
+
+    def _record(self, operation: str, result: ModelCallResult) -> ModelCallResult:
+        self.calls.append(
+            {
+                "operation": operation,
+                "model": result.model,
+                "duration_ms": result.duration_ms,
+                "prompt_tokens": result.prompt_tokens,
+                "completion_tokens": result.completion_tokens,
+                "total_tokens": result.total_tokens,
+            }
+        )
+        return result
+
+    def chat_json(self, *args: Any, **kwargs: Any) -> ModelCallResult:
+        kwargs.setdefault("max_tokens", self.default_chat_max_tokens)
+        return self._record("chat_json", self.client.chat_json(*args, **kwargs))
+
+    def embed_texts(self, *args: Any, **kwargs: Any) -> ModelCallResult:
+        return self._record("embed_texts", self.client.embed_texts(*args, **kwargs))
+
+    def rerank(self, *args: Any, **kwargs: Any) -> ModelCallResult:
+        return self._record("rerank", self.client.rerank(*args, **kwargs))
+
+
+class StaticRetriever:
+    def __init__(self, hits: Sequence[Mapping[str, Any]]) -> None:
+        self.hits = [dict(hit) for hit in hits]
+
+    def retrieve(self, *_args: Any, **_kwargs: Any) -> list[dict[str, Any]]:
+        return deepcopy(self.hits)
+
+
+class OfflineClient:
+    model = "offline-fake"
+
+    def __init__(self, evidence_id: str = "") -> None:
+        self.evidence_id = evidence_id
+
+    def _result(self, group: str) -> ModelCallResult:
+        evidence = [self.evidence_id] if self.evidence_id else []
+        return ModelCallResult(
+            value={
+                "detailed_conclusion": [f"offline {group} narrative"],
+                "causes": [{"text": f"offline {group} cause", "evidence_ids": evidence}],
+                "treatments": [],
+                "safety_impact": [{"text": f"offline {group} safety", "evidence_ids": evidence}],
+            },
+            model=self.model,
+            duration_ms=0.1,
+            prompt_tokens=1,
+            completion_tokens=1,
+            total_tokens=2,
+        )
+
+    def chat_json(self, messages: Sequence[Mapping[str, Any]], **_kwargs: Any) -> ModelCallResult:
+        text = str(messages[-1].get("content", "")) if messages else ""
+        group = "LLM"
+        for candidate in ("B", "C", "D"):
+            if f'"group": "{candidate}"' in text:
+                group = candidate
+        return self._result(group)
+
+
+def _prompt(group: str, baseline: Mapping[str, Any], facts: Sequence[Mapping[str, Any]]) -> list[dict[str, str]]:
+    payload = {
+        "group": group,
+        "task": "Enhance only the four narrative fields and return JSON.",
+        "baseline_prediction": _normalised_fields(baseline),
+        "report_facts": list(facts),
+        "contract": {
+            "detailed_conclusion": "array of at most four concise strings",
+            "causes": "array of concise objects with text and evidence_ids",
+            "treatments": "array of concise objects with recommendation_index, text and evidence_ids",
+            "safety_impact": "array of concise objects with text and evidence_ids",
+            "brevity": "do not repeat the report; keep each item under 100 Chinese characters",
+        },
+    }
+    return [
+        {"role": "system", "content": "Return only valid JSON. Do not change locked baseline fields. Be concise: at most four conclusion paragraphs and short evidence-grounded items."},
+        {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+    ]
+
+
+def _run_chat_group(group: str, client: TrackingClient, baseline: Mapping[str, Any], facts: Sequence[Mapping[str, Any]]) -> tuple[dict[str, Any], ModelCallResult]:
+    result = client.chat_json(_prompt(group, baseline, facts), max_tokens=4096)
+    value = result.value if isinstance(result.value, Mapping) else {}
+    return _normalised_fields(value), result
+
+
+def _query(baseline: Mapping[str, Any]) -> str:
+    summary = baseline.get("summary")
+    summary = summary if isinstance(summary, Mapping) else {}
+    pieces = [summary.get("bridge_name", ""), summary.get("overall_conclusion", "")]
+    for defect in baseline.get("defects", []):
+        if isinstance(defect, Mapping):
+            pieces.append(" ".join(str(defect.get(key, "")) for key in ("location", "defect_type", "description")))
+    return " ".join(str(piece) for piece in pieces if piece)[:3000]
+
+
+def _select_context_facts(
+    facts: Sequence[Mapping[str, Any]],
+    baseline: Mapping[str, Any],
+    *,
+    max_items: int = 24,
+    max_chars: int = 12000,
+) -> list[dict[str, Any]]:
+    """Keep the generation prompt bounded while retaining source anchors."""
+
+    query = _query(baseline)
+    terms = [term for term in re.findall(r"[\u4e00-\u9fffA-Za-z0-9+#.-]{2,}", query) if term]
+    preferred = {
+        "inspection_conclusion": 4,
+        "safety_assessment": 4,
+        "treatment_recommendations": 3,
+        "defect_table": 2,
+    }
+    ranked: list[tuple[int, int, Mapping[str, Any]]] = []
+    for order, fact in enumerate(facts):
+        text = str(fact.get("text", ""))
+        section = str(fact.get("section", ""))
+        score = preferred.get(section, 0) + sum(1 for term in terms if term in text)
+        ranked.append((score, -order, fact))
+    ranked.sort(reverse=True, key=lambda item: (item[0], item[1]))
+    chosen = sorted((item[2] for item in ranked[:max_items]), key=lambda item: list(facts).index(item))
+    result: list[dict[str, Any]] = []
+    used_chars = 0
+    for fact in chosen:
+        text = str(fact.get("text", ""))
+        if result and used_chars + len(text) > max_chars:
+            continue
+        result.append(dict(fact))
+        used_chars += len(text)
+    return result
+
+
+def _group_record(
+    group: str,
+    label: str,
+    fields: Mapping[str, Any],
+    baseline: Mapping[str, Any],
+    facts: Sequence[Mapping[str, Any]],
+    retrieval: Sequence[Mapping[str, Any]],
+    metrics: Mapping[str, Any],
+    *,
+    available: bool = True,
+    used_fallback: bool = False,
+    error: str | None = None,
+) -> dict[str, Any]:
+    available_ids = {str(item.get("evidence_id")) for item in facts if item.get("evidence_id")}
+    available_ids.update(str(item.get("evidence_id")) for item in retrieval if item.get("evidence_id"))
+    evidence_ids = _evidence_ids(fields)
+    invalid = [identifier for identifier in evidence_ids if identifier not in available_ids]
+    baseline_texts = {"".join(_text_values(baseline.get(field))).casefold() for field in TARGET_FIELDS}
+    fact_texts = {"".join(_text_values(fact.get("text"))).casefold() for fact in facts}
+    new_facts = []
+    for text in _text_values(fields):
+        normalized = "".join(text.split()).casefold()
+        if normalized and normalized not in baseline_texts and normalized not in fact_texts and text not in new_facts:
+            new_facts.append(text)
+    record: dict[str, Any] = {
+        "group": group,
+        "label": label,
+        "available": available,
+        "fields": deepcopy(dict(fields)),
+        "has_new_facts": bool(new_facts),
+        "new_facts": new_facts,
+        "evidence_id_valid": not invalid,
+        "evidence_id_validity": {
+            "valid": not invalid,
+            "checked": len(evidence_ids),
+            "evidence_ids": evidence_ids,
+            "invalid_evidence_ids": invalid,
+            "available_evidence_count": len(available_ids),
+        },
+        "call_metrics": dict(metrics),
+        "used_fallback": used_fallback,
+    }
+    if error:
+        record["error"] = _safe_error(RuntimeError(error))
+    return record
+
+
+def _aggregate(calls: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    return {
+        "calls": len(calls),
+        "duration_ms": round(sum(float(call.get("duration_ms", 0) or 0) for call in calls), 3),
+        "prompt_tokens": sum(int(call.get("prompt_tokens", 0) or 0) for call in calls),
+        "completion_tokens": sum(int(call.get("completion_tokens", 0) or 0) for call in calls),
+        "total_tokens": sum(int(call.get("total_tokens", 0) or 0) for call in calls),
+        "models": sorted({str(call.get("model")) for call in calls if call.get("model")}),
+        "token_usage_known": all(call.get("total_tokens") is not None for call in calls),
+    }
+
+
+def _load_real_client() -> OpenAIModelClient:
+    required = ("IAIC_API_BASE", "IAIC_API_KEY", "IAIC_CHAT_MODEL")
+    missing = [name for name in required if not os.getenv(name)]
+    if missing:
+        raise ExperimentConfigurationError("missing required IAIC_* configuration: " + ", ".join(missing))
+    return OpenAIModelClient(timeout=120, retry_delay=0.2)
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--input-docx", type=Path, required=True)
+    parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--baseline-json", type=Path)
+    parser.add_argument("--index-dir", type=Path)
+    parser.add_argument("--sample-id", default="")
+    parser.add_argument("--split", default="fit")
+    parser.add_argument("--offline", action="store_true")
+    return parser
+
+
+def run_experiment(
+    input_docx: str | Path,
+    output_dir: str | Path,
+    *,
+    baseline_json: str | Path | None = None,
+    index_dir: str | Path | None = None,
+    sample_id: str = "",
+    split: str = "fit",
+    offline: bool = False,
+) -> dict[str, Any]:
+    started = perf_counter()
+    input_path = Path(input_docx)
+    output = Path(output_dir)
+    if not input_path.is_file():
+        raise FileNotFoundError(input_path)
+    baseline = _load_baseline(input_path, Path(baseline_json) if baseline_json else None)
+    if sample_id:
+        baseline["sample_id"] = sample_id
+    sample_id = str(sample_id or baseline.get("sample_id") or input_path.stem)
+    source_file = str(baseline.get("source_file") or input_path.name)
+    facts = _report_facts(input_path, source_file)
+    context_facts = _select_context_facts(facts, baseline)
+    output.mkdir(parents=True, exist_ok=True)
+    baseline_path = output / "baseline_prediction.json"
+    retrieval_path = output / "retrieval_trace.json"
+    summary_path = output / "experiment_summary.json"
+    ab_path = output / "ab_results.json"
+    _write_json(baseline_path, baseline)
+
+    if offline:
+        client: Any = TrackingClient(OfflineClient(facts[0]["evidence_id"] if facts else ""))
+    else:
+        try:
+            client = TrackingClient(_load_real_client())
+        except ExperimentConfigurationError as error:
+            unavailable = {
+                group: {
+                    "group": group,
+                    "label": label,
+                    "available": False,
+                    "fields": {field: None for field in TARGET_FIELDS},
+                    "used_fallback": False,
+                    "error": _safe_error(error),
+                }
+                for group, label in (
+                    ("B", "LLM without RAG"),
+                    ("C", "LLM with current-report evidence"),
+                    ("D", "LLM with evidence+RAG+similar labels"),
+                )
+            }
+            groups = {"A": _group_record("A", "rule baseline", _normalised_fields(baseline), baseline, facts, [], {"model": "rule-baseline", "calls": 0})}
+            groups.update(unavailable)
+            retrieval = {"status": "not-run", "retrieval_available": False, "hits": [], "calls": []}
+            _write_json(retrieval_path, retrieval)
+            _write_json(ab_path, {"schema_version": "narrative-ab-v1", "groups": groups, "results": list(groups.values())})
+            summary = {
+                "schema_version": "narrative-experiment-v1",
+                "status": "configuration_error",
+                "offline": False,
+                "sample_id": sample_id,
+                "model": "not-run",
+                "duration_ms": round((perf_counter() - started) * 1000, 3),
+                "configuration_error": _safe_error(error),
+                "enhanced_prediction_written": False,
+                "outputs": {"baseline_prediction": str(baseline_path), "retrieval_trace": str(retrieval_path), "ab_results": str(ab_path), "experiment_summary": str(summary_path), "enhanced_prediction": None},
+            }
+            _write_json(summary_path, summary)
+            return summary
+
+    groups: dict[str, dict[str, Any]] = {
+        "A": _group_record("A", "rule baseline", _normalised_fields(baseline), baseline, facts, [], {"model": "rule-baseline", "calls": 0})
+    }
+    start_b = len(client.calls)
+    try:
+        fields_b, _ = _run_chat_group("B", client, baseline, [])
+        groups["B"] = _group_record("B", "LLM without RAG", fields_b, baseline, facts, [], _aggregate(client.calls[start_b:]))
+    except Exception as error:
+        groups["B"] = _group_record(
+            "B",
+            "LLM without RAG",
+            {field: None for field in TARGET_FIELDS},
+            baseline,
+            facts,
+            [],
+            _aggregate(client.calls[start_b:]),
+            available=False,
+            error=_safe_error(error),
+        )
+    start_c = len(client.calls)
+    try:
+        fields_c, _ = _run_chat_group("C", client, baseline, context_facts)
+        groups["C"] = _group_record("C", "LLM with current-report evidence", fields_c, baseline, context_facts, [], _aggregate(client.calls[start_c:]))
+    except Exception as error:
+        groups["C"] = _group_record(
+            "C",
+            "LLM with current-report evidence",
+            {field: None for field in TARGET_FIELDS},
+            baseline,
+            context_facts,
+            [],
+            _aggregate(client.calls[start_c:]),
+            available=False,
+            error=_safe_error(error),
+        )
+
+    retrieval_hits: list[dict[str, Any]] = []
+    retrieval_status = "unavailable"
+    retrieval_error: str | None = None
+    if index_dir is not None:
+        start_retrieval = len(client.calls)
+        try:
+            index = LightRagIndex.load(index_dir, client=client)
+            retrieval_hits = index.retrieve(_query(baseline), sample_id=sample_id, split=split, top_embedding=30, top_rerank=8, top_k=6)
+        except Exception as error:
+            retrieval_error = _safe_error(error)
+        retrieval_calls = client.calls[start_retrieval:]
+        retrieval_status = "error" if retrieval_error else ("retrieved" if retrieval_hits else "retrieved_empty")
+    else:
+        retrieval_calls = []
+    retrieval = {
+        "schema_version": "retrieval-trace-v1",
+        "status": retrieval_status,
+        "retrieval_available": index_dir is not None,
+        "index_dir": str(index_dir) if index_dir is not None else None,
+        "query": _query(baseline),
+        "hits": retrieval_hits,
+        "calls": retrieval_calls,
+    }
+    if retrieval_error:
+        retrieval["error"] = retrieval_error
+    _write_json(retrieval_path, retrieval)
+
+    start_d = len(client.calls)
+    d_error: str | None = None
+    d_available = True
+    try:
+        narrative = run_narrative_enhancement(
+            baseline,
+            sample_id,
+            source_file,
+            context_facts,
+            client,
+            retriever=StaticRetriever(retrieval_hits),
+            split=split,
+        )
+    except Exception as error:
+        d_available = False
+        d_error = _safe_error(error)
+        narrative = {
+            "enhanced_prediction": baseline,
+            "used_fallback": True,
+            "validation_errors": [d_error],
+        }
+    enhanced = _prediction_dict(narrative.get("enhanced_prediction", baseline))
+    fields_d = _normalised_fields(enhanced)
+    groups["D"] = _group_record(
+        "D",
+        "LLM with evidence+RAG+similar labels",
+        fields_d,
+        baseline,
+        context_facts,
+        retrieval_hits,
+        _aggregate(client.calls[start_d:]),
+        available=d_available,
+        used_fallback=bool(narrative.get("used_fallback")),
+        error=d_error or "; ".join(str(item) for item in narrative.get("validation_errors", [])) or None,
+    )
+    groups["D"]["retrieval_status"] = retrieval_status
+    enhanced_path = output / "enhanced_prediction.json"
+    _write_json(enhanced_path, enhanced)
+    _write_json(ab_path, {"schema_version": "narrative-ab-v1", "sample_id": sample_id, "split": split, "offline": offline, "target_fields": list(TARGET_FIELDS), "groups": groups, "results": list(groups.values())})
+    has_unavailable_group = any(not groups[group].get("available", True) for group in ("B", "C", "D"))
+    summary = {
+        "schema_version": "narrative-experiment-v1",
+        "status": "offline" if offline else ("partial" if has_unavailable_group or groups["D"]["used_fallback"] else "succeeded"),
+        "offline": offline,
+        "sample_id": sample_id,
+        "split": split,
+        "model": groups["D"]["call_metrics"].get("models", ["not-run"])[0] if groups["D"]["call_metrics"].get("models") else "not-run",
+        "duration_ms": round((perf_counter() - started) * 1000, 3),
+        "token_usage": _aggregate(client.calls),
+        "retrieval": {"status": retrieval_status, "hit_count": len(retrieval_hits), "call_count": len(retrieval_calls)},
+        "groups": {group: groups[group]["call_metrics"] for group in ("A", "B", "C", "D")},
+        "enhanced_prediction_written": True,
+        "current_best_config": "D" if groups["D"]["available"] and not groups["D"]["used_fallback"] else "A",
+        "outputs": {"baseline_prediction": str(baseline_path), "enhanced_prediction": str(enhanced_path), "retrieval_trace": str(retrieval_path), "ab_results": str(ab_path), "experiment_summary": str(summary_path)},
+        "unresolved": ["真实运行需提供 fit-only RAG index" ] if index_dir is None else [],
+    }
+    _write_json(summary_path, summary)
+    return summary
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = _parser().parse_args(argv)
+    try:
+        result = run_experiment(args.input_docx, args.output_dir, baseline_json=args.baseline_json, index_dir=args.index_dir, sample_id=args.sample_id, split=args.split, offline=args.offline)
+    except (OSError, TypeError, ValueError, RuntimeError) as error:
+        print(f"experiment error: {_safe_error(error)}", file=sys.stderr)
+        return 2
+    print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0 if result.get("status") in {"offline", "succeeded", "partial"} else 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

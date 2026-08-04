@@ -54,6 +54,14 @@ def test_chat_json_parses_json_and_code_fence(content):
     )
 
 
+def test_chat_json_parses_json_after_short_prose():
+    fake = MagicMock()
+    fake.chat.completions.create.return_value = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content='结果如下：\n{"ok": true}'))]
+    )
+    assert _client(fake).chat_json([{"role": "user", "content": "return JSON"}]).value == {"ok": True}
+
+
 def test_qwen_chat_disables_thinking_and_uses_default_budget():
     fake = MagicMock()
     fake.chat.completions.create.return_value = SimpleNamespace(
@@ -79,6 +87,7 @@ def test_qwen_chat_disables_thinking_and_uses_default_budget():
     kwargs = fake.chat.completions.create.call_args.kwargs
     assert kwargs["max_tokens"] >= 2048
     assert kwargs["extra_body"] == {"chat_template_kwargs": {"enable_thinking": False}}
+    assert kwargs["response_format"] == {"type": "json_object"}
 
 
 def test_empty_chat_content_reports_finish_reason_and_reasoning_tokens():
