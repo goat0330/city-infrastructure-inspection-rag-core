@@ -9,6 +9,10 @@ from src.contracts import (
     TableRow,
 )
 from src.extraction.recommendations import extract_recommendations
+from src.extraction.recommendations.extractor import (
+    _looks_like_recommendation_paragraph,
+    _location_fields,
+)
 
 
 def _paragraph(index: int, text: str, *, heading_level: int | None = None) -> ParagraphBlock:
@@ -154,9 +158,9 @@ def test_resolves_category_from_content_and_flags_unresolved_fallback() -> None:
 
     result = extract_recommendations(model)
 
-    assert [item.category for item in result.records] == ["立即维修", ""]
-    assert [item.index for item in result.records] == ["1", "2"]
-    assert result.quality_flag_codes == ("recommendation_category_unresolved",)
+    assert [item.category for item in result.records] == ["立即维修"]
+    assert [item.index for item in result.records] == ["1"]
+    assert result.quality_flag_codes == ()
 
 
 def test_uses_paragraph_fallback_when_no_route_heading_is_available() -> None:
@@ -261,3 +265,102 @@ def test_category_inference_is_opt_in_and_gold_derived() -> None:
         flag["code"] == "recommendation_category_inferred"
         for flag in inferred.quality_flags
     )
+
+
+def test_fallback_requires_action_and_location_and_rejects_narrative() -> None:
+    rejected = (
+        "检查桥面并记录结果。",
+        "桥面：建议检查并记录结果。",
+        "检测方法：清理桥面并记录加载位置。",
+        "评定依据：桥梁技术状况等级。",
+        "技术要求：应定期检查桥梁。",
+        "原因分析：维修不及时。",
+        "提出如下建议：",
+        "梁底钢板加固，外观状况良好，暂未见明显病害。具体情况见表5.1.2。",
+        "主桥上部结构现状为拱腰渗水、泛碱等，如不及时进行处理会影响耐久性。",
+        "板底多条纵向裂缝，加固钢板锈蚀，个别挡块斜裂。",
+        "桥面目前不能够满足功能要求，不维修处理就不能正常运营。",
+    )
+
+    assert all(not _looks_like_recommendation_paragraph(text) for text in rejected)
+    assert _looks_like_recommendation_paragraph("桥面：修复裂缝。")
+
+
+def test_keeps_multiple_actions_for_one_numbered_repair_item() -> None:
+    result = extract_recommendations(
+        _model(
+            _paragraph(0, "处理建议", heading_level=1),
+            _paragraph(1, "1、尽快维修：桥面：清理裂缝；修补裂缝。"),
+        )
+    )
+
+    assert len(result.records) == 1
+    assert result.records[0].content == "清理裂缝；修补裂缝。"
+
+
+def test_splits_semicolon_parallel_location_items() -> None:
+    result = extract_recommendations(
+        _model(_paragraph(0, "桥面：清理裂缝；栏杆：修复破损。"))
+    )
+
+    assert [(item.location, item.content) for item in result.records] == [
+        ("桥面", "清理裂缝"),
+        ("栏杆", "修复破损。"),
+    ]
+
+
+def test_splits_newline_continuous_circled_numbering() -> None:
+    result = extract_recommendations(
+        _model(
+            _paragraph(0, "处理建议", heading_level=1),
+            _paragraph(1, "①建议对桥面进行修复\n②建议对栏杆进行维修"),
+        )
+    )
+
+    assert [item.index for item in result.records] == ["①", "②"]
+    assert [item.location for item in result.records] == ["桥面", "栏杆"]
+
+
+def test_location_relations_stop_at_location_content_boundary() -> None:
+    cases = (
+        ("对于破损的侧墙进行修复", "侧墙"),
+        ("针对箱梁底板及腹板出现的裂缝采取压力灌浆修补", "箱梁底板、腹板"),
+        ("对右洞口处顶板车辆刮痕进行修复", "顶板"),
+        ("在顶板处进行修复", "顶板"),
+        ("桥面部位：清理并修补", "桥面"),
+    )
+
+    assert [_location_fields(text)[0] for text, _ in cases] == [
+        expected for _, expected in cases
+    ]
+
+
+def test_high_confidence_inference_does_not_default_to_repair() -> None:
+    result = extract_recommendations(
+        _model(
+            _paragraph(0, "处理建议", heading_level=1),
+            _paragraph(1, "1、对于桥面存在病害，建议关注其变化。"),
+        ),
+        infer_categories=True,
+    )
+
+    assert len(result.records) == 1
+    assert result.records[0].category == ""
+    assert result.quality_flag_codes == ("recommendation_category_unresolved",)
+
+
+def test_audits_recommendations_and_treatment_recommendations_routes() -> None:
+    result = extract_recommendations(
+        _model(
+            _paragraph(0, "建议", heading_level=1),
+            _paragraph(1, "1、尽快维修：桥面：修复裂缝"),
+            _paragraph(2, "处置建议", heading_level=1),
+            _paragraph(3, "1、预防性养护：桥梁：定期检查"),
+        ),
+        infer_categories=True,
+    )
+
+    assert [(item.category, item.location) for item in result.records] == [
+        ("尽快维修", "桥面"),
+        ("预防性养护", "桥梁"),
+    ]
