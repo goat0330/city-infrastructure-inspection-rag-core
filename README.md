@@ -45,6 +45,12 @@ python -m inspection convert --input-dir runs/source-doc --output-dir runs/p0-co
 python -m inspection predict-batch --input-dir runs/p0-converted --output runs/b2-night/round-a-merged/raw-predictions.jsonl --report runs/b2-night/round-a-merged/prediction-report.json
 ```
 
+也可以使用一键入口完成预测、对齐和 benchmark：
+
+```bash
+python scripts/run_b2_word_pipeline.py --input-dir runs/p0-converted --gold runs/p0-gold/gold.json --manifest runs/b2-night/eval-manifest.json --output-dir runs/b2-night/round-a-merged --commit 0000961 --config round-a-word-first
+```
+
 批量报告必须显示 `input_count=161`、`prediction_count=161`、`failed_count=0`。随后使用 manifest 的 `source_docx` 作为唯一对齐依据运行 benchmark；不要直接把 161 条原始预测按文件顺序截取为 86 条：
 
 ```bash

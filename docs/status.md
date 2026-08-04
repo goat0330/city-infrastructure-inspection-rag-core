@@ -39,6 +39,10 @@
 从仓库根目录执行以下命令；本地数据准备后，所有参数均为仓库相对路径：
 
 ```bash
+# 一键入口：predict-batch -> source_docx 对齐 -> benchmark
+python scripts/run_b2_word_pipeline.py --input-dir runs/p0-converted --gold runs/p0-gold/gold.json --manifest runs/b2-night/eval-manifest.json --output-dir runs/b2-night/round-a-merged --commit 0000961 --config round-a-word-first
+
+# 等价的分步命令
 python -m inspection predict-batch --input-dir runs/p0-converted --output runs/b2-night/round-a-merged/raw-predictions.jsonl --report runs/b2-night/round-a-merged/prediction-report.json
 python scripts/run_b2_benchmark.py --gold runs/p0-gold/gold.json --predictions runs/b2-night/round-a-merged/raw-predictions.jsonl --manifest runs/b2-night/eval-manifest.json --weights data/core/score_weights.json --output-dir runs/b2-night/round-a-merged/benchmark --commit 0000961 --config round-a-word-first
 ```
