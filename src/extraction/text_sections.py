@@ -6,7 +6,13 @@ from dataclasses import dataclass
 import re
 from typing import Iterable, Sequence
 
-from ..contracts import BridgeSummary, DocumentModel, ParagraphBlock, Recommendation
+from ..contracts import (
+    BridgeSummary,
+    DefectObservation,
+    DocumentModel,
+    ParagraphBlock,
+    Recommendation,
+)
 
 
 @dataclass(frozen=True)
@@ -38,12 +44,12 @@ _COMPONENT_WORDS = (
 _CAUSE_WORDS = ("由于", "因", "主要原因为", "原因是", "导致", "造成", "受影响")
 _IMPACT_WORDS = (
     "影响", "风险", "隐患", "承载能力", "行车安全", "结构安全", "耐久性", "使用功能",
-    "可能导致", "不利于",
+    "功能", "可能导致", "不利于",
 )
 _ACTION_WORDS = (
     "建议", "应及时", "需及时", "及时进行", "及时处理", "及时修复", "及时维修", "修补",
-    "维修", "养护", "处置", "处理", "加固", "清理", "封闭", "更换", "复位", "除锈",
-    "涂刷", "灌浆", "修理",
+    "维修", "养护", "处置", "处治", "处理", "加固", "清理", "封闭", "更换", "复位", "除锈",
+    "涂刷", "灌浆", "修理", "观测", "巡查", "维护", "管理",
 )
 _FACT_WORDS = (
     "总体", "整体", "技术状况", "评分", "等级", "BCI", "病害", "裂缝", "破损", "锈蚀",
@@ -51,14 +57,16 @@ _FACT_WORDS = (
 )
 _SECTION_PATTERNS = {
     "safety": re.compile(r"(?:\d+(?:\.\d+)*\s*)?安全性评估(?!规程|等级|内容)"),
-    "conclusion": re.compile(r"(?:\d+(?:\.\d+)*\s*)?(?:检测结论|评估结论|检查结论|总体结论)"),
+    "conclusion": re.compile(r"(?:\d+(?:\.\d+)*\s*)?(?:检测结论|评估结论|检查结论|总体结论|综合结论)"),
     "treatment": re.compile(r"(?:\d+(?:\.\d+)*\s*)?(?:处理建议|处置建议|处治建议|处理意见|建议明细)"),
     "overview": re.compile(r"(?:\d+(?:\.\d+)*\s*)?(?:外观检查结果|外观病害检查)"),
 }
 _TITLE_RE = re.compile(
     r"^(?:第?\d+(?:\.\d+)*\s*)?(?:检测结论|评估结论|检查结论|总体结论|安全性评估|"
-    r"现状评估|预测评估|综合评估|外观检查|专项检测|桥面系|上部结构|下部结构|处理建议|"
-    r"处置建议|处治建议|建议明细|病害明细|技术状况等级评定|结构检算|静载试验|动载试验|基本状况卡)$"
+    r"桥梁安全性评估|安全性评估等级|安全性评估内容|现状评估|预测评估|综合评估|"
+    r"综合结论|检测结果|评估结果|外观检查|专项检测|桥面系|上部结构|下部结构|处理建议|"
+    r"处置建议|处治建议|建议明细|病害明细|应采取的措施|技术状况等级评定|结构检算|"
+    r"静载试验|动载试验|基本状况卡)$"
 )
 _NUMBER_PREFIX_RE = re.compile(
     r"^\s*(?:[（(]?[0-9一二三四五六七八九十百千万]+[）)\.、:：]?|[⑴-⒇])\s*"
@@ -70,8 +78,24 @@ def extract_text_sections(
     routes: Sequence[object],
     recommendations: Sequence[Recommendation],
     summary: BridgeSummary,
+    defects: Sequence[DefectObservation] | None = None,
 ) -> TextSectionExtraction:
-    """Extract fact-only text sections without introducing new report facts."""
+    """Extract fact-only text sections without introducing new report facts.
+
+    The original four-argument call remains available for callers that still
+    rely on the paragraph-window fallback.  The pipeline supplies
+    ``defects.records`` as the fifth argument and therefore uses the
+    structured-facts path below.
+    """
+
+    if defects is not None:
+        return _structured_text_sections(
+            document,
+            routes,
+            recommendations,
+            summary,
+            defects,
+        )
 
     all_units = _document_units(document)
     heading_blocks = _heading_blocks(routes)
@@ -94,6 +118,607 @@ def extract_text_sections(
     safety = _safety_impact(safety_units, heading_blocks)
     treatments = _treatments(recommendations)
     return TextSectionExtraction(detailed, causes, treatments, safety)
+
+
+_MISSING_VALUES = frozenset(
+    {
+        "",
+        "无",
+        "未提供",
+        "未给出",
+        "缺失",
+        "未知",
+        "n/a",
+        "na",
+        "none",
+        "null",
+        "-",
+        "--",
+    }
+)
+_EXPLICIT_CAUSE_RE = re.compile(
+    r"(?:由于|因为|主要原因(?:是|为)?|原因(?:是|为)|导致|造成)"
+)
+_CAUSE_EXCLUDED_PREFIXES = (
+    "严格",
+    "严禁",
+    "建议",
+    "应",
+    "需",
+    "及时",
+    "避免",
+    "按照",
+    "进行",
+    "预测",
+    "鉴于",
+    "对",
+    "对于",
+    "加强",
+    "按",
+    "根据",
+    "本报告",
+    "挠度检测",
+)
+_SAFETY_EVIDENCE_WORDS = (
+    "安全",
+    "承载能力",
+    "耐久性",
+    "行车",
+    "通行",
+    "风险",
+    "隐患",
+    "使用功能",
+    "功能",
+    "结构功能",
+)
+_SAFETY_NOISE_WORDS = (
+    "检测依据",
+    "技术规范",
+    "评定标准",
+    "评定方法",
+    "总体评定",
+    "设计指标",
+    "重要部件",
+    "次要部件",
+    "完好状态",
+    "较好状态",
+    "合格级",
+    "不合格级",
+    "评估等级",
+    "等级划分",
+    "桥梁完好状况",
+)
+_STRUCTURED_CAUSE_RULES: tuple[tuple[str, tuple[str, ...], str], ...] = (
+    (
+        "裂缝",
+        ("裂缝", "裂纹", "开裂"),
+        "裂缝/开裂：报告已记录该类病害，可能与构件受力、材料收缩或温度变化有关，报告未明确单一主因。",
+    ),
+    (
+        "露筋锈蚀",
+        ("露筋", "锈蚀", "腐蚀"),
+        "露筋锈蚀：混凝土保护层破损或剥落使钢筋暴露并受水汽侵蚀，报告未明确具体主因。",
+    ),
+    (
+        "渗水泛碱",
+        ("渗水", "渗漏", "漏水", "泛碱", "浸水"),
+        "渗水泛碱：报告记录水迹或泛碱病害，说明水分进入或排水、防水条件存在问题，具体主因未明确。",
+    ),
+    (
+        "蜂窝麻面",
+        ("蜂窝", "麻面"),
+        "蜂窝麻面：报告记录混凝土表面密实性缺陷，可能与浇筑密实性不足或局部施工缺陷有关，具体主因未明确。",
+    ),
+    (
+        "支座变形",
+        ("支座", "变形"),
+        "支座变形：报告记录支座变形病害，可能与长期受力、位移或老化有关，具体主因未明确。",
+    ),
+    (
+        "铺装/伸缩缝破损",
+        ("铺装", "伸缩缝"),
+        "铺装/伸缩缝破损：报告记录铺装或伸缩缝破损，可能与车辆荷载、温度变形及长期使用有关，具体主因未明确。",
+    ),
+)
+_STRUCTURED_COMPONENTS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "桥面系",
+        (
+            "桥面系",
+            "桥面铺装",
+            "桥面",
+            "铺装",
+            "路面",
+            "行车道",
+            "人行道",
+            "伸缩缝",
+            "泄水",
+            "排水",
+            "路缘石",
+        ),
+    ),
+    (
+        "上部结构",
+        (
+            "上部结构",
+            "主梁",
+            "梁体",
+            "梁底",
+            "梁",
+            "箱梁",
+            "板",
+            "腹板",
+            "翼板",
+            "翼缘板",
+            "横隔板",
+            "横向联系",
+            "湿接缝",
+            "索塔",
+            "塔柱",
+            "主塔",
+            "斜拉索",
+        ),
+    ),
+    (
+        "下部结构",
+        (
+            "下部结构",
+            "桥墩",
+            "墩身",
+            "墩台",
+            "桥台",
+            "台身",
+            "台帽",
+            "盖梁",
+            "基础",
+            "支座",
+            "垫石",
+        ),
+    ),
+    (
+        "附属设施",
+        (
+            "栏杆",
+            "护栏",
+            "照明",
+            "标志",
+            "标线",
+            "防护网",
+            "桁车",
+            "检修设施",
+            "附属设施",
+        ),
+    ),
+)
+
+
+def _structured_text_sections(
+    document: DocumentModel,
+    routes: Sequence[object],
+    recommendations: Sequence[Recommendation],
+    summary: BridgeSummary,
+    defects: Sequence[DefectObservation],
+) -> TextSectionExtraction:
+    summary_value = getattr(summary, "summary", summary)
+    recommendation_records = _record_sequence(recommendations)
+    defect_records = _usable_defects(_record_sequence(defects))
+    units = _document_units(document)
+    heading_blocks = _heading_blocks(routes)
+    recommendation_blocks = _route_blocks(
+        routes,
+        {"recommendations", "treatment_recommendations"},
+    ) | _recommendation_evidence_blocks(recommendation_records)
+    safety_units = _section_window(units, "safety", {"conclusion", "treatment"})
+    if not safety_units:
+        safety_units = _route_units(routes, "safety_assessment", recommendation_blocks)
+    if not safety_units:
+        safety_units = units
+    source_causes = _source_causes(
+        safety_units,
+        summary_value,
+        recommendation_blocks,
+        heading_blocks,
+    )
+    impact_sources = _impact_sources(safety_units, heading_blocks)
+    return TextSectionExtraction(
+        detailed_conclusion=_structured_detailed_conclusion(
+            summary_value,
+            defect_records,
+            recommendation_records,
+            impact_sources,
+        ),
+        causes=_structured_causes(defect_records, source_causes),
+        treatments=_structured_treatments(recommendation_records),
+        safety_impact=_structured_safety_impact(
+            summary_value,
+            defect_records,
+            impact_sources,
+        ),
+    )
+
+
+def _record_sequence(value: object) -> tuple[object, ...]:
+    records = getattr(value, "records", value)
+    if records is None or isinstance(records, (str, bytes, dict)):
+        return ()
+    try:
+        return tuple(records)  # type: ignore[arg-type]
+    except TypeError:
+        return ()
+
+
+def _recommendation_evidence_blocks(records: Sequence[object]) -> set[int]:
+    result: set[int] = set()
+    for record in records:
+        evidence = getattr(record, "evidence", ())
+        for anchor in evidence if isinstance(evidence, (list, tuple)) else ():
+            block_index = getattr(anchor, "block_index", None)
+            if isinstance(block_index, int):
+                result.add(block_index)
+    return result
+
+
+def _field_value(item: object, field: str) -> str:
+    if isinstance(item, dict):
+        value = item.get(field, "")
+    else:
+        value = getattr(item, field, "")
+    return " ".join(str(value or "").replace("\u00a0", " ").split()).strip()
+
+
+def _present_value(value: object) -> str:
+    text = " ".join(str(value or "").split()).strip()
+    if text.casefold() in _MISSING_VALUES:
+        return ""
+    return text
+
+
+def _summary_field(summary: object, field: str) -> str:
+    return _present_value(_field_value(summary, field))
+
+
+def _usable_defects(records: Sequence[object]) -> tuple[object, ...]:
+    result: list[object] = []
+    for record in records:
+        text = _compact(
+            " ".join(
+                (
+                    _field_value(record, "location"),
+                    _field_value(record, "defect_type"),
+                    _field_value(record, "description"),
+                )
+            )
+        )
+        defect_type = _compact(_field_value(record, "defect_type"))
+        description = _compact(_field_value(record, "description"))
+        if not text or (
+            defect_type in {"/", "\\", "-", "—", "_"}
+            and not _canonical_type(text)
+        ):
+            continue
+        if re.match(r"(?:照片|图|表|病害分布|缺陷照片)", text) and not _canonical_type(text):
+            continue
+        result.append(record)
+    return tuple(result)
+
+
+def _canonical_type(record_text: str) -> str:
+    text = _compact(record_text)
+    if any(word in text for word in ("露筋", "锈蚀", "腐蚀")):
+        return "露筋锈蚀"
+    if any(word in text for word in ("渗水", "渗漏", "漏水", "泛碱", "浸水")):
+        return "渗水泛碱"
+    if any(word in text for word in ("蜂窝", "麻面")):
+        return "蜂窝麻面"
+    if "支座" in text and "变形" in text:
+        return "支座变形"
+    if ("铺装" in text or "伸缩缝" in text) and any(
+        word in text for word in ("破损", "损坏", "坑槽", "开裂", "裂缝", "脱落")
+    ):
+        return "铺装/伸缩缝破损"
+    if any(word in text for word in ("裂缝", "裂纹", "开裂")):
+        return "裂缝"
+    return ""
+
+
+def _defect_type(record: object) -> str:
+    text = " ".join(
+        (
+            _field_value(record, "defect_type"),
+            _field_value(record, "description"),
+        )
+    )
+    return _canonical_type(text) or _field_value(record, "defect_type") or "未分类病害"
+
+
+def _defect_counts(records: Sequence[object]) -> tuple[tuple[str, int], ...]:
+    counts: dict[str, int] = {}
+    for record in records:
+        name = _defect_type(record)
+        if name and name not in counts:
+            counts[name] = 0
+        if name:
+            counts[name] += 1
+    return tuple(counts.items())
+
+
+def _format_defect_counts(records: Sequence[object], *, limit: int = 8) -> str:
+    counts = _defect_counts(records)
+    if not counts:
+        return "未提取到结构化病害记录"
+    return "、".join(f"{name}{count}条" for name, count in counts[:limit])
+
+
+def _classify_component(text: str) -> str | None:
+    compact = _compact(text)
+    for label, words in _STRUCTURED_COMPONENTS:
+        if any(word in compact for word in words):
+            return label
+    return None
+
+
+def _record_component(record: object) -> str | None:
+    return _classify_component(
+        " ".join(
+            (
+                _field_value(record, "location"),
+                _field_value(record, "defect_type"),
+                _field_value(record, "description"),
+            )
+        )
+    )
+
+
+def _component_summary(label: str, records: Sequence[object]) -> str:
+    counts = _format_defect_counts(records, limit=5)
+    examples: list[str] = []
+    for record in records[:3]:
+        location = _field_value(record, "location")
+        defect_type = _defect_type(record)
+        if location and _compact(location) != _compact(defect_type):
+            examples.append(f"{_truncate_fact(location, 36)}：{defect_type}")
+    suffix = f"；典型部位为{ '、'.join(examples)}" if examples else ""
+    return f"记录{len(records)}条，主要为{counts}{suffix}"
+
+
+def _structured_detailed_conclusion(
+    summary: object,
+    defects: Sequence[object],
+    recommendations: Sequence[object],
+    impact_sources: Sequence[tuple[str | None, str]],
+) -> tuple[str, ...]:
+    score = _structured_score_paragraph(summary)
+    previous_score = _summary_field(summary, "previous_overall_score")
+    previous_grade = _summary_field(summary, "previous_overall_grade")
+    trend = _summary_field(summary, "trend")
+    history_parts: list[str] = []
+    if previous_score:
+        history_parts.append(f"上一周期总体评分为{previous_score}分")
+    if previous_grade:
+        history_parts.append(f"上一周期总体等级为{previous_grade}")
+    if trend:
+        history_parts.append(f"报告记录的发展趋势为{trend}")
+    history = (
+        "历史对比：" + "，".join(history_parts) + "。"
+        if history_parts
+        else "历史对比：未提供上一周期总体评分、等级或发展趋势。"
+    )
+    overview = (
+        f"病害概括：共记录{len(defects)}条结构化病害，主要包括{_format_defect_counts(defects)}。"
+        if defects
+        else "病害概括：未提取到结构化病害记录。"
+    )
+    category_parts: list[str] = []
+    for label, _ in _STRUCTURED_COMPONENTS:
+        grouped = tuple(record for record in defects if _record_component(record) == label)
+        category_parts.append(
+            f"{label}：{_component_summary(label, grouped) if grouped else '未提取到结构化病害记录'}"
+        )
+    risk_parts: list[str] = []
+    for _, text in impact_sources[:2]:
+        risk_parts.append(_truncate_fact(text, 300))
+    risk_value = _safe_summary_fact(_summary_field(summary, "risk_points"))
+    if risk_value:
+        risk_parts.insert(0, _truncate_fact(risk_value, 420))
+    treatment_contents = _structured_treatments(recommendations)
+    if treatment_contents:
+        risk_parts.append("处置重点包括：" + "；".join(treatment_contents[:4]))
+    risk = (
+        "突出风险与处置重点：" + "；".join(_unique(risk_parts)) + "。"
+        if risk_parts
+        else "突出风险与处置重点：未提取到明确的风险或处置证据。"
+    )
+    return (
+        score,
+        f"{history}{overview}",
+        "按结构部位归纳病害：" + "；".join(category_parts) + "。",
+        risk,
+    )
+
+
+def _structured_score_paragraph(summary: object) -> str:
+    score = _summary_field(summary, "overall_score")
+    grade = _summary_field(summary, "overall_grade")
+    if score:
+        result = f"总体技术状况评分为{score}分"
+    else:
+        result = "无统一全桥评分"
+    if grade:
+        result += f"，统一全桥等级为{grade}"
+    else:
+        result += "，报告未提供统一全桥等级"
+    components: list[str] = []
+    for label, prefix in (
+        ("上部结构", "superstructure"),
+        ("下部结构", "substructure"),
+        ("桥面系", "deck"),
+    ):
+        component_score = _summary_field(summary, f"{prefix}_score")
+        component_grade = _summary_field(summary, f"{prefix}_grade")
+        if not component_score and not component_grade:
+            continue
+        part = label
+        if component_score:
+            part += f"评分{component_score}分"
+        if component_grade:
+            part += f"、等级{component_grade}"
+        components.append(part)
+    if components:
+        result += "；报告另记录" + "；".join(components)
+    return "评分与等级：" + result + "。"
+
+
+def _safe_summary_fact(value: str) -> str:
+    compact = _compact(value)
+    if not compact or len(compact) > 500:
+        return ""
+    if _has_any(compact, ("评估分级", "等级划分", "见下表", "安全性评估内容")):
+        return ""
+    return value
+
+
+def _source_causes(
+    units: Sequence[_TextUnit],
+    summary: object,
+    recommendation_blocks: set[int],
+    heading_blocks: set[int],
+) -> tuple[str, ...]:
+    candidates: list[str] = []
+    for unit in units:
+        if unit.block_index in recommendation_blocks or _is_heading_unit(unit, heading_blocks):
+            continue
+        for value in _split_sentences(unit.text, split_semicolon=True):
+            compact = _compact(value)
+            if (
+                _EXPLICIT_CAUSE_RE.search(compact)
+                and len(compact) >= 8
+                and _has_any(compact, _DISEASE_WORDS)
+                and not _is_title(value)
+                and not _is_noise(value)
+                and not _is_action(value)
+                and not compact.startswith(_CAUSE_EXCLUDED_PREFIXES)
+            ):
+                candidates.append(_truncate_fact(value, 300))
+    for field in ("overall_conclusion", "risk_points"):
+        value = _summary_field(summary, field)
+        for candidate in _split_sentences(value, split_semicolon=True):
+            compact = _compact(candidate)
+            if (
+                _EXPLICIT_CAUSE_RE.search(compact)
+                and _has_any(compact, _DISEASE_WORDS)
+                and not _is_action(candidate)
+                and not compact.startswith(_CAUSE_EXCLUDED_PREFIXES)
+            ):
+                candidates.append(_truncate_fact(candidate, 300))
+    return _unique(candidates)
+
+
+def _structured_causes(
+    defects: Sequence[object],
+    source_causes: Sequence[str],
+) -> tuple[str, ...]:
+    rule_causes: list[str] = []
+    text = "\n".join(
+        " ".join(
+            (
+                _field_value(record, "location"),
+                _field_value(record, "defect_type"),
+                _field_value(record, "description"),
+            )
+        )
+        for record in defects
+    )
+    compact = _compact(text)
+    for _, words, rule in _STRUCTURED_CAUSE_RULES:
+        if _cause_rule_matches(words, compact):
+            rule_causes.append(rule)
+    if source_causes:
+        if len(source_causes) >= 3:
+            return _unique(source_causes)[:6]
+        return _unique((*source_causes, *rule_causes))[:6]
+    if len(rule_causes) < 2:
+        return ()
+    return tuple(rule_causes)
+
+
+def _cause_rule_matches(words: Sequence[str], text: str) -> bool:
+    if words == ("支座", "变形"):
+        return "支座" in text and "变形" in text
+    if words == ("铺装", "伸缩缝"):
+        return ("铺装" in text or "伸缩缝" in text) and any(
+            word in text for word in ("破损", "损坏", "坑槽", "开裂", "裂缝", "脱落")
+        )
+    return any(word in text for word in words)
+
+
+def _impact_sources(
+    units: Sequence[_TextUnit],
+    heading_blocks: set[int],
+) -> tuple[tuple[str | None, str], ...]:
+    result: list[tuple[str | None, str]] = []
+    for unit in units:
+        if _is_heading_unit(unit, heading_blocks):
+            continue
+        for value in _split_sentences(unit.text, split_semicolon=True):
+            compact = _compact(value)
+            if not _is_impact(value) or not _has_any(compact, _SAFETY_EVIDENCE_WORDS):
+                continue
+            if (
+                _is_noise(value)
+                or _is_title(value)
+                or len(compact) > 500
+                or _has_any(compact, _SAFETY_NOISE_WORDS)
+                or _has_any(compact, ("评估分级", "重要桥梁", "一般桥梁", "城市桥梁按"))
+            ):
+                continue
+            result.append((_classify_component(value), _truncate_fact(value, 300)))
+    seen: set[tuple[str | None, str]] = set()
+    return tuple(item for item in result if not (item in seen or seen.add(item)))
+
+
+def _structured_safety_impact(
+    summary: object,
+    defects: Sequence[object],
+    impact_sources: Sequence[tuple[str | None, str]],
+) -> tuple[str, ...]:
+    result: list[str] = []
+    for label in ("桥面系", "上部结构", "下部结构"):
+        grouped = tuple(record for record in defects if _record_component(record) == label)
+        source = tuple(text for category, text in impact_sources if category == label)
+        if not grouped and not source:
+            continue
+        if source:
+            impact = "；".join(_unique(source)[:2])
+        else:
+            impact = "报告未明确该类病害对安全性、承载能力或耐久性的具体影响。"
+        evidence = _format_defect_counts(grouped, limit=4) if grouped else "原文安全影响表述"
+        result.append(f"{label}：已有证据为{evidence}；{impact}")
+
+    overall: list[str] = []
+    for field in ("risk_points", "overall_conclusion"):
+        value = _safe_summary_fact(_summary_field(summary, field))
+        if value and _is_impact(value):
+            overall.append(_truncate_fact(value, 360))
+    overall.extend(text for category, text in impact_sources if category is None)
+    if overall:
+        result.append("总体评估：" + "；".join(_unique(overall)[:2]))
+    return tuple(result[:4])
+
+
+def _structured_treatments(recommendations: Sequence[object]) -> tuple[str, ...]:
+    result: list[str] = []
+    for recommendation in recommendations:
+        content = _field_value(recommendation, "content")
+        if content:
+            result.append(_clean_text(content, strip_number=False))
+    return _unique(result)
+
+
+def _truncate_fact(value: str, limit: int) -> str:
+    text = _clean_text(value, strip_number=False)
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1].rstrip("，,；; ") + "…"
 
 
 def _document_units(document: DocumentModel) -> tuple[_TextUnit, ...]:

@@ -91,6 +91,7 @@ def extract_report(input_path: str | Path, *, source_file: str | None = None) ->
         routes,
         recommendations.records,
         summary.summary,
+        defects.records,
     )
 
     prediction = InspectionPrediction(

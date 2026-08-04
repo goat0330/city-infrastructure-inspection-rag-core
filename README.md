@@ -83,7 +83,7 @@ python -m inspection render --input prediction.json --output result.docx
 python -m inspection render-batch --input prediction.jsonl --manifest submission-manifest.json --output-dir rendered-docx --report render-report.json
 python -m inspection convert-doc --input-dir rendered-docx --output-dir final-doc --manifest submission-manifest.json --report convert-report.json --soffice-path ...
 python -m inspection validate --input result.docx --output validation.json
-python -m inspection package --input-dir final-doc --output submission.tar.gz --manifest expected.csv
+python -m inspection package --input-dir final-doc --code-dir submission-code --design-dir submission-design --output submission.tar.gz --manifest expected.csv
 python -m inspection validate-package --input submission.tar.gz --manifest expected.csv
 ```
 
@@ -93,7 +93,7 @@ python -m inspection validate-package --input submission.tar.gz --manifest expec
 
 提交链路为 `prediction.jsonl → render-batch → rendered-docx → convert-doc → final-doc → package → validate-package`。`render-batch` 和 `convert-doc` 都以 manifest 授权的文件名为准，并为单文件失败保留报告；最终要求预测、DOCX、DOC 和 tar 成员数量一致。`convert-doc` 使用 LibreOffice/`soffice` 将 DOCX 转为旧版 `.doc`，可通过 `--soffice-path` 指定可执行文件。
 
-`package` 默认要求输入目录根部只包含 `.doc` 文件，并生成确定性的 `tar.gz`。可选 manifest 用于严格检查测试集输出文件名和数量。它校验压缩格式、根目录结构、重复/临时文件、扩展名、缺失和多余文件；不尝试解析旧版二进制 `.doc` 内容。
+`package` 要求分别提供代码目录、方案目录和结果目录，生成官方要求的 `code/`、`design/`、`result/` 三个一级目录；`result/` 直接包含 `.doc` 文件。可选 manifest 用于严格检查测试集输出文件名和数量。`validate-package` 校验 gzip/tar 完整性、三目录结构、重复/临时文件、扩展名、缺失和多余文件；不尝试解析旧版二进制 `.doc` 内容。
 
 ## 公开边界
 

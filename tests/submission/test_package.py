@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 from pathlib import Path
 import tarfile
@@ -19,23 +20,55 @@ def _write_doc(path: Path, payload: bytes = b"legacy-word-placeholder") -> Path:
     return path
 
 
-def test_creates_deterministic_root_only_tar_gz(tmp_path: Path) -> None:
-    source = tmp_path / "docs"
+def _package_dirs(tmp_path: Path) -> tuple[Path, Path]:
+    code = tmp_path / "code"
+    design = tmp_path / "design"
+    code.mkdir()
+    design.mkdir()
+    (code / "runner.py").write_text("print('ok')\n", encoding="utf-8")
+    (design / "plan.md").write_text("# 方案\n", encoding="utf-8")
+    return code, design
+
+
+def test_creates_deterministic_official_tar_gz(tmp_path: Path) -> None:
+    source = tmp_path / "result"
     source.mkdir()
     _write_doc(source / "B.doc", b"b")
     _write_doc(source / "A.doc", b"a")
+    code, design = _package_dirs(tmp_path)
 
     first = tmp_path / "first.tar.gz"
     second = tmp_path / "second.tar.gz"
-    result = create_submission_package(source, first, expected_names=("A.doc", "B.doc"))
-    create_submission_package(source, second, expected_names=("A.doc", "B.doc"))
+    result = create_submission_package(
+        source,
+        first,
+        code_dir=code,
+        design_dir=design,
+        expected_names=("A.doc", "B.doc"),
+    )
+    create_submission_package(
+        source,
+        second,
+        code_dir=code,
+        design_dir=design,
+        expected_names=("A.doc", "B.doc"),
+    )
 
     assert result["valid"] is True
     assert result["files"] == ["A.doc", "B.doc"]
     assert hashlib.sha256(first.read_bytes()).digest() == hashlib.sha256(second.read_bytes()).digest()
     with tarfile.open(first, "r:gz") as archive:
-        assert archive.getnames() == ["A.doc", "B.doc"]
-        assert all(member.isfile() for member in archive.getmembers())
+        assert archive.getnames() == [
+            "code",
+            "code/runner.py",
+            "design",
+            "design/plan.md",
+            "result",
+            "result/A.doc",
+            "result/B.doc",
+        ]
+        assert archive.getmember("result").isdir()
+        assert all(member.isfile() for member in archive.getmembers() if member.name.endswith(".doc"))
 
 
 def test_rejects_nested_or_wrong_extension_inputs(tmp_path: Path) -> None:
@@ -43,13 +76,19 @@ def test_rejects_nested_or_wrong_extension_inputs(tmp_path: Path) -> None:
     source.mkdir()
     (source / "nested").mkdir()
     (source / "result.docx").write_bytes(b"x")
+    code, design = _package_dirs(tmp_path)
 
     with pytest.raises(ValueError) as error:
-        create_submission_package(source, tmp_path / "bad.tar.gz")
+        create_submission_package(
+            source,
+            tmp_path / "bad.tar.gz",
+            code_dir=code,
+            design_dir=design,
+        )
 
     payload = json.loads(str(error.value))
     codes = {failure["code"] for failure in payload["failures"]}
-    assert "nested_directories" in codes
+    assert "nested_result_directories" in codes
     assert "invalid_extension" in codes
 
 
@@ -57,11 +96,14 @@ def test_manifest_reports_missing_and_unexpected_files(tmp_path: Path) -> None:
     source = tmp_path / "docs"
     source.mkdir()
     _write_doc(source / "A.doc")
+    code, design = _package_dirs(tmp_path)
 
     with pytest.raises(ValueError) as error:
         create_submission_package(
             source,
             tmp_path / "submission.tar.gz",
+            code_dir=code,
+            design_dir=design,
             expected_names=("A.doc", "B.doc"),
         )
 
@@ -78,6 +120,20 @@ def test_validates_invalid_archive_without_exception(tmp_path: Path) -> None:
 
     assert result["valid"] is False
     assert result["failures"][0]["code"] == "invalid_tar_gz"
+
+
+def test_rejects_legacy_root_only_archive(tmp_path: Path) -> None:
+    package = tmp_path / "legacy.tar.gz"
+    with tarfile.open(package, "w:gz") as archive:
+        info = tarfile.TarInfo("A.doc")
+        info.size = 1
+        archive.addfile(info, io.BytesIO(b"x"))
+
+    result = validate_submission_package(package, expected_names=("A.doc",))
+
+    assert result["valid"] is False
+    codes = {failure["code"] for failure in result["failures"]}
+    assert {"missing_required_directory", "root_files_forbidden"} <= codes
 
 
 def test_loads_csv_and_json_manifests(tmp_path: Path) -> None:

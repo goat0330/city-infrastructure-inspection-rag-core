@@ -220,6 +220,31 @@ def test_target_route_accepts_repair_and_skips_introductory_sentence() -> None:
     ]
 
 
+def test_explicit_measure_section_excludes_historical_numbered_prose() -> None:
+    result = extract_recommendations(
+        _model(
+            _paragraph(0, "1 历史检查" , heading_level=1),
+            _paragraph(1, "（1）历史检查建议对桥梁进行维修。"),
+            _paragraph(2, "3 应采取的措施", heading_level=2),
+            _paragraph(3, "3.1应立即维护的设施"),
+            _paragraph(4, "（1）立即修复主桥北岸构件脱落的伸缩缝。"),
+            _paragraph(5, "（2）拆除遗留在桥上的临时设施，避免安全事故。"),
+            _paragraph(6, "3.2在日常养护中采取才措施"),
+            _paragraph(7, "（1）加强日常巡查，按规范要求对桥梁进行养护。"),
+            _paragraph(8, ""),
+            _paragraph(9, ""),
+            _paragraph(10, ""),
+            _paragraph(11, "桥梁资料卡"),
+        )
+    )
+
+    assert [item.content for item in result.records] == [
+        "立即修复主桥北岸构件脱落的伸缩缝。",
+        "拆除遗留在桥上的临时设施，避免安全事故。",
+        "加强日常巡查，按规范要求对桥梁进行养护。",
+    ]
+
+
 def test_extracts_parenthesized_ideographic_numbered_recommendations() -> None:
     model = _model(
         _paragraph(0, "12 处理建议", heading_level=1),

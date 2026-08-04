@@ -283,6 +283,44 @@ def test_bridge_name_repairs_only_observed_suffixes_and_wrong_paragraph_source(t
         assert result.summary.bridge_name == expected
 
 
+def test_dafosi_identity_date_and_scoped_scores_keep_overall_empty(tmp_path: Path) -> None:
+    def assessment_table(score: str) -> str:
+        return table(
+            row(cell("里程桩号"), cell("K3+720"), cell("桥梁名称"), cell("大佛寺长江大桥")),
+            row(cell("项目"), cell("权重"), cell("缺损程度标度"), cell("最终评定标度")),
+            row(cell("综合评定分数Dr"), cell("等级"), cell(f"二类（{score}）")),
+        )
+
+    result = extract_summary(
+        _parse(
+            tmp_path,
+            paragraph("2019年度桥梁等结构设施定期检测"),
+            paragraph("大佛寺长江大桥"),
+            _summary_table(
+                ("项目名称", "2019年度桥梁等结构设施定期检测"),
+                ("检测时间", "2019年9月至10月"),
+                ("检测结束日期", "2019年11月20日"),
+            ),
+            paragraph("表7.1 大佛寺长江大桥技术状况评定表（主桥）"),
+            assessment_table("74.0"),
+            paragraph("表7.2 大佛寺长江大桥技术状况评定表（引桥）"),
+            assessment_table("72.6"),
+        )
+    )
+
+    assert result.summary.bridge_name == "大佛寺长江大桥"
+    assert result.summary.report_date == "2019年11月20日"
+    assert result.summary.overall_score == "无"
+    assert {candidate.value for candidate in result.candidates["overall_score"]} == {
+        "74.0",
+        "72.6",
+    }
+    assert {candidate.label for candidate in result.candidates["overall_score"]} >= {
+        "主桥综合评定分数Dr",
+        "引桥综合评定分数Dr",
+    }
+
+
 def test_bci_phrase_wins_over_misprinted_matrix_grade(tmp_path: Path) -> None:
     document = _parse(
         tmp_path,

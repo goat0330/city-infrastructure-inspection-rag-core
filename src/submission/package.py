@@ -1,9 +1,9 @@
-"""Create and validate deterministic ``tar.gz`` submission packages.
+"""Create and validate deterministic official ``tar.gz`` submissions.
 
-The competition's current delivery contract is a gzip-compressed tar archive
-whose root contains one legacy Word ``.doc`` result per test sample.  This
-module deliberately validates names and archive layout without trying to parse
-binary ``.doc`` contents.
+The competition requires three top-level directories: ``code/``,
+``design/`` and ``result/``.  Result documents must be legacy Word ``.doc``
+files directly under ``result/``; code and design files may be nested below
+their respective directories.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ import unicodedata
 from typing import Any
 
 
+_REQUIRED_TOP_LEVELS = ("code", "design", "result")
 _TEMP_PREFIXES = ("~$", ".~lock.", ".~")
 _MANIFEST_COLUMNS = (
     "filename",
@@ -35,13 +36,17 @@ def _normalise_name(value: object) -> str:
     return unicodedata.normalize("NFC", str(value or "").strip())
 
 
+def _normalise_member_name(value: object) -> str:
+    return _normalise_name(value).replace("\\", "/")
+
+
 def _is_temporary_name(name: str) -> bool:
     lowered = name.casefold()
     return any(lowered.startswith(prefix) for prefix in _TEMP_PREFIXES)
 
 
 def _safe_root_name(name: str) -> bool:
-    path = PurePosixPath(name.replace("\\", "/"))
+    path = PurePosixPath(_normalise_member_name(name))
     return (
         bool(name)
         and not path.is_absolute()
@@ -50,6 +55,11 @@ def _safe_root_name(name: str) -> bool:
         and not _is_temporary_name(path.name)
         and not path.name.startswith(".")
     )
+
+
+def _safe_tree_name(name: str) -> bool:
+    path = PurePosixPath(_normalise_member_name(name).rstrip("/"))
+    return bool(name) and not path.is_absolute() and all(part not in {"", ".", ".."} for part in path.parts)
 
 
 def _expected_from_json(payload: Any) -> list[str]:
@@ -94,7 +104,7 @@ def _expected_from_csv(path: Path) -> list[str]:
 
 
 def load_expected_names(path: str | Path | None) -> tuple[str, ...] | None:
-    """Load exact expected output names from JSON, CSV or line-based text."""
+    """Load exact expected result names from JSON, CSV or line-based text."""
 
     if path is None:
         return None
@@ -135,7 +145,7 @@ def _validate_names(
 
     failures: list[dict[str, Any]] = []
     if not normalised:
-        failures.append({"code": "empty_package", "message": "The package contains no result files."})
+        failures.append({"code": "empty_package", "message": "The result directory contains no result files."})
     if duplicate_names:
         failures.append({"code": "duplicate_names", "names": duplicate_names})
     if unsafe_names:
@@ -162,13 +172,22 @@ def _validate_names(
     }
 
 
+def _merge_failures(result: dict[str, Any], failures: Iterable[dict[str, Any]]) -> None:
+    extra = list(failures)
+    if not extra:
+        return
+    result["failures"].extend(extra)
+    result["valid"] = False
+    result["status"] = "failed"
+
+
 def validate_submission_package(
     package_path: str | Path,
     *,
     expected_names: Sequence[str] | None = None,
     extension: str = ".doc",
 ) -> dict[str, Any]:
-    """Validate archive type, root layout, names and optional exact manifest."""
+    """Validate official archive layout, result names and optional manifest."""
 
     path = Path(package_path)
     if not path.is_file():
@@ -194,26 +213,127 @@ def validate_submission_package(
             "failures": [{"code": "invalid_tar_gz", "message": "File is not a readable tar.gz archive."}],
         }
 
-    non_regular = [member.name for member in members if not member.isfile()]
-    names = [member.name for member in members if member.isfile()]
-    result = _validate_names(names, extension=extension, expected_names=expected_names)
-    result["file_name"] = path.name
-    result["archive_member_count"] = len(members)
-    if non_regular:
-        result["failures"].append(
-            {"code": "non_regular_members", "names": sorted(_normalise_name(name) for name in non_regular)}
+    member_names = [_normalise_member_name(member.name) for member in members]
+    unsafe_members = sorted(
+        name for name in member_names if not _safe_tree_name(name.rstrip("/"))
+    )
+    directories = {
+        name.rstrip("/")
+        for name, member in zip(member_names, members)
+        if member.isdir()
+    }
+    regular_files = [
+        name.rstrip("/")
+        for name, member in zip(member_names, members)
+        if member.isfile()
+    ]
+    non_regular = [
+        name for name, member in zip(member_names, members) if not member.isfile() and not member.isdir()
+    ]
+
+    result_files: list[str] = []
+    result_nested: list[str] = []
+    code_files: list[str] = []
+    design_files: list[str] = []
+    root_files: list[str] = []
+    unknown_members: list[str] = []
+    top_level_dirs = set()
+
+    for name in (*directories, *regular_files):
+        top_level_dirs.add(name.split("/", 1)[0])
+
+    for name in regular_files:
+        if name.startswith("result/"):
+            relative = name[len("result/") :]
+            if "/" in relative:
+                result_nested.append(name)
+            else:
+                result_files.append(relative)
+        elif name.startswith("code/"):
+            code_files.append(name)
+        elif name.startswith("design/"):
+            design_files.append(name)
+        else:
+            root_files.append(name)
+
+    for name in directories:
+        if name and name.split("/", 1)[0] not in _REQUIRED_TOP_LEVELS:
+            unknown_members.append(name)
+
+    result = _validate_names(result_files, extension=extension, expected_names=expected_names)
+    result.update(
+        {
+            "file_name": path.name,
+            "archive_member_count": len(members),
+            "required_directories": list(_REQUIRED_TOP_LEVELS),
+            "top_level_directories": sorted(top_level_dirs),
+            "code_file_count": len(code_files),
+            "design_file_count": len(design_files),
+            "result_file_count": len(result_files),
+        }
+    )
+
+    layout_failures: list[dict[str, Any]] = []
+    for directory in _REQUIRED_TOP_LEVELS:
+        present = directory in directories or any(
+            name.startswith(f"{directory}/") for name in (*regular_files, *directories)
         )
-        result["valid"] = False
-        result["status"] = "failed"
+        if not present:
+            layout_failures.append({"code": "missing_required_directory", "name": f"{directory}/"})
+    if not code_files:
+        layout_failures.append({"code": "empty_code_directory", "name": "code/"})
+    if not design_files:
+        layout_failures.append({"code": "empty_design_directory", "name": "design/"})
+    if root_files:
+        layout_failures.append({"code": "root_files_forbidden", "names": sorted(root_files)})
+    if result_nested:
+        layout_failures.append({"code": "nested_result_files", "names": sorted(result_nested)})
+    if unknown_members:
+        layout_failures.append({"code": "unexpected_top_level_members", "names": sorted(set(unknown_members))})
+    if unsafe_members:
+        layout_failures.append({"code": "unsafe_archive_members", "names": unsafe_members})
+    if non_regular:
+        layout_failures.append({"code": "non_regular_members", "names": sorted(non_regular)})
+    _merge_failures(result, layout_failures)
     return result
 
 
-def _tar_bytes(files: Iterable[Path]) -> bytes:
+def _collect_tree(root: Path, prefix: str) -> list[tuple[str, Path]]:
+    entries: list[tuple[str, Path]] = [(f"{prefix}/", root)]
+    children = sorted(root.rglob("*"), key=lambda path: _normalise_member_name(path.relative_to(root).as_posix()))
+    for source in children:
+        if source.is_symlink():
+            raise ValueError(f"symlinks are not allowed in {prefix}: {source}")
+        relative = source.relative_to(root).as_posix()
+        member_name = f"{prefix}/{relative}"
+        if source.is_dir():
+            entries.append((f"{member_name}/", source))
+        elif source.is_file():
+            entries.append((member_name, source))
+        else:
+            raise ValueError(f"unsupported filesystem entry: {source}")
+    return entries
+
+
+def _tar_bytes(entries: Iterable[tuple[str, Path]]) -> bytes:
     buffer = io.BytesIO()
     with tarfile.open(fileobj=buffer, mode="w", format=tarfile.PAX_FORMAT) as archive:
-        for source in files:
+        for member_name, source in entries:
+            member_name = _normalise_member_name(member_name)
+            if source.is_dir():
+                info = tarfile.TarInfo(name=member_name.rstrip("/") + "/")
+                info.type = tarfile.DIRTYPE
+                info.mode = 0o755
+                info.size = 0
+                info.mtime = 0
+                info.uid = 0
+                info.gid = 0
+                info.uname = ""
+                info.gname = ""
+                archive.addfile(info)
+                continue
             data = source.read_bytes()
-            info = tarfile.TarInfo(name=_normalise_name(source.name))
+            info = tarfile.TarInfo(name=member_name)
             info.size = len(data)
             info.mtime = 0
             info.mode = 0o644
@@ -229,32 +349,48 @@ def create_submission_package(
     input_dir: str | Path,
     output_path: str | Path,
     *,
+    code_dir: str | Path,
+    design_dir: str | Path,
     expected_names: Sequence[str] | None = None,
     extension: str = ".doc",
 ) -> dict[str, Any]:
-    """Create a deterministic root-only tar.gz and validate the result."""
+    """Create a deterministic official ``code/design/result`` tar.gz."""
 
-    source_dir = Path(input_dir)
-    if not source_dir.is_dir():
-        raise NotADirectoryError(f"input directory does not exist: {source_dir}")
+    result_root = Path(input_dir)
+    code_root = Path(code_dir)
+    design_root = Path(design_dir)
+    if not result_root.is_dir():
+        raise NotADirectoryError(f"result directory does not exist: {result_root}")
+    if not code_root.is_dir():
+        raise NotADirectoryError(f"code directory does not exist: {code_root}")
+    if not design_root.is_dir():
+        raise NotADirectoryError(f"design directory does not exist: {design_root}")
     extension = extension if extension.startswith(".") else f".{extension}"
 
-    entries = sorted(source_dir.iterdir(), key=lambda path: _normalise_name(path.name))
+    entries = sorted(result_root.iterdir(), key=lambda path: _normalise_name(path.name))
     nested = [entry.name for entry in entries if entry.is_dir()]
     files = [entry for entry in entries if entry.is_file()]
     preliminary = _validate_names(
         [entry.name for entry in files], extension=extension, expected_names=expected_names
     )
     if nested:
-        preliminary["failures"].append({"code": "nested_directories", "names": nested})
+        preliminary["failures"].append({"code": "nested_result_directories", "names": nested})
         preliminary["valid"] = False
         preliminary["status"] = "failed"
+    code_entries = _collect_tree(code_root, "code")
+    design_entries = _collect_tree(design_root, "design")
+    if len(code_entries) == 1:
+        preliminary["failures"].append({"code": "empty_code_directory", "name": "code/"})
+    if len(design_entries) == 1:
+        preliminary["failures"].append({"code": "empty_design_directory", "name": "design/"})
     if not preliminary["valid"]:
         raise ValueError(json.dumps(preliminary, ensure_ascii=False, sort_keys=True))
 
     destination = Path(output_path)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    tar_payload = _tar_bytes(files)
+    archive_entries = [*code_entries, *design_entries, ("result/", result_root)]
+    archive_entries.extend((f"result/{_normalise_name(source.name)}", source) for source in files)
+    tar_payload = _tar_bytes(archive_entries)
     with destination.open("wb") as raw:
         with gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as compressed:
             compressed.write(tar_payload)

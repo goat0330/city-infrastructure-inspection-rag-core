@@ -66,13 +66,34 @@ def test_prediction_to_docx_to_doc_to_tar_has_three_root_entries(tmp_path: Path)
     assert sorted(path.name for path in final_doc.iterdir()) == ["A.doc", "B.doc", "C.doc"]
     assert all("doc:MS Word 97" in call for call in fake.calls)
 
+    code_dir = tmp_path / "code"
+    design_dir = tmp_path / "design"
+    code_dir.mkdir()
+    design_dir.mkdir()
+    (code_dir / "run.py").write_text("pass\n", encoding="utf-8")
+    (design_dir / "plan.md").write_text("# plan\n", encoding="utf-8")
+
     package = tmp_path / "submission.tar.gz"
     package_result = create_submission_package(
         final_doc,
         package,
+        code_dir=code_dir,
+        design_dir=design_dir,
         expected_names=("A.doc", "B.doc", "C.doc"),
     )
     assert package_result["valid"] is True
     with tarfile.open(package, "r:gz") as archive:
-        assert archive.getnames() == ["A.doc", "B.doc", "C.doc"]
-        assert all(Path(name).suffix == ".doc" for name in archive.getnames())
+        assert archive.getnames() == [
+            "code",
+            "code/run.py",
+            "design",
+            "design/plan.md",
+            "result",
+            "result/A.doc",
+            "result/B.doc",
+            "result/C.doc",
+        ]
+        result_files = [
+            name for name in archive.getnames() if name.startswith("result/") and name.endswith(".doc")
+        ]
+        assert len(result_files) == 3

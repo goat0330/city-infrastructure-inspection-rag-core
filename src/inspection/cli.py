@@ -103,9 +103,11 @@ def build_parser() -> argparse.ArgumentParser:
     validate.add_argument("--output", type=Path)
 
     package = subparsers.add_parser(
-        "package", help="create a root-only tar.gz containing final .doc result files"
+        "package", help="create an official code/design/result tar.gz submission"
     )
     package.add_argument("--input-dir", type=Path, required=True)
+    package.add_argument("--code-dir", type=Path, required=True)
+    package.add_argument("--design-dir", type=Path, required=True)
     package.add_argument("--output", type=Path, required=True)
     package.add_argument("--manifest", type=Path)
     package.add_argument("--extension", default=".doc")
@@ -305,6 +307,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             result = create_submission_package(
                 args.input_dir,
                 args.output,
+                code_dir=args.code_dir,
+                design_dir=args.design_dir,
                 expected_names=load_expected_names(args.manifest),
                 extension=args.extension,
             )
