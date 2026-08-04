@@ -16,7 +16,7 @@
 
 ## 2. 目标与边界
 
-目标是在不改变现有确定性抽取主线的前提下，打通：
+本次 Narrative Enhancement 的目标是在不改变已有 Word-first 确定性抽取主线的前提下，打通。这里的“保持不变”仅描述本次增强运行相对 Baseline 的约束，不是 PR #1 总体提交范围的声明；PR #1 的整体范围见第 10 节。
 
 ```text
 Word 定检报告
@@ -36,7 +36,7 @@ Word 定检报告
 - `treatments`
 - `safety_impact`
 
-以下内容必须保持不变：
+在本次 Narrative Enhancement 运行中，以下内容必须保持不变：
 
 - 桥梁名称、日期和年份
 - 评分和等级
@@ -269,13 +269,13 @@ D 组保留了以下安全关系：桥面病害影响行车舒适性并增大冲
 
 ### 7.1 锁定字段
 
-增强前后非目标字段差异为：
+本次单样本 Narrative Enhancement 运行的增强前后非目标字段差异为：
 
 ```text
 locked_top_level_differences = []
 ```
 
-桥梁名称、评分、等级、病害列表、建议结构和其他 Baseline 字段均未被改动。
+桥梁名称、评分、等级、病害列表、建议结构和其他 Baseline 字段均未被本次增强运行改动。该结论只针对本次增强前后输出，不代表 PR #1 的历史提交未修改相应源代码路径。
 
 ### 7.2 结构约束
 
@@ -318,22 +318,27 @@ runs/narrative-k46-20260804/real-run/experiment_summary.json
 
 官方原始 DOC/DOCX、Gold 原文、API Key、绝对路径和本地运行产物不进入公开仓库。本报告只公开架构、计数、汇总结果和可复核的代码路径。
 
-## 10. 代码提交
+## 10. 提交与范围
 
-实现提交：
+### 10.1 本次 LLM + RAG 实现提交
 
-```text
-913122bba182dbeff58889b4d9fad266fc2b4f1b
-feat: run single-sample narrative enhancement experiment
-```
+本次 Narrative Enhancement 实现提交链为：
 
-本报告发布时新增的文件为：
+| 提交 | 内容 |
+|---|---|
+| `1d37d93` | official OpenAI model client |
+| `ac37ee6` | lightweight JSONL NumPy RAG index |
+| `0335588` | Qwen thinking budget fix |
+| `5fe85ee` | LangGraph narrative enhancement subgraph |
+| `913122b` | single-sample narrative enhancement experiment |
+
+`913122b` 是本报告使用的实现基线。报告文件为：
 
 ```text
 docs/reports/llm-rag-narrative-enhancement-k46-20260804.md
 ```
 
-本报告对应的实现文件包括：
+本次 LLM + RAG 实现文件包括：
 
 - `src/llm/client.py`
 - `src/rag/index.py`
@@ -345,6 +350,24 @@ docs/reports/llm-rag-narrative-enhancement-k46-20260804.md
 - `tests/rag/`
 - `tests/agent/`
 - `tests/experiment/`
+
+### 10.2 PR #1 总体范围（审计）
+
+本次审计时 PR #1 仍为 Draft。PR #1 不仅包含本次 LLM + RAG 实现和本报告，还包含此前 Word-first/确定性基线检查点 `06a9dcf`。相对 PR base `main`，该既有提交对以下路径有实际改动：
+
+- `src/extraction/pipeline.py`
+- `src/extraction/recommendations/extractor.py`
+- `src/extraction/summary/extractor.py`
+- `src/extraction/text_sections.py`
+- `src/inspection/cli.py`
+- `src/submission/package.py`
+
+该检查点还同步改动了对应的 extraction、inspection、submission 测试，以及 `README.md` 和 `docs/submission_design.md`。
+
+因此，范围结论必须拆成两层：
+
+- 本次 Narrative 增强（`1d37d93` 至 `913122b`，以及本次单样本运行）未改动上述确定性抽取、检查/评分和提交打包逻辑；它读取已有 Baseline，并只增强合同允许的叙事字段。
+- PR #1 总体包含 `06a9dcf` 对上述路径的既有基础改动，不能表述为整个 PR 未修改 `src/extraction`、`src/inspection/cli.py` 或 `src/submission/package.py`。
 
 ## 11. 当前未完成事项
 
