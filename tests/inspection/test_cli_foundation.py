@@ -20,7 +20,15 @@ def test_help_lists_foundation_commands() -> None:
         capture_output=True,
         text=True,
     )
-    for command in ("route", "render", "validate", "package", "validate-package"):
+    for command in (
+        "route",
+        "render",
+        "render-batch",
+        "convert-doc",
+        "validate",
+        "package",
+        "validate-package",
+    ):
         assert command in result.stdout
 
 

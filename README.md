@@ -80,6 +80,8 @@ python -m inspection predict --input report.docx --output prediction.json
 python -m inspection predict-batch --input-dir converted-docx --output predictions.jsonl --report batch-report.json
 python -m inspection score --gold gold.json --predictions predictions.json
 python -m inspection render --input prediction.json --output result.docx
+python -m inspection render-batch --input prediction.jsonl --manifest submission-manifest.json --output-dir rendered-docx --report render-report.json
+python -m inspection convert-doc --input-dir rendered-docx --output-dir final-doc --manifest submission-manifest.json --report convert-report.json --soffice-path ...
 python -m inspection validate --input result.docx --output validation.json
 python -m inspection package --input-dir final-doc --output submission.tar.gz --manifest expected.csv
 python -m inspection validate-package --input submission.tar.gz --manifest expected.csv
@@ -88,6 +90,8 @@ python -m inspection validate-package --input submission.tar.gz --manifest expec
 `predict` 和 `predict-batch` 使用 Word 结构、章节路由和确定性规则生成 `prediction-v1`。单文件失败会显式写入 sidecar 报告；批量模式不会用伪记录掩盖失败。当前 `causes`、`treatments`、`safety_impact` 仍保持显式未实现并记录质量标记。
 
 ## 最终提交包约束
+
+提交链路为 `prediction.jsonl → render-batch → rendered-docx → convert-doc → final-doc → package → validate-package`。`render-batch` 和 `convert-doc` 都以 manifest 授权的文件名为准，并为单文件失败保留报告；最终要求预测、DOCX、DOC 和 tar 成员数量一致。`convert-doc` 使用 LibreOffice/`soffice` 将 DOCX 转为旧版 `.doc`，可通过 `--soffice-path` 指定可执行文件。
 
 `package` 默认要求输入目录根部只包含 `.doc` 文件，并生成确定性的 `tar.gz`。可选 manifest 用于严格检查测试集输出文件名和数量。它校验压缩格式、根目录结构、重复/临时文件、扩展名、缺失和多余文件；不尝试解析旧版二进制 `.doc` 内容。
 

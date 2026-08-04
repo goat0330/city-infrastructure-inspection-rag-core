@@ -17,6 +17,8 @@ COMMANDS = (
     "predict",
     "predict-batch",
     "render",
+    "render-batch",
+    "convert-doc",
     "validate",
     "package",
     "validate-package",
@@ -77,6 +79,24 @@ def build_parser() -> argparse.ArgumentParser:
     render = subparsers.add_parser("render", help="render one Gold or prediction JSON record to DOCX")
     render.add_argument("--input", type=Path, required=True)
     render.add_argument("--output", type=Path, required=True)
+
+    render_batch = subparsers.add_parser(
+        "render-batch", help="render prediction JSONL to manifest-named DOCX files"
+    )
+    render_batch.add_argument("--input", type=Path, required=True)
+    render_batch.add_argument("--manifest", type=Path, required=True)
+    render_batch.add_argument("--output-dir", type=Path, required=True)
+    render_batch.add_argument("--report", type=Path)
+
+    convert_doc = subparsers.add_parser(
+        "convert-doc", help="convert rendered DOCX files to final manifest-named .doc files"
+    )
+    convert_doc.add_argument("--input-dir", type=Path, required=True)
+    convert_doc.add_argument("--output-dir", type=Path, required=True)
+    convert_doc.add_argument("--manifest", type=Path, required=True)
+    convert_doc.add_argument("--report", type=Path)
+    convert_doc.add_argument("--soffice-path", type=Path)
+    convert_doc.add_argument("--timeout-seconds", type=float, default=300.0)
 
     validate = subparsers.add_parser("validate", help="validate one rendered DOCX")
     validate.add_argument("--input", type=Path, required=True)
@@ -244,6 +264,32 @@ def main(argv: Sequence[str] | None = None) -> int:
             parser.error(str(exc))
         _write_json({"status": "succeeded", "output": str(path)})
         return 0
+
+    if args.command == "render-batch":
+        from src.submission.batch import render_prediction_batch
+
+        try:
+            result = render_prediction_batch(args.input, args.manifest, args.output_dir)
+        except (FileNotFoundError, OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+            parser.error(str(exc))
+        _write_json(result, args.report)
+        return 0 if result["valid"] else 1
+
+    if args.command == "convert-doc":
+        from src.submission.batch import convert_docx_batch
+
+        try:
+            result = convert_docx_batch(
+                args.input_dir,
+                args.output_dir,
+                args.manifest,
+                soffice_path=args.soffice_path,
+                timeout_seconds=args.timeout_seconds,
+            )
+        except (FileNotFoundError, NotADirectoryError, OSError, ValueError, RuntimeError) as exc:
+            parser.error(str(exc))
+        _write_json(result, args.report)
+        return 0 if result["valid"] else 1
 
     if args.command == "validate":
         from src.submission import validate_submission
