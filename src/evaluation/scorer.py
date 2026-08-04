@@ -74,7 +74,9 @@ def normalize_text(value: Any) -> str:
             number = Decimal(text)
         except InvalidOperation:
             return text
-        normalized = format(number, "f").rstrip("0").rstrip(".")
+        normalized = format(number, "f")
+        if "." in normalized:
+            normalized = normalized.rstrip("0").rstrip(".")
         return normalized if normalized not in {"", "-", "+"} else "0"
     return text
 
