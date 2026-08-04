@@ -32,7 +32,13 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
 
-from src.evaluation import load_records, load_weights, score_dataset  # noqa: E402
+from src.evaluation import (  # noqa: E402
+    AlignmentError,
+    align_prediction_records,
+    load_records,
+    load_weights,
+    score_dataset,
+)
 from src.evaluation.diagnostics import (  # noqa: E402
     diagnose_records,
     subset_summaries,
@@ -67,6 +73,14 @@ def _parser() -> argparse.ArgumentParser:
 def _write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _write_jsonl(path: Path, records: Sequence[Mapping[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "".join(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n" for record in records),
+        encoding="utf-8",
+    )
 
 
 def _manifest_meta(manifest: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
@@ -215,12 +229,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     started = time.perf_counter()
     try:
         gold = load_records(args.gold)
-        predictions = load_records(args.predictions)
+        raw_predictions = load_records(args.predictions)
         weights = load_weights(args.weights)
         manifest = json.loads(args.manifest.read_text(encoding="utf-8-sig"))
         if not isinstance(manifest, Mapping):
             raise ValueError("manifest must be a JSON object")
-    except (OSError, ValueError, json.JSONDecodeError) as error:
+        manifest_records = manifest.get("records", [])
+        if not isinstance(manifest_records, list):
+            raise ValueError("manifest records must be a list")
+        predictions, alignment = align_prediction_records(manifest_records, raw_predictions)
+    except (OSError, ValueError, json.JSONDecodeError, AlignmentError) as error:
         _parser().error(str(error))
         return 2
 
@@ -229,6 +247,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    _write_json(output_dir / "alignment.json", alignment)
+    _write_jsonl(output_dir / "aligned-predictions.jsonl", predictions)
     score = score_dataset(gold, predictions, weights)
     _write_json(output_dir / "score.json", score)
 
@@ -265,7 +285,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             splits=splits,
             stress=stress,
             expected_gold=len(gold),
-            expected_predictions=len(predictions),
+            expected_predictions=len(raw_predictions),
         )
 
     _report_summary(
