@@ -310,19 +310,28 @@ class LightRagIndex:
 
         quotas = _normalise_source_quota(source_quota)
         if quotas is not None:
-            quota_counts: dict[str, int] = {}
             quota_indices: list[int] = []
             quota_scores: list[float] = []
-            for index, score in zip(selected_indices, selected_scores):
-                source_kind = _source_kind(self.metadata[index])
-                limit = quotas.get(source_kind)
-                if limit is not None and quota_counts.get(source_kind, 0) >= limit:
-                    continue
-                quota_counts[source_kind] = quota_counts.get(source_kind, 0) + 1
-                quota_indices.append(index)
-                quota_scores.append(score)
-                if len(quota_indices) >= top_k:
-                    break
+            score_by_index = {
+                index: float(score)
+                for index, score in zip(candidate_indices, embedding_scores)
+            }
+            # A source quota is a deliberate source-constrained retrieval path:
+            # if a knowledge/label item falls below the global top-30, use the
+            # best item of that source rather than silently losing the source.
+            for source_kind, limit in quotas.items():
+                source_candidates = sorted(
+                    (
+                        (index, score_by_index[index])
+                        for index in candidate_indices
+                        if _source_kind(self.metadata[index]) == source_kind
+                    ),
+                    key=lambda item: item[1],
+                    reverse=True,
+                )
+                for index, score in source_candidates[:limit]:
+                    quota_indices.append(index)
+                    quota_scores.append(score)
             selected_indices = quota_indices
             selected_scores = quota_scores
             if not selected_indices:

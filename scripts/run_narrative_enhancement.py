@@ -34,9 +34,7 @@ from src.routing import route_sections  # noqa: E402
 TARGET_FIELDS = ("detailed_conclusion", "causes", "treatments", "safety_impact")
 RETRIEVAL_SOURCE_QUOTA = {
     "report_evidence": 3,
-    "knowledge_card": 2,
     "domain_knowledge": 2,
-    "gold_label": 1,
     "label_example": 1,
 }
 _FINAL_RETRIEVAL_QUOTA = {
@@ -144,18 +142,37 @@ def _report_facts(input_docx: Path, source_file: str) -> list[dict[str, Any]]:
     return facts
 
 
-def _text_values(value: Any) -> list[str]:
+def _text_values(value: Any, _active: set[int] | None = None) -> list[str]:
+    """Collect nested strings without looping through self-referential data."""
+
     if isinstance(value, str):
         return [value]
+    if isinstance(value, (bytes, bytearray)):
+        return []
+    active = _active if _active is not None else set()
     if isinstance(value, Mapping):
+        marker = id(value)
+        if marker in active:
+            return []
+        active.add(marker)
         result: list[str] = []
-        for item in value.values():
-            result.extend(_text_values(item))
+        try:
+            for item in value.values():
+                result.extend(_text_values(item, active))
+        finally:
+            active.remove(marker)
         return result
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        marker = id(value)
+        if marker in active:
+            return []
+        active.add(marker)
         result: list[str] = []
-        for item in value:
-            result.extend(_text_values(item))
+        try:
+            for item in value:
+                result.extend(_text_values(item, active))
+        finally:
+            active.remove(marker)
         return result
     return []
 
@@ -174,6 +191,54 @@ def _evidence_ids(value: Any) -> list[str]:
         for item in value:
             result.extend(identifier for identifier in _evidence_ids(item) if identifier not in result)
     return result
+
+
+def _text_evidence_pairs(
+    value: Any,
+    inherited_ids: Sequence[str] = (),
+    _active: set[int] | None = None,
+) -> list[tuple[str, list[str]]]:
+    """Return narrative text together with evidence IDs inherited from its item."""
+
+    if isinstance(value, str):
+        return [(value, list(inherited_ids))]
+    if isinstance(value, (bytes, bytearray)):
+        return []
+    active = _active if _active is not None else set()
+    if isinstance(value, Mapping):
+        marker = id(value)
+        if marker in active:
+            return []
+        active.add(marker)
+        evidence_ids = list(inherited_ids)
+        pairs: list[tuple[str, list[str]]] = []
+        try:
+            for key in ("evidence_id", "evidence_ids"):
+                evidence_ids.extend(_text_values(value.get(key)))
+            for key, item in value.items():
+                if str(key) in {"evidence_id", "evidence_ids"}:
+                    continue
+                pairs.extend(_text_evidence_pairs(item, evidence_ids, active))
+        finally:
+            active.remove(marker)
+        return pairs
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        marker = id(value)
+        if marker in active:
+            return []
+        active.add(marker)
+        pairs: list[tuple[str, list[str]]] = []
+        try:
+            for item in value:
+                pairs.extend(_text_evidence_pairs(item, inherited_ids, active))
+        finally:
+            active.remove(marker)
+        return pairs
+    return []
+
+
+def _normalise_text(text: Any) -> str:
+    return "".join(str(text).split()).casefold()
 
 
 def _normalised_fields(value: Any) -> dict[str, Any]:
@@ -264,12 +329,86 @@ class OfflineClient:
         return self._result(group)
 
 
+_PROMPT_CONTEXT_MAX_ITEMS = 12
+_PROMPT_CONTEXT_MAX_CHARS = 6000
+_PROMPT_CONTEXT_ITEM_CHARS = 720
+_PROMPT_CONTEXT_KEYS = (
+    "evidence_id",
+    "id",
+    "kind",
+    "source_bucket",
+    "source_type",
+    "section",
+    "sample_id",
+    "split",
+    "score",
+    "embedding_score",
+    "rerank_score",
+    "retrieval_mode",
+    "title",
+)
+_PROMPT_SOURCE_KEYS = (
+    "block_index",
+    "table_index",
+    "row_index",
+    "column_index",
+    "paragraph_index",
+)
+
+
+def _compact_prompt_text(value: Any, limit: int) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    if len(text) <= limit:
+        return text
+    head = max(1, int(limit * 0.7))
+    tail = max(1, limit - head - 1)
+    return text[:head] + "…" + text[-tail:]
+
+
+def _compact_context_records(
+    records: Sequence[Mapping[str, Any]],
+    *,
+    max_items: int = _PROMPT_CONTEXT_MAX_ITEMS,
+    max_chars: int = _PROMPT_CONTEXT_MAX_CHARS,
+    max_item_chars: int = _PROMPT_CONTEXT_ITEM_CHARS,
+) -> list[dict[str, Any]]:
+    """Keep evidence anchors while removing repeated long source text from prompts."""
+
+    result: list[dict[str, Any]] = []
+    used_chars = 0
+    for record in records:
+        if not isinstance(record, Mapping) or len(result) >= max_items:
+            break
+        raw_text = record.get("text", record.get("content", record.get("snippet", "")))
+        remaining = max_chars - used_chars
+        if remaining <= 0 or not str(raw_text or "").strip():
+            continue
+        item: dict[str, Any] = {
+            key: deepcopy(record[key])
+            for key in _PROMPT_CONTEXT_KEYS
+            if key in record and record[key] is not None
+        }
+        source = record.get("source")
+        if isinstance(source, Mapping):
+            compact_source = {
+                key: deepcopy(source[key])
+                for key in _PROMPT_SOURCE_KEYS
+                if key in source and source[key] is not None
+            }
+            if compact_source:
+                item["source"] = compact_source
+        item["text"] = _compact_prompt_text(raw_text, min(max_item_chars, remaining))
+        result.append(item)
+        used_chars += len(item["text"])
+    return result
+
+
 def _prompt(group: str, baseline: Mapping[str, Any], facts: Sequence[Mapping[str, Any]]) -> list[dict[str, str]]:
     payload = {
         "group": group,
         "task": "Enhance only the four narrative fields and return JSON.",
         "baseline_prediction": _normalised_fields(baseline),
-        "report_facts": list(facts),
+        "report_facts": _compact_context_records(facts),
         "contract": {
             "detailed_conclusion": "array of at most four concise strings",
             "causes": "array of concise objects with text and evidence_ids",
@@ -506,12 +645,28 @@ def _group_record(
     available_ids.update(str(item.get("evidence_id")) for item in retrieval if item.get("evidence_id"))
     evidence_ids = _evidence_ids(fields)
     invalid = [identifier for identifier in evidence_ids if identifier not in available_ids]
-    baseline_texts = {"".join(_text_values(baseline.get(field))).casefold() for field in TARGET_FIELDS}
-    fact_texts = {"".join(_text_values(fact.get("text"))).casefold() for fact in facts}
+    source_texts = {
+        _normalise_text(text)
+        for field in TARGET_FIELDS
+        for text in _text_values(baseline.get(field))
+    }
+    source_texts.update(
+        _normalise_text(text)
+        for fact in list(facts) + list(retrieval)
+        for text in _text_values(fact.get("text"))
+    )
+    source_texts.discard("")
     new_facts = []
-    for text in _text_values(fields):
-        normalized = "".join(text.split()).casefold()
-        if normalized and normalized not in baseline_texts and normalized not in fact_texts and text not in new_facts:
+    for text, item_evidence_ids in _text_evidence_pairs(fields):
+        normalized = _normalise_text(text)
+        lexical_match = normalized in source_texts or any(
+            len(normalized) >= 8 and (normalized in source or source in normalized)
+            for source in source_texts
+        )
+        evidence_match = bool(item_evidence_ids) and all(
+            str(identifier) in available_ids for identifier in item_evidence_ids
+        )
+        if normalized and not lexical_match and not evidence_match and text not in new_facts:
             new_facts.append(text)
     record: dict[str, Any] = {
         "group": group,

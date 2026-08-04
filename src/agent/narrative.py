@@ -69,6 +69,7 @@ _PROMPT_IDENTITY_KEYS = (
     "history",
 )
 _MAX_DEFECT_DESCRIPTIONS = 3
+_MAX_EVIDENCE_TEXT_CHARS = 900
 
 
 class NarrativeState(TypedDict, total=False):
@@ -180,6 +181,22 @@ def _prompt_baseline(
     prompt["defects"] = _compact_defects(baseline.get("defects", []))
     prompt["recommendations"] = copy.deepcopy(baseline.get("recommendations", []))
     return prompt
+
+
+def _compact_evidence(value: Any, max_chars: int = _MAX_EVIDENCE_TEXT_CHARS) -> Any:
+    """Keep evidence anchors while bounding long report blocks in the prompt."""
+
+    if isinstance(value, Mapping):
+        compact: dict[str, Any] = {}
+        for key, item in value.items():
+            if str(key) == "text" and isinstance(item, str) and len(item) > max_chars:
+                compact[str(key)] = item[:max_chars]
+            else:
+                compact[str(key)] = _compact_evidence(item, max_chars)
+        return compact
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        return [_compact_evidence(item, max_chars) for item in value]
+    return value
 
 
 def _json_dump(value: Any) -> str:
@@ -336,8 +353,8 @@ def _render_prompt(state: NarrativeState) -> str:
         "{{SAMPLE_ID}}": str(state.get("sample_id", "")),
         "{{SOURCE_FILE}}": str(state.get("source_file", "")),
         "{{BASELINE_PREDICTION}}": _json_dump(prompt_baseline),
-        "{{REPORT_FACTS}}": _json_dump(state.get("report_facts", [])),
-        "{{RETRIEVAL_RESULTS}}": _json_dump(state.get("retrieval_results", [])),
+        "{{REPORT_FACTS}}": _json_dump(_compact_evidence(state.get("report_facts", []))),
+        "{{RETRIEVAL_RESULTS}}": _json_dump(_compact_evidence(state.get("retrieval_results", []))),
         "{{VALIDATION_ERRORS}}": _json_dump(state.get("validation_errors", [])),
     }
     for marker, replacement in replacements.items():

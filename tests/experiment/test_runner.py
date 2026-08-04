@@ -250,3 +250,31 @@ def test_group_record_checks_strings_in_all_top_level_target_fields() -> None:
     assert runner._text_values(fields) == list(fields.values())
     assert record["has_new_facts"] is True
     assert set(record["new_facts"]) == set(fields.values())
+
+    baseline_record = runner._group_record(
+        "A",
+        "baseline",
+        baseline,
+        baseline,
+        [],
+        [],
+        {},
+    )
+    assert baseline_record["has_new_facts"] is False
+
+
+def test_group_record_accepts_paraphrase_with_valid_item_evidence() -> None:
+    baseline = {field: [] for field in runner.TARGET_FIELDS}
+    facts = [{"evidence_id": "fact-1", "text": "报告记录桥面裂缝。"}]
+    fields = {
+        "detailed_conclusion": ["桥面状态需要关注。"],
+        "causes": [{"text": "裂缝与构件状态有关。", "evidence_ids": ["fact-1"]}],
+        "treatments": [],
+        "safety_impact": [],
+    }
+
+    record = runner._group_record("C", "evidence", fields, baseline, facts, [], {})
+
+    assert record["evidence_id_valid"] is True
+    assert record["has_new_facts"] is True
+    assert "裂缝与构件状态有关。" not in record["new_facts"]

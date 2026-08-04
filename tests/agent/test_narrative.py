@@ -256,3 +256,20 @@ def test_prompt_baseline_is_compact_but_keeps_summary_recommendations_and_full_f
         "不应进入生成 Prompt 的完整病害表字段",
     ):
         assert omitted not in prompt
+
+
+def test_render_prompt_compacts_long_report_and_retrieval_facts() -> None:
+    long_text = "病害事实-" + ("裂缝与渗水；" * 1200) + "-prompt-tail-marker"
+    rendered = narrative._render_prompt(
+        {
+            "baseline_prediction": {"summary": {}, "defects": [], "recommendations": []},
+            "sample_id": "sample-1",
+            "source_file": "sample.docx",
+            "report_facts": [{"evidence_id": "fact-1", "section": "defect_table", "text": long_text}],
+            "retrieval_results": [{"id": "hit-1", "kind": "domain_knowledge", "text": long_text}],
+            "validation_errors": [],
+        }
+    )
+
+    assert "prompt-tail-marker" not in rendered
+    assert len(rendered) < len(long_text)
