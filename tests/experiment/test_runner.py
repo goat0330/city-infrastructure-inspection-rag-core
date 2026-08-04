@@ -5,6 +5,7 @@ from copy import deepcopy
 from pathlib import Path
 
 from scripts import run_narrative_enhancement as runner
+import src.agent.narrative as narrative
 from tests.fixtures.word.ooxml_factory import paragraph, write_docx
 
 
@@ -55,7 +56,45 @@ def test_text_values_recurses_through_all_values_of_each_target_field() -> None:
     assert set(record["new_facts"]) == {f"new-{field}" for field in runner.TARGET_FIELDS}
 
 
-def test_b_and_c_prompt_uses_the_compact_baseline() -> None:
+def test_narrative_prompt_uses_the_compact_baseline() -> None:
+    baseline = {
+        "sample_id": "sample-1",
+        "source_file": "sample.docx",
+        "summary": {"bridge_name": "示例桥", "overall_conclusion": "总体结论"},
+        "defects": [
+            {"location": "桥面", "defect_type": "裂缝", "description": "裂缝描述"},
+        ],
+        "recommendations": [{"index": "1", "content": "封闭裂缝", "location": "桥面"}],
+    }
+    baseline.update(
+        {
+            field: [{"text": f"baseline-{field}"}]
+            for field in runner.TARGET_FIELDS
+        }
+    )
+
+    compact = narrative._prompt_baseline(baseline)
+
+    assert all(field not in compact for field in runner.TARGET_FIELDS)
+    assert compact["summary"] == baseline["summary"]
+    assert compact["recommendations"] == baseline["recommendations"]
+    assert compact["defects"][0]["representative_descriptions"] == ["裂缝描述"]
+
+    rendered = narrative._render_prompt(
+        {
+            "baseline_prediction": baseline,
+            "sample_id": "sample-1",
+            "source_file": "sample.docx",
+            "report_facts": [],
+            "retrieval_results": [],
+            "validation_errors": [],
+        }
+    )
+    assert "baseline-detailed_conclusion" not in rendered
+    assert "封闭裂缝" in rendered
+
+
+def test_b_prompt_keeps_its_ablation_baseline_contract() -> None:
     baseline = {
         field: [{"text": f"baseline-{field}"}]
         for field in runner.TARGET_FIELDS
@@ -63,9 +102,8 @@ def test_b_and_c_prompt_uses_the_compact_baseline() -> None:
 
     payload = json.loads(runner._prompt("B", baseline, [])[1]["content"])
 
-    assert all(field not in payload["baseline_prediction"] for field in runner.TARGET_FIELDS)
-    assert payload["baseline_prediction"]["summary"] == {}
-    assert payload["baseline_prediction"]["recommendations"] == []
+    assert set(payload["baseline_prediction"]) == set(runner.TARGET_FIELDS)
+    assert payload["report_facts"] == []
 
 
 def test_task_queries_are_independent_and_retrieval_hits_use_global_source_quotas() -> None:
