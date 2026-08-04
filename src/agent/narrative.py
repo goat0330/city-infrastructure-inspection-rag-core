@@ -57,12 +57,25 @@ _GRADE_RE = re.compile(
     r"(?<![A-Za-z])(?:[A-F](?:级|类)?|[一二三四五六七八九十]+级)(?![A-Za-z])"
 )
 _PROMPT_PATH = Path(__file__).resolve().parents[2] / "prompts" / "narrative_enhancement.md"
+_PROMPT_IDENTITY_KEYS = (
+    "sample_id",
+    "source_file",
+    "source",
+    "schema_version",
+    "report_id",
+    "bridge_id",
+    "bridge_name",
+    "inspection_id",
+    "history",
+)
+_MAX_DEFECT_DESCRIPTIONS = 3
 
 
 class NarrativeState(TypedDict, total=False):
     """State passed between the five graph nodes."""
 
     baseline_prediction: dict[str, Any]
+    prompt_baseline: dict[str, Any]
     sample_id: str
     source_file: str
     split: str
@@ -121,6 +134,52 @@ def _prediction_dict(prediction: Any) -> dict[str, Any]:
     if not isinstance(normalized, dict):
         raise TypeError("baseline_prediction must be a mapping or prediction object")
     return copy.deepcopy(normalized)
+
+
+def _compact_defects(defects: Any) -> list[dict[str, Any]]:
+    """Group repeated defects while retaining a few useful descriptions."""
+
+    if not isinstance(defects, Sequence) or isinstance(defects, (str, bytes, bytearray)):
+        return []
+    grouped: dict[tuple[str, str], list[str]] = {}
+    for defect in defects:
+        if not isinstance(defect, Mapping):
+            continue
+        location = str(defect.get("location") or "").strip()
+        defect_type = str(defect.get("defect_type") or "").strip()
+        description = str(defect.get("description") or defect.get("text") or "").strip()
+        key = (location, defect_type)
+        descriptions = grouped.setdefault(key, [])
+        if description and description not in descriptions and len(descriptions) < _MAX_DEFECT_DESCRIPTIONS:
+            descriptions.append(description)
+    return [
+        {
+            "location": location,
+            "defect_type": defect_type,
+            "representative_descriptions": descriptions,
+        }
+        for (location, defect_type), descriptions in grouped.items()
+    ]
+
+
+def _prompt_baseline(
+    baseline: Mapping[str, Any],
+    *,
+    sample_id: str = "",
+    source_file: str = "",
+) -> dict[str, Any]:
+    """Build the bounded baseline representation sent to the generation prompt."""
+
+    prompt: dict[str, Any] = {}
+    for key in _PROMPT_IDENTITY_KEYS:
+        if key in baseline:
+            prompt[key] = copy.deepcopy(baseline[key])
+    prompt["sample_id"] = str(sample_id or baseline.get("sample_id", "") or "")
+    prompt["source_file"] = str(source_file or baseline.get("source_file", "") or "")
+    prompt["summary"] = copy.deepcopy(baseline.get("summary", {}))
+    prompt["defects"] = _compact_defects(baseline.get("defects", []))
+    prompt["recommendations"] = copy.deepcopy(baseline.get("recommendations", []))
+    return prompt
 
 
 def _json_dump(value: Any) -> str:
@@ -266,10 +325,17 @@ def _response_payload(result: Any) -> Any:
 
 def _render_prompt(state: NarrativeState) -> str:
     template = _PROMPT_PATH.read_text(encoding="utf-8")
+    prompt_baseline = state.get("prompt_baseline")
+    if not isinstance(prompt_baseline, Mapping):
+        prompt_baseline = _prompt_baseline(
+            state.get("baseline_prediction", {}),
+            sample_id=str(state.get("sample_id", "")),
+            source_file=str(state.get("source_file", "")),
+        )
     replacements = {
         "{{SAMPLE_ID}}": str(state.get("sample_id", "")),
         "{{SOURCE_FILE}}": str(state.get("source_file", "")),
-        "{{BASELINE_PREDICTION}}": _json_dump(state.get("baseline_prediction", {})),
+        "{{BASELINE_PREDICTION}}": _json_dump(prompt_baseline),
         "{{REPORT_FACTS}}": _json_dump(state.get("report_facts", [])),
         "{{RETRIEVAL_RESULTS}}": _json_dump(state.get("retrieval_results", [])),
         "{{VALIDATION_ERRORS}}": _json_dump(state.get("validation_errors", [])),
@@ -300,6 +366,11 @@ def _prepare_context(state: NarrativeState, max_retries: int) -> dict[str, Any]:
     report_facts = _jsonable(state.get("report_facts", []))
     return {
         "baseline_prediction": baseline,
+        "prompt_baseline": _prompt_baseline(
+            baseline,
+            sample_id=str(state.get("sample_id", "")),
+            source_file=str(state.get("source_file", "")),
+        ),
         "report_facts": report_facts,
         "retrieval_results": [],
         "generated_sections": {},
@@ -627,8 +698,14 @@ def run_narrative_enhancement(
     """Run narrative enhancement and return the stable public result envelope."""
 
     graph = build_narrative_graph(client, retriever=retriever, max_retries=1)
+    baseline = _prediction_dict(baseline_prediction)
     state: NarrativeState = {
-        "baseline_prediction": _prediction_dict(baseline_prediction),
+        "baseline_prediction": baseline,
+        "prompt_baseline": _prompt_baseline(
+            baseline,
+            sample_id=sample_id,
+            source_file=source_file,
+        ),
         "sample_id": sample_id,
         "source_file": source_file,
         "report_facts": report_facts,
