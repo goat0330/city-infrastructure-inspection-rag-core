@@ -14,6 +14,7 @@ from openai import OpenAI
 
 
 _MISSING = object()
+_DEFAULT_CHAT_MAX_TOKENS = 2048
 
 
 @dataclass(frozen=True)
@@ -153,10 +154,26 @@ class OpenAIModelClient:
         choices = _field(response, "choices", _MISSING)
         if not choices:
             raise ValueError("chat response has no choices")
-        message = _field(choices[0], "message", _MISSING)
+        choice = choices[0]
+        message = _field(choice, "message", _MISSING)
         content = _field(message, "content", _MISSING)
-        if content is _MISSING or content is None:
-            raise ValueError("chat response has no message content")
+        if content is _MISSING or content is None or (isinstance(content, str) and not content.strip()):
+            finish_reason = _field(choice, "finish_reason", _MISSING)
+            usage = _field(response, "usage", None)
+            reasoning_tokens = _field(usage, "reasoning_tokens", _MISSING)
+            if reasoning_tokens is _MISSING:
+                usage_details = _field(usage, "completion_tokens_details", None)
+                reasoning_tokens = _field(usage_details, "reasoning_tokens", _MISSING)
+            details = []
+            if finish_reason is not _MISSING and finish_reason is not None:
+                details.append(f"finish_reason={finish_reason}")
+            if reasoning_tokens is not _MISSING and reasoning_tokens is not None:
+                details.append(f"reasoning_tokens={reasoning_tokens}")
+            suffix = f" ({'; '.join(details)})" if details else ""
+            raise ValueError(
+                "chat response has empty message content"
+                f"{suffix}; increase max_tokens or disable thinking"
+            )
         if isinstance(content, list):
             content = "".join(
                 str(part_text)
@@ -252,9 +269,10 @@ class OpenAIModelClient:
             "model": model_name,
             "messages": messages,
             "temperature": temperature,
+            "max_tokens": _DEFAULT_CHAT_MAX_TOKENS if max_tokens is None else max_tokens,
         }
-        if max_tokens is not None:
-            options["max_tokens"] = max_tokens
+        if "qwen" in model_name.casefold():
+            options["extra_body"] = {"chat_template_kwargs": {"enable_thinking": False}}
         return self._run(
             operation="chat_json",
             model=model_name,

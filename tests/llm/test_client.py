@@ -54,6 +54,67 @@ def test_chat_json_parses_json_and_code_fence(content):
     )
 
 
+def test_qwen_chat_disables_thinking_and_uses_default_budget():
+    fake = MagicMock()
+    fake.chat.completions.create.return_value = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                finish_reason="stop",
+                message=SimpleNamespace(content='{"ok": true}'),
+            )
+        ],
+        usage=SimpleNamespace(prompt_tokens=4, completion_tokens=2, total_tokens=6, reasoning_tokens=0),
+    )
+    client = OpenAIModelClient(
+        client=fake,
+        chat_model="qwen3.6-27b",
+        embed_model="embed-default",
+        rerank_model="rerank-default",
+        retry_delay=0,
+    )
+
+    result = client.chat_json([{"role": "user", "content": "return JSON"}])
+
+    assert result.value == {"ok": True}
+    kwargs = fake.chat.completions.create.call_args.kwargs
+    assert kwargs["max_tokens"] >= 2048
+    assert kwargs["extra_body"] == {"chat_template_kwargs": {"enable_thinking": False}}
+
+
+def test_empty_chat_content_reports_finish_reason_and_reasoning_tokens():
+    fake = MagicMock()
+    fake.chat.completions.create.return_value = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                finish_reason="length",
+                message=SimpleNamespace(content=""),
+            )
+        ],
+        usage=SimpleNamespace(prompt_tokens=4, completion_tokens=32, total_tokens=36, reasoning_tokens=32),
+    )
+    client = OpenAIModelClient(
+        client=fake,
+        chat_model="qwen3.6-27b",
+        embed_model="embed-default",
+        rerank_model="rerank-default",
+        retry_delay=0,
+    )
+
+    with pytest.raises(RuntimeError) as raised:
+        client.chat_json([{"role": "user", "content": "return JSON"}], max_tokens=32)
+
+    message = str(raised.value)
+    assert "empty message content" in message
+    assert "finish_reason=length" in message
+    assert "reasoning_tokens=32" in message
+    assert "increase max_tokens or disable thinking" in message
+    assert fake.chat.completions.create.call_count == 2
+    assert all(
+        call.kwargs["extra_body"] == {"chat_template_kwargs": {"enable_thinking": False}}
+        for call in fake.chat.completions.create.call_args_list
+    )
+
+
 def test_embed_texts_returns_two_dimensional_numpy_array():
     fake = MagicMock()
     fake.embeddings.create.return_value = {
