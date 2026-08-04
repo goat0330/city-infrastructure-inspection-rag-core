@@ -100,7 +100,7 @@ def test_splits_numbered_paragraph_list_and_keeps_multiple_locations() -> None:
         ("1", "尽快维修", "桥面、伸缩缝"),
         ("2", "预防性养护", "排水沟"),
     ]
-    assert [item.content for item in result.records] == ["修复裂缝", "定期清理"]
+    assert [item.content for item in result.records] == ["修复裂缝；", "定期清理"]
 
 
 def test_appends_cross_paragraph_continuation_with_both_anchors() -> None:
@@ -261,3 +261,88 @@ def test_category_inference_is_opt_in_and_gold_derived() -> None:
         flag["code"] == "recommendation_category_inferred"
         for flag in inferred.quality_flags
     )
+
+
+def test_numbered_item_content_keeps_trailing_semicolon() -> None:
+    model = _model(
+        _paragraph(0, "一、建议明细", heading_level=1),
+        _paragraph(1, "（1）尽快维修：桥面：修复裂缝；"),
+    )
+
+    result = extract_recommendations(model)
+
+    assert len(result.records) == 1
+    assert result.records[0].content == "修复裂缝；"
+
+
+def test_infers_subject_state_location_without_preposition() -> None:
+    model = _model(
+        _paragraph(0, "12 处理建议", heading_level=1),
+        _paragraph(1, "⑴桥台存在多处渗水、泛碱的病害，建议按照规范及时进行处理。"),
+    )
+
+    result = extract_recommendations(model)
+
+    assert result.records[0].location == "桥台"
+    assert result.records[0].content.startswith("桥台存在多处渗水")
+
+
+def test_infers_compound_location_from_repaired_targets() -> None:
+    model = _model(
+        _paragraph(0, "12 处理建议", heading_level=1),
+        _paragraph(1, "⑴建议对桥面和伸缩缝及时进行修复，以免影响桥梁的耐久性。"),
+    )
+
+    result = extract_recommendations(model)
+
+    assert result.records[0].location == "桥面、伸缩缝"
+
+
+def test_strips_defect_suffix_and_dangling_word_from_inferred_location() -> None:
+    model = _model(
+        _paragraph(0, "12 处理建议", heading_level=1),
+        _paragraph(1, "⑴对于腹板斜裂的病害，建议采用压力灌浆法灌注环氧树脂胶进行处理。"),
+        _paragraph(2, "⑵对于桥台开裂的病害，建议及时修补处理。"),
+        _paragraph(3, "⑶对于主梁均存在纵裂的情况，建议及时封闭处理。"),
+    )
+
+    result = extract_recommendations(model)
+
+    assert [item.location for item in result.records] == ["腹板", "桥台", "主梁"]
+
+
+def test_normalises_location_joiners_and_prefix() -> None:
+    model = _model(
+        _paragraph(0, "12 处理建议", heading_level=1),
+        _paragraph(1, "⑴对于桥台及盖梁存在渗水的病害，建议按照规范及时进行处理。"),
+        _paragraph(2, "⑵对于桥面伸缩缝变形的情况，建议及时进行修复处理。"),
+    )
+
+    result = extract_recommendations(model)
+
+    assert [item.location for item in result.records] == ["桥台、盖梁", "伸缩缝"]
+
+
+def test_infers_generic_preventive_maintenance_location() -> None:
+    model = _model(
+        _paragraph(0, "12 处理建议", heading_level=1),
+        _paragraph(
+            1,
+            "⑴建议严格按规范做好桥梁的日常检查和维护工作。⑵严禁行人在桥上同步跑动。",
+        ),
+    )
+
+    result = extract_recommendations(model)
+
+    assert [item.location for item in result.records] == ["桥梁", "桥上"]
+
+
+def test_category_repair_action_overrides_monitoring_marker() -> None:
+    model = _model(
+        _paragraph(0, "12 处理建议", heading_level=1),
+        _paragraph(1, "⑴针对箱梁底部的局部纵向裂缝，应进行表面封闭处理，并定期观测裂缝发展变化状况。"),
+    )
+
+    result = extract_recommendations(model, infer_categories=True)
+
+    assert result.records[0].category == "尽快维修"

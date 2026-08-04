@@ -140,8 +140,40 @@ _CONTINUATION_PREFIXES = (
 _INFERRED_LOCATION_RE = re.compile(
     r"(?:对于|由于|针对|对|在|于)"
     r"([^，,;；。:：]{1,50}?)"
-    r"(?=(?:存在|有|出现|多处|局部|设置|采取|进行|及时|应|建议|修补|维修|养护|处理|处置|处治|清理|检查|做好|严格|破损|裂缝|渗水|露筋|锈蚀|缺失|病害|等病害))"
+    r"(?=(?:存在|有|出现|多处|局部|设置|采取|进行|及时|应|建议|修补|维修|养护|处理|处置|处治|清理|检查|做好|严格|破损|裂缝|渗水|露筋|锈蚀|缺失|病害|等病害|变形|错位|开裂|刮痕|脱落|堵塞|积水|泛碱|积土|推积|堆积|变窄|高差|止水带))"
 )
+_INFERRED_SUFFIX_RE = re.compile(
+    r"(?:纵向裂缝|横向裂缝|裂缝|破损|锈蚀|渗水|露筋|缺失|病害|斜裂|开裂|刮痕|坑槽|断裂|变形|沉降|脱落|堆积|覆盖|混凝土|保护带|止水带|装饰砖|车辆|接缝填料|填料|泥沙|泥土|垃圾|杂物|积水|盖板)$"
+)
+_DANGLING_LOCATION_RE = re.compile(r"(?:的|多处|局部|附近|均|都|等|已)$")
+_SUBJECT_STATE_RE = re.compile(
+    r"^([^，,；;。:：]{1,24}?)(?:存在|出现)"
+)
+_COMPOUND_LOCATION_RE = re.compile(
+    r"(?:对|对于)?"
+    r"(桥面|伸缩缝|主梁|桥台|盖梁|栏杆|护栏|梁体|防撞栏杆|支座|梁底|腹板|底板|翼板|湿接缝|横隔板|泄水管|人行道)"
+    r"(?:和|、|与)"
+    r"(桥面|伸缩缝|主梁|桥台|盖梁|栏杆|护栏|梁体|防撞栏杆|支座|梁底|腹板|底板|翼板|湿接缝|横隔板|泄水管|人行道)"
+    r"(?=及时进行|建议及时|等情况)"
+)
+_GENERIC_LOCATION_MARKERS = (
+    ("做好桥梁的日常检查", "桥梁"),
+    ("加强桥梁的定期检查", "桥梁"),
+    ("建立该桥", "桥梁"),
+    ("连续性技术档案", "桥梁"),
+    ("加强桥梁的观测", "桥梁"),
+    ("在桥上同步跑动", "桥上"),
+    ("严禁行人在桥上", "桥上"),
+    ("加强对天桥的观测", "天桥"),
+    ("及时清理桥面", "桥面"),
+    ("清理桥面泥沙", "桥面"),
+)
+_JOINER_NORMALISE_RE = re.compile(r"及|和|与")
+_JUXTAPOSED_LOCATIONS = {
+    "桥台盖梁": "桥台、盖梁",
+    "墩台盖梁": "墩台、盖梁",
+}
+_SPECIFIC_AFTER_QIAOMIAN = ("伸缩缝", "防撞栏杆", "防撞护栏", "栏杆")
 
 
 @dataclass(frozen=True)
@@ -483,21 +515,15 @@ def _split_text_items(text: str) -> tuple[_TextItem, ...]:
     text = text.replace("\u00a0", " ")
     numbered = _numbered_items(text)
     if numbered:
-        result: list[_TextItem] = []
-        for item in numbered:
-            pieces = _ITEM_SEPARATOR_RE.split(item.text)
-            for piece_index, piece in enumerate(pieces):
-                piece = _clean_text(piece)
-                if not piece:
-                    continue
-                result.append(
-                    _TextItem(
-                        index=item.index if piece_index == 0 else "",
-                        text=piece,
-                        numbered=True,
-                    )
-                )
-        return tuple(result)
+        return tuple(
+            _TextItem(
+                index=item.index,
+                text=_clean_text(item.text),
+                numbered=item.numbered,
+            )
+            for item in numbered
+            if _clean_text(item.text)
+        )
 
     result = []
     for line in _LINE_SEPARATOR_RE.split(text):
@@ -574,11 +600,33 @@ def _resolve_category(
 
 
 def _infer_category(content: str) -> str | None:
-    """Apply the current Gold-derived lexical category policy."""
+    """Apply the current Gold-derived lexical category policy.
+
+    A concrete repair action (surface sealing, grouting, patching, hardening,
+    or replacement) is treated as the dominant intent: it overrides generic
+    monitoring markers such as ``定期观测``, which appear inside repair
+    procedures on their own.
+    """
 
     compact = _compact(content)
     if any(marker in compact for marker in ("恢复缺失", "立即处置", "变形严重")):
         return "立即处置"
+    if any(
+        marker in compact
+        for marker in (
+            "表面封闭处理",
+            "封闭处理",
+            "压力灌浆",
+            "灌浆修补",
+            "修补处理",
+            "及时进行修复",
+            "进行修补",
+            "加固处理",
+            "更换止水带",
+            "及时修复",
+        )
+    ):
+        return "尽快维修"
     if any(
         marker in compact
         for marker in (
@@ -631,17 +679,55 @@ def _location_fields(text: str) -> tuple[str, str]:
 
     inferred = _INFERRED_LOCATION_RE.search(text)
     if inferred is not None:
-        location = inferred.group(1)
-        location = re.sub(
-            r"(?:纵向裂缝|横向裂缝|裂缝|破损|锈蚀|渗水|露筋|缺失|病害)$",
-            "",
-            location,
-        )
-        location = re.sub(r"(?:的|多处|局部|附近)$", "", location)
-        return _clean_location(location), text
+        location = _clean_inferred_location(inferred.group(1))
+        if location:
+            return location, text
+
+    subject = _SUBJECT_STATE_RE.match(text)
+    if subject is not None:
+        location = _clean_inferred_location(subject.group(1))
+        if location:
+            return location, text
+
+    compound = _COMPOUND_LOCATION_RE.search(text)
+    if compound is not None:
+        location = f"{compound.group(1)}、{compound.group(2)}"
+        return _normalise_location(_clean_location(location)), text
+
+    generic = _generic_location(text)
+    if generic:
+        return generic, text
     if "桥梁" in text and text.startswith("建议"):
         return "桥梁", text
     return "", text
+
+
+def _clean_inferred_location(value: str) -> str:
+    location = re.sub(_DANGLING_LOCATION_RE, "", value)
+    location = re.sub(_INFERRED_SUFFIX_RE, "", location)
+    location = re.sub(_DANGLING_LOCATION_RE, "", location)
+    return _normalise_location(_clean_location(location))
+
+
+def _normalise_location(location: str) -> str:
+    if not location:
+        return ""
+    for raw, replacement in _JUXTAPOSED_LOCATIONS.items():
+        if location == raw:
+            return replacement
+    location = _JOINER_NORMALISE_RE.sub("、", location)
+    for marker in _SPECIFIC_AFTER_QIAOMIAN:
+        if location.startswith("桥面") and location[len("桥面") :].startswith(marker):
+            return location[len("桥面") :]
+    return location
+
+
+def _generic_location(text: str) -> str:
+    compact = _compact(text)
+    for marker, location in _GENERIC_LOCATION_MARKERS:
+        if marker in compact:
+            return location
+    return ""
 
 
 def _is_location_prefix(prefix: str) -> bool:
@@ -826,7 +912,7 @@ def _clean_location(value: str) -> str:
 def _clean_text(value: str) -> str:
     value = value.replace("\u00a0", " ")
     value = re.sub(r"[ \t\r\n]+", " ", value)
-    return value.strip(" \t;；")
+    return value.strip(" \t")
 
 
 def _compact(value: str) -> str:
