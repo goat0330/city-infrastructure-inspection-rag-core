@@ -18,6 +18,17 @@ METADATA_FILENAME = "metadata.jsonl"
 VECTORS_FILENAME = "vectors.npy"
 _EMBED_BATCH_SIZE = 64
 _LABEL_KINDS = {"gold", "gold_label", "label", "label_example"}
+_SOURCE_KIND_ALIASES = {
+    "evidence": "report_evidence",
+    "report_evidence": "report_evidence",
+    "knowledge_card": "knowledge_card",
+    "domain_knowledge": "knowledge_card",
+    "gold": "gold_label",
+    "gold_label": "gold_label",
+    "label": "gold_label",
+    "label_example": "gold_label",
+}
+_DEFAULT_SOURCE_QUOTA = {"report_evidence": 3, "knowledge_card": 2, "gold_label": 1}
 _HOLDOUT_SPLITS = {"holdout", "test", "val", "validation"}
 
 
@@ -32,6 +43,38 @@ def _kind(record: Mapping[str, Any]) -> str:
 def _is_label(record: Mapping[str, Any]) -> bool:
     value = _kind(record)
     return value in _LABEL_KINDS or value.startswith("gold:") or value.startswith("label:")
+
+
+def _source_kind(record: Mapping[str, Any]) -> str:
+    value = _kind(record)
+    if value in _SOURCE_KIND_ALIASES:
+        return _SOURCE_KIND_ALIASES[value]
+    if _is_label(record):
+        return "gold_label"
+    return value
+
+
+def _normalise_source_quota(
+    source_quota: Mapping[str, int] | bool | None,
+) -> dict[str, int] | None:
+    if source_quota is None or source_quota is False:
+        return None
+    if source_quota is True:
+        return dict(_DEFAULT_SOURCE_QUOTA)
+    if not isinstance(source_quota, Mapping):
+        raise TypeError("source_quota must be a mapping, True, or None")
+
+    quotas: dict[str, int] = {}
+    for source, limit in source_quota.items():
+        source_kind = _text(source).lower()
+        if not source_kind:
+            raise ValueError("source_quota keys must be non-empty")
+        if isinstance(limit, bool) or not isinstance(limit, int):
+            raise TypeError("source_quota values must be non-negative integers")
+        if limit < 0:
+            raise ValueError("source_quota values must be non-negative integers")
+        quotas[_SOURCE_KIND_ALIASES.get(source_kind, source_kind)] = limit
+    return quotas or None
 
 
 def _same_sample(record: Mapping[str, Any], sample_id: object) -> bool:
@@ -240,8 +283,13 @@ class LightRagIndex:
         top_embedding: int = 30,
         top_rerank: int = 8,
         top_k: int = 6,
+        source_quota: Mapping[str, int] | bool | None = None,
     ) -> list[dict[str, Any]]:
-        """Retrieve metadata using embedding ranking followed by reranking."""
+        """Retrieve metadata using embedding ranking followed by reranking.
+
+        ``source_quota=True`` applies the default report/knowledge/label caps;
+        a mapping can provide the same caps with canonical keys or aliases.
+        """
 
         query_text = _text(query)
         if not query_text or top_embedding <= 0 or top_rerank <= 0 or top_k <= 0:
@@ -259,6 +307,26 @@ class LightRagIndex:
         embedding_order = np.argsort(-embedding_scores, kind="stable")[: min(top_embedding, len(candidate_indices))]
         selected_indices = [candidate_indices[int(position)] for position in embedding_order]
         selected_scores = [float(embedding_scores[int(position)]) for position in embedding_order]
+
+        quotas = _normalise_source_quota(source_quota)
+        if quotas is not None:
+            quota_counts: dict[str, int] = {}
+            quota_indices: list[int] = []
+            quota_scores: list[float] = []
+            for index, score in zip(selected_indices, selected_scores):
+                source_kind = _source_kind(self.metadata[index])
+                limit = quotas.get(source_kind)
+                if limit is not None and quota_counts.get(source_kind, 0) >= limit:
+                    continue
+                quota_counts[source_kind] = quota_counts.get(source_kind, 0) + 1
+                quota_indices.append(index)
+                quota_scores.append(score)
+                if len(quota_indices) >= top_k:
+                    break
+            selected_indices = quota_indices
+            selected_scores = quota_scores
+            if not selected_indices:
+                return []
 
         rerank = getattr(self.client, "rerank", None)
         if not callable(rerank):
