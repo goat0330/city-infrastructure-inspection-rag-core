@@ -15,9 +15,10 @@ from ..routing import route_sections
 from .defects import DefectExtractionResult, extract_defects
 from .recommendations import RecommendationExtractionResult, extract_recommendations
 from .summary import SummaryExtraction, extract_summary
+from .text_sections import TextSectionExtraction, extract_text_sections
 
 
-UNIMPLEMENTED_SECTIONS = ("causes", "treatments", "safety_impact")
+UNIMPLEMENTED_SECTIONS: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -59,21 +60,6 @@ def _sample_id(source_file: str) -> str:
     return str(path.with_suffix(""))
 
 
-def _stable_texts(values: object) -> tuple[str, ...]:
-    result: list[str] = []
-    if values is None or isinstance(values, (str, bytes)):
-        return ()
-    try:
-        iterator = iter(values)  # type: ignore[arg-type]
-    except TypeError:
-        return ()
-    for value in iterator:
-        text = str(value).strip()
-        if text and text not in result:
-            result.append(text)
-    return tuple(result)
-
-
 def _flags(stage: str, values: object) -> tuple[dict[str, object], ...]:
     result: list[dict[str, object]] = []
     for value in values if isinstance(values, (list, tuple)) else ():
@@ -100,17 +86,23 @@ def extract_report(input_path: str | Path, *, source_file: str | None = None) ->
         routes,
         infer_categories=True,
     )
+    text_sections: TextSectionExtraction = extract_text_sections(
+        document,
+        routes,
+        recommendations.records,
+        summary.summary,
+    )
 
     prediction = InspectionPrediction(
         sample_id=_sample_id(source_name),
         source_file=source_name,
         summary=summary.summary,
-        detailed_conclusion=_stable_texts(
-            candidate.value for candidate in summary.conclusion_entries
-        ),
+        detailed_conclusion=text_sections.detailed_conclusion,
         recommendations=recommendations.records,
         defects=defects.records,
-        safety_impact=_stable_texts(candidate.value for candidate in summary.risk_entries),
+        causes=text_sections.causes,
+        treatments=text_sections.treatments,
+        safety_impact=text_sections.safety_impact,
     )
     quality_flags = (
         *_flags("summary", summary.quality_flags),
