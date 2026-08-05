@@ -259,7 +259,13 @@ def test_prompt_baseline_is_compact_but_keeps_summary_recommendations_and_full_f
 
 
 def test_render_prompt_compacts_long_report_and_retrieval_facts() -> None:
-    long_text = "病害事实-" + ("裂缝与渗水；" * 1200) + "-prompt-tail-marker"
+    long_text = (
+        "prompt-head-marker-"
+        + ("裂缝与渗水；" * 600)
+        + "-prompt-middle-marker-"
+        + ("裂缝与渗水；" * 600)
+        + "-prompt-tail-marker"
+    )
     rendered = narrative._render_prompt(
         {
             "baseline_prediction": {"summary": {}, "defects": [], "recommendations": []},
@@ -271,5 +277,5 @@ def test_render_prompt_compacts_long_report_and_retrieval_facts() -> None:
         }
     )
 
-    assert "prompt-tail-marker" not in rendered
+    assert "prompt-middle-marker" not in rendered
     assert len(rendered) < len(long_text)

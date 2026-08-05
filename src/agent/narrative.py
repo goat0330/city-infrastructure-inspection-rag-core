@@ -69,6 +69,32 @@ _PROMPT_IDENTITY_KEYS = (
     "history",
 )
 _MAX_DEFECT_DESCRIPTIONS = 3
+_MAX_DEFECT_DESCRIPTION_CHARS = 240
+_PROMPT_CONTEXT_MAX_ITEMS = 12
+_PROMPT_CONTEXT_MAX_CHARS = 6000
+_PROMPT_CONTEXT_ITEM_CHARS = 720
+_PROMPT_CONTEXT_KEYS = (
+    "evidence_id",
+    "id",
+    "kind",
+    "source_bucket",
+    "source_type",
+    "section",
+    "sample_id",
+    "split",
+    "score",
+    "embedding_score",
+    "rerank_score",
+    "retrieval_mode",
+    "title",
+)
+_PROMPT_SOURCE_KEYS = (
+    "block_index",
+    "table_index",
+    "row_index",
+    "column_index",
+    "paragraph_index",
+)
 _MAX_EVIDENCE_TEXT_CHARS = 900
 
 
@@ -137,6 +163,15 @@ def _prediction_dict(prediction: Any) -> dict[str, Any]:
     return copy.deepcopy(normalized)
 
 
+def _compact_prompt_text(value: Any, limit: int) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    if len(text) <= limit:
+        return text
+    head = max(1, int(limit * 0.7))
+    tail = max(1, limit - head - 1)
+    return text[:head] + "…" + text[-tail:]
+
+
 def _compact_defects(defects: Any) -> list[dict[str, Any]]:
     """Group repeated defects while retaining a few useful descriptions."""
 
@@ -148,7 +183,10 @@ def _compact_defects(defects: Any) -> list[dict[str, Any]]:
             continue
         location = str(defect.get("location") or "").strip()
         defect_type = str(defect.get("defect_type") or "").strip()
-        description = str(defect.get("description") or defect.get("text") or "").strip()
+        description = _compact_prompt_text(
+            defect.get("description") or defect.get("text") or "",
+            _MAX_DEFECT_DESCRIPTION_CHARS,
+        )
         key = (location, defect_type)
         descriptions = grouped.setdefault(key, [])
         if description and description not in descriptions and len(descriptions) < _MAX_DEFECT_DESCRIPTIONS:
@@ -201,6 +239,46 @@ def _compact_evidence(value: Any, max_chars: int = _MAX_EVIDENCE_TEXT_CHARS) -> 
 
 def _json_dump(value: Any) -> str:
     return json.dumps(_jsonable(value), ensure_ascii=False, indent=2, sort_keys=True)
+
+
+def _compact_prompt_context(
+    value: Any,
+    *,
+    max_items: int = _PROMPT_CONTEXT_MAX_ITEMS,
+    max_chars: int = _PROMPT_CONTEXT_MAX_CHARS,
+    max_item_chars: int = _PROMPT_CONTEXT_ITEM_CHARS,
+) -> list[dict[str, Any]]:
+    """Keep stable evidence IDs while bounding source text in the model prompt."""
+
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
+        return []
+    result: list[dict[str, Any]] = []
+    used_chars = 0
+    for raw_item in value:
+        if not isinstance(raw_item, Mapping) or len(result) >= max_items:
+            break
+        raw_text = raw_item.get("text", raw_item.get("content", raw_item.get("snippet", "")))
+        remaining = max_chars - used_chars
+        if remaining <= 0 or not str(raw_text or "").strip():
+            continue
+        item: dict[str, Any] = {
+            key: copy.deepcopy(raw_item[key])
+            for key in _PROMPT_CONTEXT_KEYS
+            if key in raw_item and raw_item[key] is not None
+        }
+        source = raw_item.get("source")
+        if isinstance(source, Mapping):
+            compact_source = {
+                key: copy.deepcopy(source[key])
+                for key in _PROMPT_SOURCE_KEYS
+                if key in source and source[key] is not None
+            }
+            if compact_source:
+                item["source"] = compact_source
+        item["text"] = _compact_prompt_text(raw_text, min(max_item_chars, remaining))
+        result.append(item)
+        used_chars += len(item["text"])
+    return result
 
 
 def _empty_metrics() -> dict[str, Any]:
@@ -353,8 +431,22 @@ def _render_prompt(state: NarrativeState) -> str:
         "{{SAMPLE_ID}}": str(state.get("sample_id", "")),
         "{{SOURCE_FILE}}": str(state.get("source_file", "")),
         "{{BASELINE_PREDICTION}}": _json_dump(prompt_baseline),
-        "{{REPORT_FACTS}}": _json_dump(_compact_evidence(state.get("report_facts", []))),
-        "{{RETRIEVAL_RESULTS}}": _json_dump(_compact_evidence(state.get("retrieval_results", []))),
+        "{{REPORT_FACTS}}": _json_dump(
+            _compact_prompt_context(
+                state.get("report_facts", []),
+                max_items=12,
+                max_chars=4500,
+                max_item_chars=560,
+            )
+        ),
+        "{{RETRIEVAL_RESULTS}}": _json_dump(
+            _compact_prompt_context(
+                state.get("retrieval_results", []),
+                max_items=6,
+                max_chars=3600,
+                max_item_chars=520,
+            )
+        ),
         "{{VALIDATION_ERRORS}}": _json_dump(state.get("validation_errors", [])),
     }
     for marker, replacement in replacements.items():

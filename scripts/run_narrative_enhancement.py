@@ -246,6 +246,17 @@ def _normalised_fields(value: Any) -> dict[str, Any]:
     return {field: deepcopy(value.get(field, [])) for field in TARGET_FIELDS}
 
 
+def _locked_top_level_differences(candidate: Mapping[str, Any], baseline: Mapping[str, Any]) -> list[str]:
+    missing = object()
+    differences: list[str] = []
+    for key in sorted(set(candidate) | set(baseline)):
+        if key in TARGET_FIELDS:
+            continue
+        if candidate.get(key, missing) != baseline.get(key, missing):
+            differences.append(str(key))
+    return differences
+
+
 def _call_metrics(result: ModelCallResult | None, *, model: str, duration_ms: float, calls: int = 1) -> dict[str, Any]:
     return {
         "model": getattr(result, "model", model) if result is not None else model,
@@ -508,6 +519,16 @@ def _retrieval_source_bucket(hit: Mapping[str, Any]) -> str | None:
     return None
 
 
+def _public_retrieval_source_bucket(hit: Mapping[str, Any]) -> str | None:
+    """Expose the competition-facing names while preserving the raw ``kind``."""
+
+    return {
+        "report_evidence": "report_evidence",
+        "knowledge_card": "domain_knowledge",
+        "gold_label": "label_example",
+    }.get(_retrieval_source_bucket(hit))
+
+
 def _retrieval_hit_key(hit: Mapping[str, Any]) -> str:
     for key in ("evidence_id", "id"):
         value = hit.get(key)
@@ -545,6 +566,9 @@ def _merge_retrieval_hits(task_hits: Mapping[str, Sequence[Mapping[str, Any]]]) 
         if counts[bucket] >= _FINAL_RETRIEVAL_QUOTA[bucket]:
             continue
         counts[bucket] += 1
+        public_bucket = _public_retrieval_source_bucket(hit)
+        if public_bucket:
+            hit["source_bucket"] = public_bucket
         selected.append(hit)
     return selected
 
@@ -912,6 +936,9 @@ def run_experiment(
         used_fallback=bool(narrative.get("used_fallback")),
         error=d_error or "; ".join(str(item) for item in narrative.get("validation_errors", [])) or None,
     )
+    locked_differences = _locked_top_level_differences(enhanced, baseline)
+    groups["D"]["locked_top_level_differences"] = locked_differences
+    groups["D"]["locked_fields_unchanged"] = not locked_differences
     groups["D"]["retrieval_status"] = retrieval_status
     groups["D"]["retrieval_trace"] = {
         "task_queries": deepcopy(task_queries),
@@ -931,6 +958,7 @@ def run_experiment(
         "duration_ms": round((perf_counter() - started) * 1000, 3),
         "token_usage": _aggregate(client.calls),
         "retrieval": {"status": retrieval_status, "hit_count": len(retrieval_hits), "call_count": len(retrieval_calls)},
+        "locked_fields_unchanged": not locked_differences,
         "groups": {group: groups[group]["call_metrics"] for group in ("A", "B", "C", "D")},
         "enhanced_prediction_written": True,
         "current_best_config": "D" if groups["D"]["available"] and not groups["D"]["used_fallback"] else "A",

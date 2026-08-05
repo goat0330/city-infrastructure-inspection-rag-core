@@ -56,6 +56,14 @@ def test_text_values_recurses_through_all_values_of_each_target_field() -> None:
     assert set(record["new_facts"]) == {f"new-{field}" for field in runner.TARGET_FIELDS}
 
 
+def test_text_values_is_cycle_safe_for_nested_mappings_and_sequences() -> None:
+    values: dict[str, object] = {"text": "new-fact"}
+    nested: list[object] = [values]
+    values["nested"] = nested
+
+    assert runner._text_values(values) == ["new-fact"]
+
+
 def test_narrative_prompt_uses_the_compact_baseline() -> None:
     baseline = {
         "sample_id": "sample-1",
