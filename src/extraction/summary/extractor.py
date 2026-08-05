@@ -7,7 +7,7 @@ anchor; the selected value is only a deterministic view over those candidates.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 import re
 import unicodedata
 from typing import Iterable, Mapping, Sequence
@@ -20,6 +20,12 @@ from ...contracts import (
     TableBlock,
 )
 from ...routing import route_sections
+from .facility_context import (
+    FacilityContext,
+    FieldState,
+    build_field_states,
+    infer_facility_semantics,
+)
 
 
 MISSING_VALUE = "missing_value"
@@ -43,6 +49,15 @@ _SUMMARY_FIELDS = (
     "overall_conclusion",
     "risk_points",
     "recommendations_summary",
+)
+_INTERNAL_FIELDS = ("inspection_date",)
+_CONTEXT_STATE_FIELDS = (
+    *_SUMMARY_FIELDS,
+    "facility_name",
+    "facility_type_raw",
+    "facility_type",
+    "facility_noun",
+    "inspection_date",
 )
 
 _SCORE_FIELDS = {
@@ -76,6 +91,16 @@ _ALIASES: dict[str, tuple[str, ...]] = {
         "工程/设施名称",
         "工程（设施）名称",
         "项目名称",
+        "地通道名称",
+        "人行通道名称",
+        "人行地通道名称",
+        "地下通道名称",
+        "车行下穿道名称",
+        "下穿道名称",
+        "隧道名称",
+        "涵洞名称",
+        "道路名称",
+        "通道名称",
     ),
     "bridge_id": ("桥梁编号", "桥梁ID", "桥梁Id", "桥梁id"),
     "report_date": (
@@ -85,12 +110,14 @@ _ALIASES: dict[str, tuple[str, ...]] = {
         "报告发出日期",
         "签发日期",
         "签字日期",
-        "检测结束日期",
-        "检测完成日期",
-        "检测结束时间",
+    ),
+    "inspection_date": (
         "检测日期",
         "检验日期",
         "检查日期",
+        "检测结束日期",
+        "检测完成日期",
+        "检测结束时间",
         "检测时间",
         "检查时间",
     ),
@@ -164,8 +191,25 @@ _ALIASES: dict[str, tuple[str, ...]] = {
         "历史总体等级",
     ),
     "trend": ("病害发展趋势与具体说明", "病害发展趋势", "发展趋势"),
-    "overall_conclusion": ("总体结论", "检测结论", "检查结论"),
-    "risk_points": ("主要风险点", "风险点", "主要风险", "安全风险", "安全隐患"),
+    "overall_conclusion": (
+        "主要结论",
+        "外观及专项检测结果综述",
+        "综合评估",
+        "综合结论",
+        "总体结论",
+        "检测结论",
+        "检查结论",
+    ),
+    "risk_points": (
+        "主要风险点",
+        "主要风险",
+        "主要病害",
+        "突出病害",
+        "突出风险",
+        "风险点",
+        "安全风险",
+        "安全隐患",
+    ),
     "recommendations_summary": ("建议", "建议汇总", "建议概况"),
 }
 
@@ -180,6 +224,14 @@ _SORTED_ALIASES = sorted(
 )
 
 _SOURCE_PRIORITY = {
+    "major_conclusion": 760,
+    "conclusion_review": 740,
+    "comprehensive_assessment": 720,
+    "major_risk": 700,
+    "body_name": 580,
+    "cover_facility_name": 520,
+    "risk_fallback": 420,
+    "risk_label": 300,
     "overall_assessment_table": 400,
     "cover": 320,
     "facility_name": 600,
@@ -207,6 +259,8 @@ _DATE_PRIORITY = {
     "detection": 200,
     "range": 100,
 }
+_REPORT_DATE_KINDS = {"cover", "sign"}
+_INSPECTION_DATE_KINDS = {"detection", "detection_end", "range"}
 _DATE_RE = re.compile(
     r"(?P<year>(?:19|20)\d{2})"
     r"(?:年\s*(?P<month_cn>1[0-2]|0?[1-9])月(?:\s*(?P<day_cn>3[01]|[12]\d|0?[1-9])日)?"
@@ -280,7 +334,53 @@ _GENERIC_BRIDGE_NAME_RE = (
 )
 _BRIDGE_NAME_RE = re.compile(
     r"(?P<name>[\u3400-\u9fffA-Za-z0-9ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ#＃+—\-]{2,80}"
-    r"(?:人行天桥|桥式通道|匝道桥|立交桥|大桥|中桥|小桥|天桥|桥(?!梁|等)|通道|立交))"
+    r"(?:人行地通道|人行地道|地下通道|人行通道|车行下穿道|下穿道|人行天桥|桥式通道|匝道桥|立交桥|大桥|中桥|小桥|天桥|隧道|涵洞|道路|桥(?!梁|等)|通道|立交))"
+)
+_GENERIC_FACILITY_NAMES = frozenset(
+    {"通道", "人行通道", "人行地通道", "人行地道", "地下通道", "车行下穿道", "下穿道", "隧道", "涵洞", "道路"}
+)
+_HIGH_CONCLUSION_KINDS = frozenset(
+    {"major_conclusion", "conclusion_review", "comprehensive_assessment"}
+)
+_CONCLUSION_FRAGMENT_MARKERS = (
+    "芯样",
+    "强度检测结果",
+    "混凝土强度",
+    "条石强度",
+    "抗压强度",
+    "混凝土抗压强度",
+    "条石抗压强度",
+    "保护层厚度",
+    "碳化深度",
+    "单项试验",
+)
+_RISK_DEFECT_MARKERS = (
+    "破损",
+    "裂缝",
+    "开裂",
+    "渗水",
+    "泛碱",
+    "锈蚀",
+    "露筋",
+    "变形",
+    "沉降",
+    "缺失",
+    "堵塞",
+    "脱落",
+    "病害",
+)
+_RISK_ADVICE_MARKERS = (
+    "建议",
+    "及时",
+    "修复",
+    "维修",
+    "修补",
+    "处理",
+    "处置",
+    "加固",
+    "封闭",
+    "灌缝",
+    "清理",
 )
 
 
@@ -355,6 +455,8 @@ class SummaryExtraction:
     sources: Mapping[str, tuple[SourceAnchor, ...]]
     quality_flags: tuple[dict[str, object], ...]
     recommendation_count: int | None = None
+    facility_context: FacilityContext = field(default_factory=FacilityContext)
+    field_states: Mapping[str, FieldState] = field(default_factory=dict)
 
     @property
     def bridge_id_candidates(self) -> tuple[SummaryCandidate, ...]:
@@ -363,6 +465,10 @@ class SummaryExtraction:
     @property
     def report_date_candidates(self) -> tuple[SummaryCandidate, ...]:
         return self.candidates.get("report_date", ())
+
+    @property
+    def inspection_date_candidates(self) -> tuple[SummaryCandidate, ...]:
+        return self.candidates.get("inspection_date", ())
 
     @property
     def field_candidates(self) -> Mapping[str, tuple[SummaryCandidate, ...]]:
@@ -401,6 +507,9 @@ class SummaryExtraction:
             "recommendation_count": self.recommendation_count,
             "bridge_id_candidates": [candidate.to_dict() for candidate in self.bridge_id_candidates],
             "report_date_candidates": [candidate.to_dict() for candidate in self.report_date_candidates],
+            "inspection_date_candidates": [candidate.to_dict() for candidate in self.inspection_date_candidates],
+            "facility_context": self.facility_context.to_dict(),
+            "field_states": dict(self.field_states),
         }
 
     def __getitem__(self, key: str) -> object:
@@ -418,6 +527,14 @@ class SummaryExtraction:
             return self.bridge_id_candidates
         if key == "report_date_candidates":
             return self.report_date_candidates
+        if key == "inspection_date_candidates":
+            return self.inspection_date_candidates
+        if key == "facility_context":
+            return self.facility_context
+        if key == "field_states":
+            return self.field_states
+        if key == "inspection_date":
+            return self.facility_context.inspection_date
         if key in _SUMMARY_FIELDS:
             return getattr(self.summary, key)
         raise KeyError(key)
@@ -432,7 +549,7 @@ class SummaryExtraction:
 class _CandidateCollector:
     def __init__(self) -> None:
         self.values: dict[str, list[SummaryCandidate]] = {
-            field: [] for field in _SUMMARY_FIELDS
+            field: [] for field in (*_SUMMARY_FIELDS, *_INTERNAL_FIELDS)
         }
         self.values["recommendation_count"] = []
 
@@ -515,6 +632,7 @@ def extract_summary(
     _extract_cover_names(blocks, first_heading, collector)
     _extract_cover_dates(blocks, first_heading, collector)
     _extract_filename_bridge_name(document.source_file, collector)
+    _extract_risk_fallback(blocks, collector)
     recommendation_count = _select_recommendation_count(collector)
     if recommendation_count is None:
         recommendation_count = _recommendation_count_from_summary(collector)
@@ -524,6 +642,17 @@ def extract_summary(
             field: _selected_or_missing(field, collector.values[field])
             for field in _SUMMARY_FIELDS
         }
+    )
+    facility_name = summary.bridge_name
+    facility_type_raw, facility_type, facility_noun = infer_facility_semantics(facility_name)
+    inspection_date = _select_value("inspection_date", collector.values["inspection_date"])
+    facility_context = FacilityContext(
+        facility_name=facility_name,
+        facility_type_raw=facility_type_raw,
+        facility_type=facility_type,
+        facility_noun=facility_noun,
+        report_date=summary.report_date,
+        inspection_date=inspection_date,
     )
     quality_flags = _quality_flags(collector.values, summary, recommendation_count)
     candidates = {
@@ -554,6 +683,18 @@ def extract_summary(
         sources=sources,
         quality_flags=tuple(quality_flags),
         recommendation_count=recommendation_count,
+        facility_context=facility_context,
+        field_states=build_field_states(
+            {
+                **{
+                    field: getattr(summary, field)
+                    for field in _SUMMARY_FIELDS
+                },
+                **facility_context.to_dict(),
+            },
+            collector.values,
+            _CONTEXT_STATE_FIELDS,
+        ),
     )
 
 
@@ -641,7 +782,7 @@ def _is_summary_table(table: TableBlock) -> bool:
     }
     metadata = {
         _normalised_key(alias)
-        for field in ("bridge_name", "bridge_id", "report_date")
+        for field in ("bridge_name", "bridge_id", "report_date", "inspection_date")
         for alias in _ALIASES[field]
     }
     return len(keys & metadata) >= 1 and (
@@ -954,6 +1095,13 @@ def _extract_paragraph(
             block.source,
             collector,
         )
+    elif source_kind != "cover":
+        _extract_plain_bridge_name(
+            block.raw_text,
+            "body_name",
+            block.source,
+            collector,
+        )
     _extract_score_phrases(block.raw_text, source_kind, block.source, collector)
 
 
@@ -983,14 +1131,20 @@ def _extract_embedded_fields(
         value = text[end:value_end].strip(" \t:：=，,；;。．")
         if not value and field not in {"bridge_id", "previous_overall_score", "previous_overall_grade"}:
             continue
-        date_kind = _date_kind_for_alias(alias) if field == "report_date" else None
+        date_kind = _date_kind_for_alias(alias) if field in {"report_date", "inspection_date"} else None
         candidate_kind = _date_source_kind(source_kind, date_kind)
         if field == "bridge_name":
             candidate_kind = (
                 "project_name"
                 if _compact(alias) == "项目名称"
+                else "cover_facility_name"
+                if source_kind == "cover"
                 else "facility_name"
             )
+        elif field == "overall_conclusion":
+            candidate_kind = _conclusion_source_kind(alias, candidate_kind)
+        elif field == "risk_points":
+            candidate_kind = _risk_source_kind(alias, candidate_kind)
         _add_field(
             collector,
             field,
@@ -1201,6 +1355,39 @@ def _score_scope_before(text: str, start: int) -> str | None:
     return matches[-1].group(1) if matches else None
 
 
+def _conclusion_source_kind(label: str, fallback: str) -> str:
+    compact = _compact(label)
+    if "主要结论" in compact or "总体结论" in compact or "综合结论" in compact:
+        return "major_conclusion"
+    if "外观及专项检测结果综述" in compact:
+        return "conclusion_review"
+    if "综合评估" in compact:
+        return "comprehensive_assessment"
+    return fallback
+
+
+def _risk_source_kind(label: str, fallback: str) -> str:
+    compact = _compact(label)
+    if any(marker in compact for marker in ("主要风险", "主要病害", "突出病害", "突出风险")):
+        return "major_risk"
+    if any(marker in compact for marker in ("风险点", "安全风险", "安全隐患")):
+        return "risk_label"
+    return fallback
+
+
+def _conclusion_label(text: str) -> str:
+    compact = _compact(text)
+    for alias, field in _SORTED_ALIASES:
+        if field == "overall_conclusion" and _compact(alias) in compact:
+            return alias
+    return ""
+
+
+def _looks_like_conclusion_fragment(value: str) -> bool:
+    compact = _compact(value)
+    return any(marker in compact for marker in _CONCLUSION_FRAGMENT_MARKERS)
+
+
 def _extract_route_text(
     routes: Sequence[object],
     collector: _CandidateCollector,
@@ -1218,48 +1405,56 @@ def _extract_route_text(
                 and block.block_index != getattr(route, "source", SourceAnchor("", -1, "")).block_index
                 and _clean(block.raw_text)
             ]
-            if body and not any(collector.values["overall_conclusion"]):
-                collector.add(
+            if body:
+                heading = getattr(route, "heading", None)
+                label = _conclusion_label(getattr(heading, "raw_text", ""))
+                _add_field(
+                    collector,
                     "overall_conclusion",
                     "\n".join(_clean(block.raw_text) for block in body),
-                    "conclusion",
+                    _conclusion_source_kind(label, "conclusion"),
                     body[0].source,
-                    label="检测结论",
+                    label=label or "检测结论",
                 )
-            risk_body = [
-                block
-                for block in body
-                if any(marker in _compact(block.raw_text) for marker in ("风险", "隐患", "安全"))
-            ]
-            if risk_body and not any(collector.values["risk_points"]):
-                collector.add(
-                    "risk_points",
-                    "\n".join(_clean(block.raw_text) for block in risk_body),
-                    "conclusion",
-                    risk_body[0].source,
-                    label="风险点",
-                )
-        elif category == _ROUTE_SAFETY:
-            body = [
-                block
-                for block in blocks
-                if isinstance(block, ParagraphBlock)
-                and _clean(block.raw_text)
-                and block.block_index != getattr(route, "source", SourceAnchor("", -1, "")).block_index
-            ]
-            risk_body = [
-                block
-                for block in body
-                if any(marker in _compact(block.raw_text) for marker in ("风险", "隐患", "安全", "影响"))
-            ]
-            if risk_body and not any(collector.values["risk_points"]):
-                collector.add(
-                    "risk_points",
-                    "\n".join(_clean(block.raw_text) for block in risk_body),
-                    "safety_assessment",
-                    risk_body[0].source,
-                    label="安全评估",
-                )
+
+
+def _risk_fragments(value: str) -> tuple[str, ...]:
+    fragments: list[str] = []
+    for part in re.split(r"[\n\r\t]+|(?<=[。；;！？!?])", value or ""):
+        cleaned = _clean(part).strip("，,；;。．")
+        cleaned = re.sub(r"^(?:主要结论|安全影响|风险点|处置建议|处理建议)\s*[:：]\s*", "", cleaned)
+        if not cleaned or len(cleaned) > 360:
+            continue
+        if not any(marker in cleaned for marker in _RISK_DEFECT_MARKERS):
+            continue
+        if not any(marker in cleaned for marker in _RISK_ADVICE_MARKERS):
+            continue
+        if cleaned not in fragments:
+            fragments.append(cleaned)
+    return tuple(fragments)
+
+
+def _extract_risk_fallback(
+    blocks: Sequence[object],
+    collector: _CandidateCollector,
+) -> None:
+    if any(candidate.source_kind == "major_risk" for candidate in collector.values["risk_points"]):
+        return
+    added = 0
+    for block in blocks:
+        if not isinstance(block, (ParagraphBlock, TableBlock)):
+            continue
+        for fragment in _risk_fragments(block.raw_text):
+            collector.add(
+                "risk_points",
+                fragment,
+                "risk_fallback",
+                block.source,
+                label="病害处置建议",
+            )
+            added += 1
+            if added >= 3:
+                return
 
 
 def _cn_units(value: str) -> int:
@@ -1299,6 +1494,9 @@ def _extract_cover_dates(
         if not isinstance(block, ParagraphBlock) or block.block_index >= first_heading:
             continue
         text = _clean(block.raw_text)
+        compact = _compact(text)
+        if any(_compact(alias) in compact for alias in (*_ALIASES["report_date"], *_ALIASES["inspection_date"])):
+            continue
         cn_date = _extract_cn_date(text)
         if cn_date is not None:
             collector.add(
@@ -1309,8 +1507,6 @@ def _extract_cover_dates(
                 label="封面中文日期",
                 date_kind="cover",
             )
-        if any(_compact(alias) in _compact(text) for alias in _ALIASES["report_date"]):
-            continue
         for match in _DATE_RE.finditer(text):
             collector.add(
                 "report_date",
@@ -1332,13 +1528,24 @@ def _add_field(
     label: str = "",
     date_kind: str | None = None,
 ) -> None:
-    if field == "report_date":
+    if field in {"report_date", "inspection_date"}:
         date_kind = date_kind or _date_kind_for_alias(label)
+        if field == "report_date" and date_kind not in _REPORT_DATE_KINDS:
+            return
+        if field == "inspection_date" and date_kind not in _INSPECTION_DATE_KINDS:
+            return
         if date_kind not in {"cover", "sign", "detection_end"} and _is_date_range(value):
             date_kind = "range"
-        value = _date_value(value)
-        if not value and _clean(value) != "":
+        original = _clean(value)
+        value = _date_value(original)
+        if not value and original:
             return
+    if field == "overall_conclusion":
+        source_kind = _conclusion_source_kind(label, source_kind)
+        if source_kind not in _HIGH_CONCLUSION_KINDS and _looks_like_conclusion_fragment(value):
+            return
+    if field == "risk_points":
+        source_kind = _risk_source_kind(label, source_kind)
     collector.add(
         field,
         value,
@@ -1361,7 +1568,7 @@ def _date_kind_for_alias(alias: str) -> str:
 
 
 def _date_source_kind(source_kind: str, date_kind: str | None) -> str:
-    if date_kind in {"cover", "sign", "detection_end", "detection", "range"} and source_kind in {
+    if date_kind in _REPORT_DATE_KINDS | _INSPECTION_DATE_KINDS and source_kind in {
         "cover",
         "paragraph",
         "conclusion",
@@ -1436,7 +1643,8 @@ def _is_specific_facility_name(value: str) -> bool:
     compact = _compact(value)
     return (
         len(compact) >= 3
-        and any(marker in compact for marker in ("桥", "立交", "通道", "隧道"))
+        and compact not in _GENERIC_FACILITY_NAMES
+        and any(marker in compact for marker in ("桥", "立交", "通道", "隧道", "涵洞", "道路", "下穿道"))
         and not _is_generic_bridge_name(compact)
     )
 
@@ -1450,7 +1658,7 @@ def _normalise_bridge_name(value: str) -> str:
         flags=re.IGNORECASE,
     )[0].strip()
     cleaned = re.sub(
-        r"^(?:桥梁名称|桥名|工程名称|设施名称|桥梁工程名称|工程设施名称|工程/设施名称|工程（设施）名称|项目名称)\s*[:：=]\s*",
+        r"^(?:桥梁名称|桥名|工程名称|设施名称|桥梁工程名称|工程设施名称|工程/设施名称|工程（设施）名称|项目名称|地通道名称|人行通道名称|人行地通道名称|地下通道名称|车行下穿道名称|下穿道名称|隧道名称|涵洞名称|道路名称|通道名称)\s*[:：=]\s*",
         "",
         cleaned,
     )
@@ -1570,7 +1778,7 @@ def _normalise_field_value(field: str, value: str) -> str:
             return cleaned
         grade = match.group(0).replace(" ", "")
         return f"{grade}级" if re.fullmatch(r"[A-Ea-e]", grade) else grade
-    if field == "report_date":
+    if field in {"report_date", "inspection_date"}:
         return _date_value(cleaned)
     if field == "recommendation_count":
         match = re.search(r"\d+", cleaned)
@@ -1589,7 +1797,7 @@ def _select_value(field: str, values: Sequence[SummaryCandidate]) -> str:
             else 1
             if field == "bridge_name"
             else 0,
-            -(_DATE_PRIORITY.get(candidate.date_kind or "", 0) if field == "report_date" else _selection_priority(field, candidate)),
+            -(_DATE_PRIORITY.get(candidate.date_kind or "", 0) if field in {"report_date", "inspection_date"} else _selection_priority(field, candidate)),
             -candidate.priority,
             _source_sort_key(candidate.source),
             candidate.source_kind,

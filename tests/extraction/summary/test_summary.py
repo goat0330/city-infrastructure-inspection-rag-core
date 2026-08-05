@@ -114,13 +114,14 @@ def test_report_date_candidates_preserve_cover_sign_and_detection_sources(tmp_pa
     assert {candidate.date_kind for candidate in result.report_date_candidates} >= {
         "cover",
         "sign",
-        "detection",
     }
     assert {candidate.source_kind for candidate in result.report_date_candidates} >= {
         "cover",
         "sign",
-        "detection",
     }
+    assert result.facility_context.inspection_date == "2013年11月30日"
+    assert {candidate.date_kind for candidate in result.inspection_date_candidates} == {"detection"}
+    assert not any(candidate.date_kind in {"detection", "detection_end"} for candidate in result.report_date_candidates)
     assert any(flag["code"] == CONFLICTING_CANDIDATES for flag in result.quality_flags)
 
 
@@ -134,18 +135,19 @@ def test_report_number_is_not_treated_as_a_date(tmp_path: Path) -> None:
 
 def test_report_date_uses_gold_forms_and_range_end(tmp_path: Path) -> None:
     cases = (
-        ("报告日期：2013年10月", "2013年10月"),
-        ("报告日期：2013年10月18日", "2013年10月18日"),
-        ("示例桥检测报告", "2013年10月"),
-        ("报告日期：2013.10", "2013年10月"),
-        ("检验日期：2012/3/24～6/12", "2012年6月12日"),
+        ("报告日期：2013年10月", "2013年10月", ""),
+        ("报告日期：2013年10月18日", "2013年10月18日", ""),
+        ("示例桥检测报告", "2013年10月", ""),
+        ("报告日期：2013.10", "2013年10月", ""),
+        ("检验日期：2012/3/24～6/12", "", "2012年6月12日"),
     )
-    for text, expected in cases:
+    for text, report_expected, inspection_expected in cases:
         blocks = (paragraph(text),)
         if text == "示例桥检测报告":
             blocks = (paragraph(text), paragraph("二〇一三年十月"))
         result = extract_summary(_parse(tmp_path, *blocks))
-        assert result.summary.report_date == expected
+        assert result.summary.report_date == report_expected
+        assert result.facility_context.inspection_date == inspection_expected
 
 
 def test_report_date_table_label_with_sampling_annotation_uses_adjacent_value(tmp_path: Path) -> None:
@@ -159,7 +161,8 @@ def test_report_date_table_label_with_sampling_annotation_uses_adjacent_value(tm
         )
     )
 
-    assert result.summary.report_date == "2012年6月12日"
+    assert result.summary.report_date == ""
+    assert result.facility_context.inspection_date == "2012年6月12日"
 
 
 def test_report_date_normalization_uses_first_explicit_date(tmp_path: Path) -> None:
@@ -309,7 +312,8 @@ def test_dafosi_identity_date_and_scoped_scores_keep_overall_empty(tmp_path: Pat
     )
 
     assert result.summary.bridge_name == "大佛寺长江大桥"
-    assert result.summary.report_date == "2019年11月20日"
+    assert result.summary.report_date == ""
+    assert result.facility_context.inspection_date == "2019年11月20日"
     assert result.summary.overall_score == "无"
     assert {candidate.value for candidate in result.candidates["overall_score"]} == {
         "74.0",
@@ -405,3 +409,58 @@ def test_underpass_grade_from_general_review(tmp_path: Path) -> None:
     result = extract_summary(document)
 
     assert result.summary.overall_grade == "一类"
+
+
+def test_pedestrian_underpass_context_preserves_body_name_and_date_pools(tmp_path: Path) -> None:
+    result = extract_summary(
+        _parse(
+            tmp_path,
+            paragraph("杨公桥EC匝道人行地通道"),
+            paragraph("检测评估报告"),
+            paragraph("二〇一三年二月"),
+            paragraph("地通道名称：杨公桥EC匝道人行通道"),
+            _summary_table(
+                ("人行通道名称", "杨公桥EC匝道人行通道"),
+                ("检查时间", "2012.6.20"),
+            ),
+            paragraph("主要结论：外观检测发现侧墙局部破损，建议及时修复。"),
+            paragraph("综合评估：承载能力满足一类技术标准，处于良好状态。"),
+        )
+    )
+
+    assert result.summary.bridge_name == "杨公桥EC匝道人行通道"
+    assert result.summary.report_date == "2013年2月"
+    assert result.facility_context.facility_name == "杨公桥EC匝道人行通道"
+    assert result.facility_context.facility_type_raw == "人行通道"
+    assert result.facility_context.inspection_date == "2012年6月20日"
+    assert result.summary.report_date != result.facility_context.inspection_date
+    assert result.summary.overall_grade == "一类"
+    assert result.summary.overall_conclusion.startswith("外观检测发现")
+    assert result.field_states["report_date"] == "present"
+    assert result.field_states["inspection_date"] == "present"
+    assert set(result.field_states.values()) <= {
+        "present",
+        "explicit_none",
+        "not_applicable",
+        "not_extracted",
+    }
+
+
+def test_conclusion_fragments_are_excluded_and_risk_fallback_is_limited(tmp_path: Path) -> None:
+    result = extract_summary(
+        _parse(
+            tmp_path,
+            paragraph("检测结论：条石抗压强度检测结果为18MPa。"),
+            paragraph("主要结论：侧墙破损，建议及时修复。"),
+            paragraph("安全影响：侧墙破损会影响耐久性，但不应把整段安全影响当作主要风险。"),
+            paragraph("处置建议：对侧墙破损进行修复。"),
+        )
+    )
+
+    assert result.summary.overall_conclusion == "侧墙破损,建议及时修复"
+    assert all(
+        "抗压强度" not in candidate.value
+        for candidate in result.candidates["overall_conclusion"]
+    )
+    assert result.summary.risk_points == "侧墙破损,建议及时修复"
+    assert len(result.candidates["risk_points"]) <= 3
