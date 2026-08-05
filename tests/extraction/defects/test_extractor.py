@@ -425,3 +425,200 @@ def test_empty_result_reads_only_bounded_legacy_appearance_section() -> None:
         ("栏杆", "锈蚀、松动", "钢丝网局部锈蚀、松动"),
     ]
     assert "fallback_defect_text" in {flag["code"] for flag in result.quality_flags}
+def test_caption_rows_merge_into_their_defect_evidence_instead_of_new_records(
+    tmp_path: Path,
+) -> None:
+    defect_table = table(
+        row(cell("序号"), cell("位置"), cell("病害种类"), cell("病害情况")),
+        row(
+            cell("1"),
+            cell("空心板"),
+            cell("裂缝"),
+            cell("第1跨6#板距0#台2.5m处，有1条横向贯通裂缝，L=1.5m、W=0.08mm，照5.3.1-1"),
+        ),
+        row(
+            cell("2"),
+            cell(""),
+            cell(""),
+            cell("第1跨7#板距0#台2.5m处，有1条横向贯通裂缝，L=1.5m、W=0.1mm，照5.3.1-2"),
+        ),
+        row(
+            cell("照5.3.1-1  第1跨6#板距0#台2.5m处，有1条横向贯通裂缝，L=1.5m、W=0.08mm", grid_span=4),
+            cell("照5.3.1-2  第1跨7#板距0#台2.5m处，有1条横向贯通裂缝，L=1.5m、W=0.1mm"),
+        ),
+    )
+    xml = document_xml(
+        paragraph("5.3.1 上部结构病害表"),
+        defect_table,
+    )
+    document = parse_document_xml(xml, source_file="caption-merge.docx")
+
+    result = extract_defects(document)
+
+    assert [(record.index, record.location, record.defect_type) for record in result] == [
+        ("1", "空心板", "裂缝"),
+        ("2", "空心板", "裂缝"),
+    ]
+    assert result[0].description == "第1跨6#板距0#台2.5m处，有1条横向贯通裂缝，L=1.5m、W=0.08mm，照5.3.1-1"
+    assert sorted(anchor.row_index for anchor in result[0].evidence) == [1, 1, 1, 1, 3]
+    assert sorted(anchor.row_index for anchor in result[1].evidence) == [1, 1, 2, 2, 2, 2, 3]
+    merged = [flag for flag in result.quality_flags if flag["code"] == "photo_caption_row_merged"]
+    assert len(merged) == 1
+    assert merged[0]["details"]["defect_indices"] == ["1", "2"]
+
+
+def test_caption_row_without_matching_defect_is_flagged_not_fabricated() -> None:
+    xml = document_xml(
+        paragraph("病害明细表"),
+        table(
+            row(cell("序号"), cell("位置"), cell("病害种类"), cell("病害情况")),
+            row(cell("1"), cell("桥面"), cell("裂缝"), cell("桥面局部裂缝，照5.1-1")),
+            row(cell("照9.9.9  未见对应病害行的照片", grid_span=4)),
+        ),
+    )
+    document = parse_document_xml(xml, source_file="caption-unmapped.docx")
+
+    result = extract_defects(document)
+
+    assert len(result) == 1
+    assert result[0].description == "桥面局部裂缝，照5.1-1"
+    assert "unmapped_caption_row" in {flag["code"] for flag in result.quality_flags}
+
+
+def test_unit_placeholder_and_continuation_rows_are_excluded_with_flags() -> None:
+    xml = document_xml(
+        paragraph("病害明细表"),
+        table(
+            row(cell("序号"), cell("位置"), cell("病害种类"), cell("病害情况")),
+            row(cell("1"), cell("桥面"), cell("裂缝"), cell("桥面局部裂缝，宽约0.2mm")),
+            row(cell("单位：mm", grid_span=4)),
+            row(cell("本表无病害", grid_span=4)),
+            row(cell("续表", grid_span=1)),
+        ),
+    )
+    document = parse_document_xml(xml, source_file="layout-rows.docx")
+
+    result = extract_defects(document)
+
+    assert len(result) == 1
+    assert result[0].description == "桥面局部裂缝，宽约0.2mm"
+    excluded = [flag for flag in result.quality_flags if flag["code"] == "excluded_non_defect_row"]
+    assert len(excluded) == 3
+    reasons = {flag["details"]["reason"] for flag in excluded}
+    assert reasons == {"unit_or_placeholder", "unit_or_placeholder", "repeated_header"}
+
+
+def test_is_valid_defect_row_classifies_non_defect_rows() -> None:
+    from src.extraction.defects.extractor import is_valid_defect_row
+
+    assert is_valid_defect_row(
+        {"index": "1", "location": "桥面", "defect_type": "裂缝", "description": "桥面裂缝，照5.1-1"}
+    ) is None
+    assert is_valid_defect_row(
+        {"index": "", "location": "桥面", "defect_type": "裂缝", "description": "3条纵向裂缝，宽度约2mm，见图2.1.1、照片5.1.1-1"}
+    ) is None
+    assert is_valid_defect_row(
+        {"index": "照5.3.1-1  第1跨6#板距0#台2.5m处，有1条横向贯通裂缝", "location": "", "defect_type": "", "description": ""}
+    ) == "photo_caption"
+    assert is_valid_defect_row(
+        {"index": "", "location": "", "defect_type": "", "description": "单位：mm"}
+    ) == "unit_or_placeholder"
+    assert is_valid_defect_row(
+        {"index": "", "location": "", "defect_type": "", "description": "本表无病害"}
+    ) == "unit_or_placeholder"
+    assert is_valid_defect_row(
+        {"index": "", "location": "", "defect_type": "", "description": ""}
+    ) == "placeholder"
+
+
+def test_valid_description_preserves_figure_refs_counts_dimensions_and_crack_widths() -> None:
+    xml = document_xml(
+        table(
+            row(cell("位置"), cell("病害种类"), cell("具体位置")),
+            row(
+                cell("桥面铺装"),
+                cell("裂缝"),
+                cell("距1#伸缩缝21m，距左侧2.5m，3处龟裂，s=0.5m×0.3m，宽约2mm，L=1.5m，见图2.1.1、照片5.1.1-1"),
+            ),
+        )
+    )
+    document = parse_document_xml(xml, source_file="preserve.docx")
+
+    result = extract_defects(document)
+
+    assert len(result) == 1
+    assert (
+        result[0].description
+        == "距1#伸缩缝21m，距左侧2.5m，3处龟裂，s=0.5m×0.3m，宽约2mm，L=1.5m，见图2.1.1、照片5.1.1-1"
+    )
+
+
+def test_caption_like_description_merges_when_it_documents_an_existing_defect() -> None:
+    xml = document_xml(
+        paragraph("病害明细表"),
+        table(
+            row(cell("序号"), cell("位置"), cell("病害种类"), cell("病害情况")),
+            row(
+                cell("1"),
+                cell("桥面铺装"),
+                cell("龟裂"),
+                cell("距1#伸缩缝21m，距左侧2.5m，龟裂，s=0.5m×0.3m，照5.1-1"),
+            ),
+            row(cell(""), cell(""), cell(""), cell("照5.1-1  距1#伸缩缝21m，距左侧2.5m，龟裂，s=0.5m×0.3m")),
+        ),
+    )
+    document = parse_document_xml(xml, source_file="caption-desc.docx")
+
+    result = extract_defects(document)
+
+    assert len(result) == 1
+    assert result[0].index == "1"
+    assert result[0].description == "距1#伸缩缝21m，距左侧2.5m，龟裂，s=0.5m×0.3m，照5.1-1"
+    assert sorted(anchor.row_index for anchor in result[0].evidence) == [1, 1, 1, 1, 2, 2, 2, 2]
+    assert "photo_caption_row_merged" in {flag["code"] for flag in result.quality_flags}
+
+
+def test_duplicate_table_rows_are_deduped_keeping_first_description_and_all_anchors() -> None:
+    xml = document_xml(
+        paragraph("病害明细表"),
+        table(
+            row(cell("序号"), cell("位置"), cell("病害种类"), cell("病害情况")),
+            row(cell("1"), cell("桥面"), cell("裂缝"), cell("桥面局部裂缝，见图2.1.1")),
+            row(cell("1"), cell("桥面"), cell("裂缝"), cell("桥面局部裂缝，见图2.1.1")),
+            row(cell("2"), cell("栏杆"), cell("破损"), cell("右侧栏杆局部破损")),
+        ),
+    )
+    document = parse_document_xml(xml, source_file="dedup.docx")
+
+    result = extract_defects(document)
+
+    assert [(record.index, record.location, record.defect_type) for record in result] == [
+        ("1", "桥面", "裂缝"),
+        ("2", "右侧栏杆", "破损"),
+    ]
+    assert result[0].description == "桥面局部裂缝，见图2.1.1"
+    assert len(result[0].evidence) == len({anchor for anchor in result[0].evidence})
+    dedup = [flag for flag in result.quality_flags if flag["code"] == "deduplicated_defect_rows"]
+    assert len(dedup) == 1
+    assert dedup[0]["details"]["removed_row_count"] == 1
+
+
+def test_no_hard_defect_count_cap() -> None:
+    rows = [row(cell("序号"), cell("位置"), cell("病害种类"), cell("病害情况"))]
+    for index in range(1, 41):
+        rows.append(
+            row(
+                cell(str(index)),
+                cell("桥面"),
+                cell("裂缝"),
+                cell(f"第{index}处桥面局部裂缝，L={index}m"),
+            )
+        )
+    xml = document_xml(paragraph("病害明细表"), table(*rows))
+    document = parse_document_xml(xml, source_file="nocap.docx")
+
+    result = extract_defects(document)
+
+    assert len(result) == 40
+    assert result[-1].description == "第40处桥面局部裂缝，L=40m"
+

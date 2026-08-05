@@ -9,8 +9,8 @@ sequence for callers that only need the records.
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
-from dataclasses import dataclass
+from collections.abc import Iterable, Iterator, Sequence
+from dataclasses import dataclass, replace
 import re
 import unicodedata
 
@@ -324,6 +324,19 @@ def extract_defects(
         )
         records.extend(table_records)
         flags.extend(table_flags)
+    if records:
+        deduplicated = _deduplicate_table_records(records)
+        removed = len(records) - len(deduplicated)
+        if removed:
+            flags.append(
+                _flag(
+                    "deduplicated_defect_rows",
+                    "Duplicate defect observations were merged, retaining the first description and all source anchors.",
+                    removed_row_count=removed,
+                    table_row_count=len(records),
+                )
+            )
+        records = list(deduplicated)
     if tables and not records:
         flags.append(
             _flag(
@@ -569,12 +582,75 @@ def _extract_table(
         if not any(values[field] for field in _REQUIRED_FIELDS):
             continue
 
+        reason = is_valid_defect_row(values, row=row, column_map=column_map)
+        if reason is not None:
+            if reason == "photo_caption":
+                matched_indices = _merge_caption_row(result, table, row)
+                if matched_indices:
+                    flags.append(
+                        _flag(
+                            "photo_caption_row_merged",
+                            "Photo/figure caption cells were merged into the defects they document instead of creating duplicate records.",
+                            **details,
+                            row_index=row.row_index,
+                            defect_indices=list(matched_indices),
+                        )
+                    )
+                else:
+                    flags.append(
+                        _flag(
+                            "unmapped_caption_row",
+                            "A photo/figure caption row matched no existing defect; it is kept as a quality marker instead of a formal record.",
+                            **details,
+                            row_index=row.row_index,
+                            cell_text=_display_text(" ".join(cell.raw_text for cell in row.cells))[:60],
+                        )
+                    )
+            else:
+                flags.append(
+                    _flag(
+                        "excluded_non_defect_row",
+                        "A table row was excluded because it is not a concrete defect observation.",
+                        **details,
+                        row_index=row.row_index,
+                        reason=reason,
+                        cell_text=_display_text(" ".join(cell.raw_text for cell in row.cells))[:60],
+                    )
+                )
+            continue
+
         _expand_lane_and_section(values, section_label)
 
         anchors = _row_anchors(table, row)
         for field in _INHERITED_FIELDS:
             if field in origins and origins[field] not in anchors:
                 anchors.append(origins[field])
+        if _caption_marker(values["description"] or ""):
+            matched_indices = _merge_caption_row(
+                result,
+                table,
+                row,
+                whole_row=True,
+            )
+            if matched_indices:
+                flags.append(
+                    _flag(
+                        "photo_caption_row_merged",
+                        "A photo/figure caption description was merged into the defect it documents instead of creating a duplicate record.",
+                        **details,
+                        row_index=row.row_index,
+                        defect_indices=list(matched_indices),
+                    )
+                )
+                continue
+            flags.append(
+                _flag(
+                    "caption_like_description_kept",
+                    "A description starts with a photo/figure marker but maps to no existing defect; it is kept as a formal record.",
+                    **details,
+                    row_index=row.row_index,
+                )
+            )
         result.append(
             DefectObservation(
                 index=values["index"],
@@ -596,6 +672,306 @@ def _extract_table(
             )
         )
     return result, flags
+
+
+_CAPTION_MARKER_RE = re.compile(
+    r"^(?:照片|照|图|附图|表)\s*[0-9一二三四五六七八九十百千]+(?:[.\-][0-9一二三四五六七八九十百千]+)*"
+)
+_FIGURE_REF_RE = re.compile(
+    r"(?:照片|照|图|附图|表)\s*([0-9一二三四五六七八九十百千]+(?:[.\-][0-9一二三四五六七八九十百千]+)*)"
+)
+_FIGURE_REF_STRIP_RE = re.compile(
+    r"(?:照片|照|图|附图|表)\s*[0-9一二三四五六七八九十百千]+(?:[.\-][0-9一二三四五六七八九十百千]+)*"
+)
+_UNIT_ROW_RE = re.compile(
+    r"^(?:单位|备注|注|说明|数量|表注)(?:[:：][^，。；;]{0,30})?$"
+)
+_PLACEHOLDER_ROW_RE = re.compile(
+    r"^(?:[-—–/…·．.]+|无|空白|空|无病害|无缺陷|未发现病害|未发现缺陷|"
+    r"本(?:表|页)(?:无|未发现)(?:病害|缺陷)?|以下空白|（以下空白）|"
+    r"本表无病害|本页无病害|无内容|暂无)$"
+)
+_CONTINUATION_MARKERS = frozenset(("续表", "表续", "接上表", "续上表", "上表", "续"))
+
+
+def is_valid_defect_row(
+    values: Mapping[str, str],
+    row: TableRow | None = None,
+    column_map: Mapping[str, int] | None = None,
+) -> str | None:
+    """Return a reason when a parsed table row is not a concrete defect row.
+
+    ``None`` means the row is a valid defect observation.  Reasons cover
+    photo/figure caption rows (``photo_caption``), repeated header rows
+    (``repeated_header``), unit/label or placeholder/layout rows
+    (``unit_or_placeholder``), and empty rows (``placeholder``).  Valid rows
+    keep their original descriptions, including figure/photo references,
+    counts, dimensions, crack widths, and locations.
+    """
+
+    if not any(_display_text(values.get(field) or "") for field in _REQUIRED_FIELDS):
+        return "placeholder"
+    if row is not None and _is_repeated_header_row(row):
+        return "repeated_header"
+    if _is_caption_row(values, row=row, column_map=column_map):
+        return "photo_caption"
+    if _is_unit_or_placeholder_row(row, values):
+        return "unit_or_placeholder"
+    return None
+
+
+def _is_repeated_header_row(row: TableRow) -> bool:
+    cells = [cell for cell in row.cells if _display_text(cell.raw_text)]
+    if not cells:
+        return False
+    for cell in cells:
+        text = _normalise_header(cell.raw_text)
+        if not text:
+            continue
+        if text in _CONTINUATION_MARKERS:
+            continue
+        if not any(
+            _alias_matches(text, alias)
+            for aliases in _HEADER_ALIASES.values()
+            for alias in aliases
+        ):
+            return False
+    return True
+
+
+def _is_caption_row(
+    values: Mapping[str, str],
+    *,
+    row: TableRow | None,
+    column_map: Mapping[str, int] | None,
+) -> bool:
+    description = _display_text(values.get("description") or "")
+    index = _display_text(values.get("index") or "")
+    if _caption_marker(index):
+        return not description or description == index
+    if row is not None and column_map:
+        mapped_columns = set(column_map.values())
+        for cell in row.cells:
+            text = _display_text(cell.raw_text)
+            if not text or not _caption_marker(text):
+                continue
+            covered = set(
+                range(cell.column_index, cell.column_index + max(1, cell.column_span))
+            )
+            if mapped_columns <= covered:
+                return True
+    return False
+
+
+def _is_unit_or_placeholder_row(
+    row: TableRow | None,
+    values: Mapping[str, str],
+) -> bool:
+    if row is not None:
+        cells = [cell for cell in row.cells if _display_text(cell.raw_text)]
+        if cells:
+            return all(
+                _is_unit_text(_display_text(cell.raw_text))
+                or _is_placeholder_text(_display_text(cell.raw_text))
+                for cell in cells
+            )
+    row_text = "".join(
+        _display_text(values.get(field) or "")
+        for field in _FIELD_ORDER
+        if field not in _DEFAULT_FIELDS
+        or _display_text(values.get(field) or "") != _DEFAULT_FIELDS[field]
+    )
+    return bool(row_text) and (
+        _is_unit_text(row_text) or _is_placeholder_text(row_text)
+    )
+
+
+def _is_unit_text(text: str) -> bool:
+    return _UNIT_ROW_RE.fullmatch(text) is not None
+
+
+def _is_placeholder_text(text: str) -> bool:
+    return _PLACEHOLDER_ROW_RE.fullmatch(text) is not None
+
+
+def _caption_marker(text: str) -> bool:
+    return _CAPTION_MARKER_RE.match(_display_text(text)) is not None
+
+
+def _figure_references(text: str) -> set[str]:
+    return {match.group(1) for match in _FIGURE_REF_RE.finditer(text or "")}
+
+
+def _strip_figure_refs(text: str) -> str:
+    return _FIGURE_REF_STRIP_RE.sub("", text or "")
+
+
+def _merge_caption_row(
+    result: list[DefectObservation],
+    table: TableBlock,
+    row: TableRow,
+    *,
+    whole_row: bool = False,
+) -> tuple[str, ...]:
+    """Merge a photo/caption row into the defect(s) it documents.
+
+    Each caption cell is matched to an existing record from the same table
+    by a shared figure/photo reference or, failing that, by description
+    containment preferring the nearest preceding defect row (adjacent-row
+    evidence).  Matched records keep their original description and index;
+    the caption cell's source anchor is added to the record's evidence.
+    Returns the matched defect indices in row order.  With ``whole_row`` the
+    entire row is treated as one caption and all of its anchors are merged
+    into the single matched record.
+    """
+
+    if whole_row:
+        caption_text = _display_text(" ".join(cell.raw_text for cell in row.cells))
+        if not caption_text:
+            return ()
+        position = _match_caption_record(
+            result,
+            _figure_references(caption_text),
+            _text_semantic(_strip_figure_refs(caption_text)),
+            row.row_index,
+        )
+        if position is None:
+            return ()
+        record = result[position]
+        result[position] = replace(
+            record,
+            evidence=_unique_anchors(record.evidence, _row_anchors(table, row)),
+        )
+        return (record.index,)
+
+    matched_indices: list[str] = []
+    for cell in row.cells:
+        cell_text = _display_text(cell.raw_text)
+        if not cell_text:
+            continue
+        position = _match_caption_record(
+            result,
+            _figure_references(cell_text),
+            _text_semantic(_strip_figure_refs(cell_text)),
+            row.row_index,
+        )
+        if position is None:
+            continue
+        record = result[position]
+        result[position] = replace(
+            record,
+            evidence=_unique_anchors(record.evidence, (_cell_anchor(table, cell),)),
+        )
+        if record.index not in matched_indices:
+            matched_indices.append(record.index)
+    return tuple(matched_indices)
+
+
+def _match_caption_record(
+    result: Sequence[DefectObservation],
+    caption_refs: set[str],
+    caption_core: str,
+    caption_row_index: int,
+) -> int | None:
+    """Find the table record documented by one caption cell.
+
+    Figure/photo references are unique per defect, so any exact reference
+    match wins.  Without a reference, the nearest preceding defect row whose
+    description overlaps the caption is preferred (adjacent-row evidence).
+    """
+
+    for position in range(len(result) - 1, -1, -1):
+        record = result[position]
+        if caption_refs and (_figure_references(record.description) & caption_refs):
+            return position
+    best_position: int | None = None
+    best_distance: int | None = None
+    for position, record in enumerate(result):
+        record_core = _text_semantic(_strip_figure_refs(record.description))
+        if len(record_core) < 4 or not caption_core:
+            continue
+        if not (record_core in caption_core or caption_core in record_core):
+            continue
+        distance = caption_row_index - _record_row(record)
+        if distance >= 0 and (best_distance is None or distance < best_distance):
+            best_position = position
+            best_distance = distance
+    if best_position is not None:
+        return best_position
+    for position, record in enumerate(result):
+        record_core = _text_semantic(_strip_figure_refs(record.description))
+        if len(record_core) < 4 or not caption_core:
+            continue
+        if record_core in caption_core or caption_core in record_core:
+            return position
+    return None
+
+
+def _record_row(record: DefectObservation) -> int:
+    rows = [anchor.row_index for anchor in record.evidence if anchor.row_index is not None]
+    return min(rows) if rows else -1
+
+
+def _unique_anchors(
+    *anchor_groups: Iterable[SourceAnchor],
+) -> tuple[SourceAnchor, ...]:
+    result: list[SourceAnchor] = []
+    for group in anchor_groups:
+        for anchor in group:
+            if anchor not in result:
+                result.append(anchor)
+    return tuple(result)
+
+
+def _deduplicate_table_records(
+    records: Sequence[DefectObservation],
+) -> tuple[DefectObservation, ...]:
+    """Merge duplicate defect observations from table rows.
+
+    Duplicates share facility/component location, defect type, and either an
+    identical description, a shared figure/photo reference, or a
+    containment/adjacent-row description overlap.  The first record keeps its
+    original description; all source anchors from every duplicate are kept.
+    """
+
+    result: list[DefectObservation] = []
+    for record in records:
+        for position, existing in enumerate(result):
+            if _same_defect_observation(existing, record):
+                result[position] = replace(
+                    existing,
+                    evidence=_unique_anchors(existing.evidence, record.evidence),
+                )
+                break
+        else:
+            result.append(record)
+    return tuple(result)
+
+
+def _same_defect_observation(
+    left: DefectObservation,
+    right: DefectObservation,
+) -> bool:
+    if _text_semantic(left.location) != _text_semantic(right.location):
+        return False
+    if _text_semantic(left.defect_type) != _text_semantic(right.defect_type):
+        return False
+    left_description = _text_semantic(_clean_description(left.description))
+    right_description = _text_semantic(_clean_description(right.description))
+    if left_description and left_description == right_description:
+        return True
+    if _figure_references(left.description) & _figure_references(right.description):
+        return True
+    if (
+        len(left_description) >= 4
+        and len(right_description) >= 4
+        and (
+            left_description in right_description
+            or right_description in left_description
+        )
+    ):
+        return True
+    return False
 
 
 def _analyse_headers(table: TableBlock) -> _HeaderAnalysis:
