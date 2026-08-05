@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.agent.narrative import run_narrative_enhancement  # noqa: E402
+from src.agent.narrative import _prompt_baseline, run_narrative_enhancement  # noqa: E402
 from src.extraction.pipeline import extract_report  # noqa: E402
 from src.llm.client import ModelCallResult, OpenAIModelClient  # noqa: E402
 from src.parsing import parse_docx  # noqa: E402
@@ -32,6 +32,16 @@ from src.routing import route_sections  # noqa: E402
 
 
 TARGET_FIELDS = ("detailed_conclusion", "causes", "treatments", "safety_impact")
+RETRIEVAL_SOURCE_QUOTA = {
+    "report_evidence": 3,
+    "domain_knowledge": 2,
+    "label_example": 1,
+}
+_FINAL_RETRIEVAL_QUOTA = {
+    "report_evidence": 3,
+    "knowledge_card": 2,
+    "gold_label": 1,
+}
 _SECRET_RE = re.compile(r"(?i)(api[_ -]?key|authorization|bearer|token|secret)\s*[:=]\s*[^,;\s]+")
 
 
@@ -132,15 +142,37 @@ def _report_facts(input_docx: Path, source_file: str) -> list[dict[str, Any]]:
     return facts
 
 
-def _text_values(value: Any) -> list[str]:
+def _text_values(value: Any, _active: set[int] | None = None) -> list[str]:
+    """Collect nested strings without looping through self-referential data."""
+
     if isinstance(value, str):
         return [value]
+    if isinstance(value, (bytes, bytearray)):
+        return []
+    active = _active if _active is not None else set()
     if isinstance(value, Mapping):
-        return [text for key in ("text", "content", "value") for text in _text_values(value.get(key))]
-    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        marker = id(value)
+        if marker in active:
+            return []
+        active.add(marker)
         result: list[str] = []
-        for item in value:
-            result.extend(_text_values(item))
+        try:
+            for item in value.values():
+                result.extend(_text_values(item, active))
+        finally:
+            active.remove(marker)
+        return result
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        marker = id(value)
+        if marker in active:
+            return []
+        active.add(marker)
+        result: list[str] = []
+        try:
+            for item in value:
+                result.extend(_text_values(item, active))
+        finally:
+            active.remove(marker)
         return result
     return []
 
@@ -161,9 +193,68 @@ def _evidence_ids(value: Any) -> list[str]:
     return result
 
 
+def _text_evidence_pairs(
+    value: Any,
+    inherited_ids: Sequence[str] = (),
+    _active: set[int] | None = None,
+) -> list[tuple[str, list[str]]]:
+    """Return narrative text together with evidence IDs inherited from its item."""
+
+    if isinstance(value, str):
+        return [(value, list(inherited_ids))]
+    if isinstance(value, (bytes, bytearray)):
+        return []
+    active = _active if _active is not None else set()
+    if isinstance(value, Mapping):
+        marker = id(value)
+        if marker in active:
+            return []
+        active.add(marker)
+        evidence_ids = list(inherited_ids)
+        pairs: list[tuple[str, list[str]]] = []
+        try:
+            for key in ("evidence_id", "evidence_ids"):
+                evidence_ids.extend(_text_values(value.get(key)))
+            for key, item in value.items():
+                if str(key) in {"evidence_id", "evidence_ids"}:
+                    continue
+                pairs.extend(_text_evidence_pairs(item, evidence_ids, active))
+        finally:
+            active.remove(marker)
+        return pairs
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        marker = id(value)
+        if marker in active:
+            return []
+        active.add(marker)
+        pairs: list[tuple[str, list[str]]] = []
+        try:
+            for item in value:
+                pairs.extend(_text_evidence_pairs(item, inherited_ids, active))
+        finally:
+            active.remove(marker)
+        return pairs
+    return []
+
+
+def _normalise_text(text: Any) -> str:
+    return "".join(str(text).split()).casefold()
+
+
 def _normalised_fields(value: Any) -> dict[str, Any]:
     value = value if isinstance(value, Mapping) else {}
     return {field: deepcopy(value.get(field, [])) for field in TARGET_FIELDS}
+
+
+def _locked_top_level_differences(candidate: Mapping[str, Any], baseline: Mapping[str, Any]) -> list[str]:
+    missing = object()
+    differences: list[str] = []
+    for key in sorted(set(candidate) | set(baseline)):
+        if key in TARGET_FIELDS:
+            continue
+        if candidate.get(key, missing) != baseline.get(key, missing):
+            differences.append(str(key))
+    return differences
 
 
 def _call_metrics(result: ModelCallResult | None, *, model: str, duration_ms: float, calls: int = 1) -> dict[str, Any]:
@@ -249,12 +340,86 @@ class OfflineClient:
         return self._result(group)
 
 
+_PROMPT_CONTEXT_MAX_ITEMS = 12
+_PROMPT_CONTEXT_MAX_CHARS = 6000
+_PROMPT_CONTEXT_ITEM_CHARS = 720
+_PROMPT_CONTEXT_KEYS = (
+    "evidence_id",
+    "id",
+    "kind",
+    "source_bucket",
+    "source_type",
+    "section",
+    "sample_id",
+    "split",
+    "score",
+    "embedding_score",
+    "rerank_score",
+    "retrieval_mode",
+    "title",
+)
+_PROMPT_SOURCE_KEYS = (
+    "block_index",
+    "table_index",
+    "row_index",
+    "column_index",
+    "paragraph_index",
+)
+
+
+def _compact_prompt_text(value: Any, limit: int) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    if len(text) <= limit:
+        return text
+    head = max(1, int(limit * 0.7))
+    tail = max(1, limit - head - 1)
+    return text[:head] + "…" + text[-tail:]
+
+
+def _compact_context_records(
+    records: Sequence[Mapping[str, Any]],
+    *,
+    max_items: int = _PROMPT_CONTEXT_MAX_ITEMS,
+    max_chars: int = _PROMPT_CONTEXT_MAX_CHARS,
+    max_item_chars: int = _PROMPT_CONTEXT_ITEM_CHARS,
+) -> list[dict[str, Any]]:
+    """Keep evidence anchors while removing repeated long source text from prompts."""
+
+    result: list[dict[str, Any]] = []
+    used_chars = 0
+    for record in records:
+        if not isinstance(record, Mapping) or len(result) >= max_items:
+            break
+        raw_text = record.get("text", record.get("content", record.get("snippet", "")))
+        remaining = max_chars - used_chars
+        if remaining <= 0 or not str(raw_text or "").strip():
+            continue
+        item: dict[str, Any] = {
+            key: deepcopy(record[key])
+            for key in _PROMPT_CONTEXT_KEYS
+            if key in record and record[key] is not None
+        }
+        source = record.get("source")
+        if isinstance(source, Mapping):
+            compact_source = {
+                key: deepcopy(source[key])
+                for key in _PROMPT_SOURCE_KEYS
+                if key in source and source[key] is not None
+            }
+            if compact_source:
+                item["source"] = compact_source
+        item["text"] = _compact_prompt_text(raw_text, min(max_item_chars, remaining))
+        result.append(item)
+        used_chars += len(item["text"])
+    return result
+
+
 def _prompt(group: str, baseline: Mapping[str, Any], facts: Sequence[Mapping[str, Any]]) -> list[dict[str, str]]:
     payload = {
         "group": group,
         "task": "Enhance only the four narrative fields and return JSON.",
         "baseline_prediction": _normalised_fields(baseline),
-        "report_facts": list(facts),
+        "report_facts": _compact_context_records(facts),
         "contract": {
             "detailed_conclusion": "array of at most four concise strings",
             "causes": "array of concise objects with text and evidence_ids",
@@ -283,6 +448,172 @@ def _query(baseline: Mapping[str, Any]) -> str:
         if isinstance(defect, Mapping):
             pieces.append(" ".join(str(defect.get(key, "")) for key in ("location", "defect_type", "description")))
     return " ".join(str(piece) for piece in pieces if piece)[:3000]
+
+
+def _task_queries(baseline: Mapping[str, Any]) -> dict[str, str]:
+    """Build separate retrieval context for each generated narrative field."""
+
+    summary = baseline.get("summary")
+    summary = summary if isinstance(summary, Mapping) else {}
+    bridge = str(summary.get("bridge_name", baseline.get("sample_id", "")))
+    overall = str(summary.get("overall_conclusion", ""))
+    risk = str(summary.get("risk_points", ""))
+    compact = _prompt_baseline(baseline)
+    defect_pieces: list[str] = []
+    for defect in compact.get("defects", []):
+        if not isinstance(defect, Mapping):
+            continue
+        descriptions = "; ".join(str(item) for item in defect.get("representative_descriptions", []))
+        defect_pieces.append(
+            " ".join(
+                part
+                for part in (
+                    str(defect.get("location", "")),
+                    str(defect.get("defect_type", "")),
+                    descriptions,
+                )
+                if part
+            )
+        )
+    defect_context = "；".join(piece for piece in defect_pieces if piece)
+    recommendation_pieces: list[str] = []
+    for recommendation in baseline.get("recommendations", []):
+        if not isinstance(recommendation, Mapping):
+            continue
+        recommendation_pieces.append(
+            " ".join(
+                str(recommendation.get(key, ""))
+                for key in ("index", "location", "category", "content")
+                if recommendation.get(key)
+            )
+        )
+    recommendation_context = "；".join(piece for piece in recommendation_pieces if piece)
+
+    def make(task: str, *pieces: str) -> str:
+        context = " ".join(piece.strip() for piece in pieces if piece and piece.strip())
+        return f"task={task}; bridge={bridge}; {context}"[:3000]
+
+    return {
+        "detailed_conclusion": make("detailed_conclusion", overall, risk, defect_context),
+        "causes": make("causes", defect_context, risk, overall),
+        "treatments": make("treatments", recommendation_context, defect_context, risk),
+        "safety_impact": make("safety_impact", risk, defect_context, overall),
+    }
+
+
+def _retrieval_source_bucket(hit: Mapping[str, Any]) -> str | None:
+    values: list[str] = []
+    for key in ("source_type", "source_kind", "kind", "source", "type"):
+        value = hit.get(key)
+        if isinstance(value, Mapping):
+            values.extend(str(value.get(name, "")) for name in ("source_type", "source_kind", "kind", "type", "name"))
+        elif value is not None:
+            values.append(str(value))
+    text = " ".join(values).casefold().replace("-", "_").replace(" ", "_")
+    if any(alias in text for alias in ("gold_label", "label_example", "gold", "label")):
+        return "gold_label"
+    if any(alias in text for alias in ("knowledge_card", "domain_knowledge", "knowledge")):
+        return "knowledge_card"
+    if any(alias in text for alias in ("report_evidence", "report_fact", "current_report", "evidence")):
+        return "report_evidence"
+    return None
+
+
+def _public_retrieval_source_bucket(hit: Mapping[str, Any]) -> str | None:
+    """Expose the competition-facing names while preserving the raw ``kind``."""
+
+    return {
+        "report_evidence": "report_evidence",
+        "knowledge_card": "domain_knowledge",
+        "gold_label": "label_example",
+    }.get(_retrieval_source_bucket(hit))
+
+
+def _retrieval_hit_key(hit: Mapping[str, Any]) -> str:
+    for key in ("evidence_id", "id"):
+        value = hit.get(key)
+        if value is not None and str(value):
+            return f"{key}:{value}"
+    return json.dumps(
+        {key: hit.get(key) for key in ("kind", "source", "text")},
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+
+
+def _merge_retrieval_hits(task_hits: Mapping[str, Sequence[Mapping[str, Any]]]) -> list[dict[str, Any]]:
+    """Deduplicate task results and enforce the final D-group source quotas."""
+
+    merged: list[dict[str, Any]] = []
+    positions: dict[str, int] = {}
+    for task in TARGET_FIELDS:
+        for raw_hit in task_hits.get(task, []):
+            if not isinstance(raw_hit, Mapping):
+                continue
+            key = _retrieval_hit_key(raw_hit)
+            if key in positions:
+                continue
+            hit = deepcopy(dict(raw_hit))
+            positions[key] = len(merged)
+            merged.append(hit)
+
+    selected: list[dict[str, Any]] = []
+    counts = {bucket: 0 for bucket in _FINAL_RETRIEVAL_QUOTA}
+    for hit in merged:
+        bucket = _retrieval_source_bucket(hit)
+        if bucket not in _FINAL_RETRIEVAL_QUOTA:
+            continue
+        if counts[bucket] >= _FINAL_RETRIEVAL_QUOTA[bucket]:
+            continue
+        counts[bucket] += 1
+        public_bucket = _public_retrieval_source_bucket(hit)
+        if public_bucket:
+            hit["source_bucket"] = public_bucket
+        selected.append(hit)
+    return selected
+
+
+def _retrieve_task(
+    index: Any,
+    query: str,
+    *,
+    sample_id: str,
+    split: str,
+) -> Sequence[Mapping[str, Any]]:
+    """Call either the quota-aware RAG API or the current pre-quota API."""
+
+    kwargs = {
+        "sample_id": sample_id,
+        "split": split,
+        "top_embedding": 30,
+        "top_rerank": 8,
+        "top_k": sum(_FINAL_RETRIEVAL_QUOTA.values()),
+    }
+    try:
+        return index.retrieve(query, **kwargs, source_quota=dict(RETRIEVAL_SOURCE_QUOTA))
+    except TypeError as error:
+        if "source_quota" not in str(error):
+            raise
+        return index.retrieve(query, **kwargs)
+
+
+def _retrieve_task_hits(
+    index: Any,
+    task_queries: Mapping[str, str],
+    *,
+    sample_id: str,
+    split: str,
+) -> tuple[dict[str, list[dict[str, Any]]], dict[str, str]]:
+    task_hits: dict[str, list[dict[str, Any]]] = {}
+    errors: dict[str, str] = {}
+    for task in TARGET_FIELDS:
+        try:
+            results = _retrieve_task(index, task_queries[task], sample_id=sample_id, split=split)
+            task_hits[task] = [dict(item) for item in (results or []) if isinstance(item, Mapping)]
+        except Exception as error:
+            task_hits[task] = []
+            errors[task] = _safe_error(error)
+    return task_hits, errors
 
 
 def _select_context_facts(
@@ -338,12 +669,28 @@ def _group_record(
     available_ids.update(str(item.get("evidence_id")) for item in retrieval if item.get("evidence_id"))
     evidence_ids = _evidence_ids(fields)
     invalid = [identifier for identifier in evidence_ids if identifier not in available_ids]
-    baseline_texts = {"".join(_text_values(baseline.get(field))).casefold() for field in TARGET_FIELDS}
-    fact_texts = {"".join(_text_values(fact.get("text"))).casefold() for fact in facts}
+    source_texts = {
+        _normalise_text(text)
+        for field in TARGET_FIELDS
+        for text in _text_values(baseline.get(field))
+    }
+    source_texts.update(
+        _normalise_text(text)
+        for fact in list(facts) + list(retrieval)
+        for text in _text_values(fact.get("text"))
+    )
+    source_texts.discard("")
     new_facts = []
-    for text in _text_values(fields):
-        normalized = "".join(text.split()).casefold()
-        if normalized and normalized not in baseline_texts and normalized not in fact_texts and text not in new_facts:
+    for text, item_evidence_ids in _text_evidence_pairs(fields):
+        normalized = _normalise_text(text)
+        lexical_match = normalized in source_texts or any(
+            len(normalized) >= 8 and (normalized in source or source in normalized)
+            for source in source_texts
+        )
+        evidence_match = bool(item_evidence_ids) and all(
+            str(identifier) in available_ids for identifier in item_evidence_ids
+        )
+        if normalized and not lexical_match and not evidence_match and text not in new_facts:
             new_facts.append(text)
     record: dict[str, Any] = {
         "group": group,
@@ -422,6 +769,7 @@ def run_experiment(
     source_file = str(baseline.get("source_file") or input_path.name)
     facts = _report_facts(input_path, source_file)
     context_facts = _select_context_facts(facts, baseline)
+    task_queries = _task_queries(baseline)
     output.mkdir(parents=True, exist_ok=True)
     baseline_path = output / "baseline_prediction.json"
     retrieval_path = output / "retrieval_trace.json"
@@ -452,7 +800,15 @@ def run_experiment(
             }
             groups = {"A": _group_record("A", "rule baseline", _normalised_fields(baseline), baseline, facts, [], {"model": "rule-baseline", "calls": 0})}
             groups.update(unavailable)
-            retrieval = {"status": "not-run", "retrieval_available": False, "hits": [], "calls": []}
+            retrieval = {
+                "status": "not-run",
+                "retrieval_available": False,
+                "task_queries": task_queries,
+                "task_hits": {},
+                "hits": [],
+                "retrieval_hits": [],
+                "calls": [],
+            }
             _write_json(retrieval_path, retrieval)
             _write_json(ab_path, {"schema_version": "narrative-ab-v1", "groups": groups, "results": list(groups.values())})
             summary = {
@@ -506,13 +862,23 @@ def run_experiment(
         )
 
     retrieval_hits: list[dict[str, Any]] = []
+    task_hits: dict[str, list[dict[str, Any]]] = {}
+    task_errors: dict[str, str] = {}
     retrieval_status = "unavailable"
     retrieval_error: str | None = None
     if index_dir is not None:
         start_retrieval = len(client.calls)
         try:
             index = LightRagIndex.load(index_dir, client=client)
-            retrieval_hits = index.retrieve(_query(baseline), sample_id=sample_id, split=split, top_embedding=30, top_rerank=8, top_k=6)
+            task_hits, task_errors = _retrieve_task_hits(
+                index,
+                task_queries,
+                sample_id=sample_id,
+                split=split,
+            )
+            retrieval_hits = _merge_retrieval_hits(task_hits)
+            if task_errors:
+                retrieval_error = "; ".join(f"{task}: {message}" for task, message in task_errors.items())
         except Exception as error:
             retrieval_error = _safe_error(error)
         retrieval_calls = client.calls[start_retrieval:]
@@ -525,7 +891,10 @@ def run_experiment(
         "retrieval_available": index_dir is not None,
         "index_dir": str(index_dir) if index_dir is not None else None,
         "query": _query(baseline),
+        "task_queries": task_queries,
+        "task_hits": task_hits,
         "hits": retrieval_hits,
+        "retrieval_hits": retrieval_hits,
         "calls": retrieval_calls,
     }
     if retrieval_error:
@@ -567,7 +936,14 @@ def run_experiment(
         used_fallback=bool(narrative.get("used_fallback")),
         error=d_error or "; ".join(str(item) for item in narrative.get("validation_errors", [])) or None,
     )
+    locked_differences = _locked_top_level_differences(enhanced, baseline)
+    groups["D"]["locked_top_level_differences"] = locked_differences
+    groups["D"]["locked_fields_unchanged"] = not locked_differences
     groups["D"]["retrieval_status"] = retrieval_status
+    groups["D"]["retrieval_trace"] = {
+        "task_queries": deepcopy(task_queries),
+        "hits": deepcopy(retrieval_hits),
+    }
     enhanced_path = output / "enhanced_prediction.json"
     _write_json(enhanced_path, enhanced)
     _write_json(ab_path, {"schema_version": "narrative-ab-v1", "sample_id": sample_id, "split": split, "offline": offline, "target_fields": list(TARGET_FIELDS), "groups": groups, "results": list(groups.values())})
@@ -582,6 +958,7 @@ def run_experiment(
         "duration_ms": round((perf_counter() - started) * 1000, 3),
         "token_usage": _aggregate(client.calls),
         "retrieval": {"status": retrieval_status, "hit_count": len(retrieval_hits), "call_count": len(retrieval_calls)},
+        "locked_fields_unchanged": not locked_differences,
         "groups": {group: groups[group]["call_metrics"] for group in ("A", "B", "C", "D")},
         "enhanced_prediction_written": True,
         "current_best_config": "D" if groups["D"]["available"] and not groups["D"]["used_fallback"] else "A",

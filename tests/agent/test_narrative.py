@@ -204,3 +204,78 @@ def test_graph_exposes_the_required_five_nodes() -> None:
     graph = narrative.build_narrative_graph(FakeClient([valid_sections()]))
     node_names = set(graph.get_graph().nodes)
     assert {"prepare_context", "retrieve_knowledge", "generate_narrative", "validate_output", "finalize"} <= node_names
+
+
+def test_prompt_baseline_is_compact_but_keeps_summary_recommendations_and_full_fallback() -> None:
+    expanded = baseline()
+    expanded["summary"] = {
+        **expanded["summary"],
+        "overall_conclusion": "summary-anchor-保留",
+        "risk_points": "risk-anchor-保留",
+    }
+    expanded["defects"] = [
+        {
+            "index": str(index),
+            "location": "桥面",
+            "defect_type": "裂缝",
+            "description": f"代表病害描述-{index}-" + ("很长" * 30),
+            "extra_detail": "不应进入生成 Prompt 的完整病害表字段",
+        }
+        for index in range(1, 12)
+    ]
+    expanded["detailed_conclusion"] = ["full-detailed-conclusion-" + ("x" * 500)]
+    expanded["causes"] = [{"text": "full-causes-" + ("x" * 500), "evidence_ids": ["fact-1"]}]
+    expanded["treatments"] = [{"text": "full-treatments-" + ("x" * 500), "evidence_ids": ["fact-1"]}]
+    expanded["safety_impact"] = [{"text": "full-safety-impact-" + ("x" * 500), "evidence_ids": ["fact-1"]}]
+
+    prepared = narrative._prepare_context(
+        {
+            "baseline_prediction": expanded,
+            "sample_id": "bridge-1",
+            "source_file": "2024/bridge.docx",
+            "report_facts": [],
+        },
+        max_retries=1,
+    )
+    prompt_baseline = prepared["prompt_baseline"]
+    prompt = narrative._render_prompt(prepared)
+
+    assert prepared["baseline_prediction"] == expanded
+    assert prompt_baseline["summary"] == expanded["summary"]
+    assert prompt_baseline["recommendations"] == expanded["recommendations"]
+    assert len(prompt_baseline["defects"]) == 1
+    assert len(prompt_baseline["defects"][0]["representative_descriptions"]) == 3
+    assert len(narrative._json_dump(prompt_baseline)) < len(narrative._json_dump(expanded)) * 0.5
+    assert "summary-anchor-保留" in prompt
+    assert "封闭裂缝" in prompt
+    for omitted in (
+        "full-detailed-conclusion-",
+        "full-causes-",
+        "full-treatments-",
+        "full-safety-impact-",
+        "不应进入生成 Prompt 的完整病害表字段",
+    ):
+        assert omitted not in prompt
+
+
+def test_render_prompt_compacts_long_report_and_retrieval_facts() -> None:
+    long_text = (
+        "prompt-head-marker-"
+        + ("裂缝与渗水；" * 600)
+        + "-prompt-middle-marker-"
+        + ("裂缝与渗水；" * 600)
+        + "-prompt-tail-marker"
+    )
+    rendered = narrative._render_prompt(
+        {
+            "baseline_prediction": {"summary": {}, "defects": [], "recommendations": []},
+            "sample_id": "sample-1",
+            "source_file": "sample.docx",
+            "report_facts": [{"evidence_id": "fact-1", "section": "defect_table", "text": long_text}],
+            "retrieval_results": [{"id": "hit-1", "kind": "domain_knowledge", "text": long_text}],
+            "validation_errors": [],
+        }
+    )
+
+    assert "prompt-middle-marker" not in rendered
+    assert len(rendered) < len(long_text)

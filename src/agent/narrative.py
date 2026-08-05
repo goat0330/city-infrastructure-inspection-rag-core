@@ -57,12 +57,52 @@ _GRADE_RE = re.compile(
     r"(?<![A-Za-z])(?:[A-F](?:级|类)?|[一二三四五六七八九十]+级)(?![A-Za-z])"
 )
 _PROMPT_PATH = Path(__file__).resolve().parents[2] / "prompts" / "narrative_enhancement.md"
+_PROMPT_IDENTITY_KEYS = (
+    "sample_id",
+    "source_file",
+    "source",
+    "schema_version",
+    "report_id",
+    "bridge_id",
+    "bridge_name",
+    "inspection_id",
+    "history",
+)
+_MAX_DEFECT_DESCRIPTIONS = 3
+_MAX_DEFECT_DESCRIPTION_CHARS = 240
+_PROMPT_CONTEXT_MAX_ITEMS = 12
+_PROMPT_CONTEXT_MAX_CHARS = 6000
+_PROMPT_CONTEXT_ITEM_CHARS = 720
+_PROMPT_CONTEXT_KEYS = (
+    "evidence_id",
+    "id",
+    "kind",
+    "source_bucket",
+    "source_type",
+    "section",
+    "sample_id",
+    "split",
+    "score",
+    "embedding_score",
+    "rerank_score",
+    "retrieval_mode",
+    "title",
+)
+_PROMPT_SOURCE_KEYS = (
+    "block_index",
+    "table_index",
+    "row_index",
+    "column_index",
+    "paragraph_index",
+)
+_MAX_EVIDENCE_TEXT_CHARS = 900
 
 
 class NarrativeState(TypedDict, total=False):
     """State passed between the five graph nodes."""
 
     baseline_prediction: dict[str, Any]
+    prompt_baseline: dict[str, Any]
     sample_id: str
     source_file: str
     split: str
@@ -123,8 +163,122 @@ def _prediction_dict(prediction: Any) -> dict[str, Any]:
     return copy.deepcopy(normalized)
 
 
+def _compact_prompt_text(value: Any, limit: int) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    if len(text) <= limit:
+        return text
+    head = max(1, int(limit * 0.7))
+    tail = max(1, limit - head - 1)
+    return text[:head] + "…" + text[-tail:]
+
+
+def _compact_defects(defects: Any) -> list[dict[str, Any]]:
+    """Group repeated defects while retaining a few useful descriptions."""
+
+    if not isinstance(defects, Sequence) or isinstance(defects, (str, bytes, bytearray)):
+        return []
+    grouped: dict[tuple[str, str], list[str]] = {}
+    for defect in defects:
+        if not isinstance(defect, Mapping):
+            continue
+        location = str(defect.get("location") or "").strip()
+        defect_type = str(defect.get("defect_type") or "").strip()
+        description = _compact_prompt_text(
+            defect.get("description") or defect.get("text") or "",
+            _MAX_DEFECT_DESCRIPTION_CHARS,
+        )
+        key = (location, defect_type)
+        descriptions = grouped.setdefault(key, [])
+        if description and description not in descriptions and len(descriptions) < _MAX_DEFECT_DESCRIPTIONS:
+            descriptions.append(description)
+    return [
+        {
+            "location": location,
+            "defect_type": defect_type,
+            "representative_descriptions": descriptions,
+        }
+        for (location, defect_type), descriptions in grouped.items()
+    ]
+
+
+def _prompt_baseline(
+    baseline: Mapping[str, Any],
+    *,
+    sample_id: str = "",
+    source_file: str = "",
+) -> dict[str, Any]:
+    """Build the bounded baseline representation sent to the generation prompt."""
+
+    prompt: dict[str, Any] = {}
+    for key in _PROMPT_IDENTITY_KEYS:
+        if key in baseline:
+            prompt[key] = copy.deepcopy(baseline[key])
+    prompt["sample_id"] = str(sample_id or baseline.get("sample_id", "") or "")
+    prompt["source_file"] = str(source_file or baseline.get("source_file", "") or "")
+    prompt["summary"] = copy.deepcopy(baseline.get("summary", {}))
+    prompt["defects"] = _compact_defects(baseline.get("defects", []))
+    prompt["recommendations"] = copy.deepcopy(baseline.get("recommendations", []))
+    return prompt
+
+
+def _compact_evidence(value: Any, max_chars: int = _MAX_EVIDENCE_TEXT_CHARS) -> Any:
+    """Keep evidence anchors while bounding long report blocks in the prompt."""
+
+    if isinstance(value, Mapping):
+        compact: dict[str, Any] = {}
+        for key, item in value.items():
+            if str(key) == "text" and isinstance(item, str) and len(item) > max_chars:
+                compact[str(key)] = item[:max_chars]
+            else:
+                compact[str(key)] = _compact_evidence(item, max_chars)
+        return compact
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        return [_compact_evidence(item, max_chars) for item in value]
+    return value
+
+
 def _json_dump(value: Any) -> str:
     return json.dumps(_jsonable(value), ensure_ascii=False, indent=2, sort_keys=True)
+
+
+def _compact_prompt_context(
+    value: Any,
+    *,
+    max_items: int = _PROMPT_CONTEXT_MAX_ITEMS,
+    max_chars: int = _PROMPT_CONTEXT_MAX_CHARS,
+    max_item_chars: int = _PROMPT_CONTEXT_ITEM_CHARS,
+) -> list[dict[str, Any]]:
+    """Keep stable evidence IDs while bounding source text in the model prompt."""
+
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
+        return []
+    result: list[dict[str, Any]] = []
+    used_chars = 0
+    for raw_item in value:
+        if not isinstance(raw_item, Mapping) or len(result) >= max_items:
+            break
+        raw_text = raw_item.get("text", raw_item.get("content", raw_item.get("snippet", "")))
+        remaining = max_chars - used_chars
+        if remaining <= 0 or not str(raw_text or "").strip():
+            continue
+        item: dict[str, Any] = {
+            key: copy.deepcopy(raw_item[key])
+            for key in _PROMPT_CONTEXT_KEYS
+            if key in raw_item and raw_item[key] is not None
+        }
+        source = raw_item.get("source")
+        if isinstance(source, Mapping):
+            compact_source = {
+                key: copy.deepcopy(source[key])
+                for key in _PROMPT_SOURCE_KEYS
+                if key in source and source[key] is not None
+            }
+            if compact_source:
+                item["source"] = compact_source
+        item["text"] = _compact_prompt_text(raw_text, min(max_item_chars, remaining))
+        result.append(item)
+        used_chars += len(item["text"])
+    return result
 
 
 def _empty_metrics() -> dict[str, Any]:
@@ -266,12 +420,33 @@ def _response_payload(result: Any) -> Any:
 
 def _render_prompt(state: NarrativeState) -> str:
     template = _PROMPT_PATH.read_text(encoding="utf-8")
+    prompt_baseline = state.get("prompt_baseline")
+    if not isinstance(prompt_baseline, Mapping):
+        prompt_baseline = _prompt_baseline(
+            state.get("baseline_prediction", {}),
+            sample_id=str(state.get("sample_id", "")),
+            source_file=str(state.get("source_file", "")),
+        )
     replacements = {
         "{{SAMPLE_ID}}": str(state.get("sample_id", "")),
         "{{SOURCE_FILE}}": str(state.get("source_file", "")),
-        "{{BASELINE_PREDICTION}}": _json_dump(state.get("baseline_prediction", {})),
-        "{{REPORT_FACTS}}": _json_dump(state.get("report_facts", [])),
-        "{{RETRIEVAL_RESULTS}}": _json_dump(state.get("retrieval_results", [])),
+        "{{BASELINE_PREDICTION}}": _json_dump(prompt_baseline),
+        "{{REPORT_FACTS}}": _json_dump(
+            _compact_prompt_context(
+                state.get("report_facts", []),
+                max_items=12,
+                max_chars=4500,
+                max_item_chars=560,
+            )
+        ),
+        "{{RETRIEVAL_RESULTS}}": _json_dump(
+            _compact_prompt_context(
+                state.get("retrieval_results", []),
+                max_items=6,
+                max_chars=3600,
+                max_item_chars=520,
+            )
+        ),
         "{{VALIDATION_ERRORS}}": _json_dump(state.get("validation_errors", [])),
     }
     for marker, replacement in replacements.items():
@@ -300,6 +475,11 @@ def _prepare_context(state: NarrativeState, max_retries: int) -> dict[str, Any]:
     report_facts = _jsonable(state.get("report_facts", []))
     return {
         "baseline_prediction": baseline,
+        "prompt_baseline": _prompt_baseline(
+            baseline,
+            sample_id=str(state.get("sample_id", "")),
+            source_file=str(state.get("source_file", "")),
+        ),
         "report_facts": report_facts,
         "retrieval_results": [],
         "generated_sections": {},
@@ -627,8 +807,14 @@ def run_narrative_enhancement(
     """Run narrative enhancement and return the stable public result envelope."""
 
     graph = build_narrative_graph(client, retriever=retriever, max_retries=1)
+    baseline = _prediction_dict(baseline_prediction)
     state: NarrativeState = {
-        "baseline_prediction": _prediction_dict(baseline_prediction),
+        "baseline_prediction": baseline,
+        "prompt_baseline": _prompt_baseline(
+            baseline,
+            sample_id=sample_id,
+            source_file=source_file,
+        ),
         "sample_id": sample_id,
         "source_file": source_file,
         "report_facts": report_facts,

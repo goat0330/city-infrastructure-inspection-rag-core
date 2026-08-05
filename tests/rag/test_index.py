@@ -160,3 +160,122 @@ def test_retrieve_returns_empty_before_embedding_when_metadata_filter_removes_al
 
     assert result == []
     assert len(client.embed_calls) == embed_count
+
+
+def test_retrieve_source_quota_covers_aliases_and_excludes_current_gold(tmp_path: Path) -> None:
+    entries: list[dict[str, object]] = []
+    entries.extend(
+        {"id": f"report-{index}", "text": f"report-{index}", "kind": "report_evidence", "split": "fit"}
+        for index in range(8)
+    )
+    entries.extend(
+        {
+            "id": f"knowledge-{index}",
+            "text": f"knowledge-{index}",
+            "kind": "domain_knowledge" if index else "knowledge_card",
+            "split": "fit",
+        }
+        for index in range(4)
+    )
+    entries.extend(
+        {"id": f"label-{index}", "text": f"label-{index}", "kind": "label_example", "split": "fit"}
+        for index in range(2)
+    )
+    entries.append(
+        {
+            "id": "current-gold",
+            "text": "current-gold",
+            "kind": "gold_label",
+            "sample_id": "current",
+            "split": "fit",
+        }
+    )
+
+    client = FakeClient()
+    build_index(entries, tmp_path, client)
+    result = LightRagIndex.load(tmp_path, client=client).retrieve(
+        "query",
+        sample_id="current",
+        split="fit",
+        source_quota={"report_evidence": 3, "knowledge_card": 2, "gold_label": 1},
+    )
+
+    kinds = [item["kind"] for item in result]
+    assert len(result) == 6
+    assert sum(kind == "report_evidence" for kind in kinds) == 3
+    assert sum(kind in {"knowledge_card", "domain_knowledge"} for kind in kinds) == 2
+    assert sum(kind in {"gold_label", "label_example"} for kind in kinds) == 1
+    assert "current-gold" not in {item["id"] for item in result}
+    assert client.rerank_calls[0][2] == 8
+
+
+def test_retrieve_source_quota_degrades_when_a_source_is_missing(tmp_path: Path) -> None:
+    entries = [
+        {"id": f"report-{index}", "text": f"report-{index}", "kind": "report_evidence", "split": "fit"}
+        for index in range(5)
+    ]
+    entries.extend(
+        {"id": f"knowledge-{index}", "text": f"knowledge-{index}", "kind": "domain_knowledge", "split": "fit"}
+        for index in range(2)
+    )
+
+    client = FakeClient()
+    build_index(entries, tmp_path, client)
+    result = LightRagIndex.load(tmp_path, client=client).retrieve("query", source_quota=True)
+
+    kinds = [item["kind"] for item in result]
+    assert len(result) == 5
+    assert sum(kind == "report_evidence" for kind in kinds) == 3
+    assert sum(kind == "domain_knowledge" for kind in kinds) == 2
+    assert all(kind not in {"gold_label", "label_example"} for kind in kinds)
+
+
+def test_retrieve_source_quota_fills_sources_outside_embedding_window(tmp_path: Path) -> None:
+    entries = [
+        {"id": f"report-{index}", "text": f"report-{index}", "kind": "report_evidence", "split": "fit"}
+        for index in range(8)
+    ]
+    entries.extend(
+        [
+            {"id": "knowledge-0", "text": "knowledge-0", "kind": "domain_knowledge", "split": "fit"},
+            {"id": "knowledge-1", "text": "knowledge-1", "kind": "domain_knowledge", "split": "fit"},
+            {"id": "label-0", "text": "label-0", "kind": "label_example", "split": "fit"},
+        ]
+    )
+
+    client = FakeClient()
+    build_index(entries, tmp_path, client)
+    result = LightRagIndex.load(tmp_path, client=client).retrieve(
+        "query",
+        top_embedding=3,
+        top_k=6,
+        source_quota={"report_evidence": 3, "domain_knowledge": 2, "label_example": 1},
+    )
+
+    kinds = [item["kind"] for item in result]
+    assert len(result) == 6
+    assert sum(kind == "report_evidence" for kind in kinds) == 3
+    assert sum(kind == "domain_knowledge" for kind in kinds) == 2
+    assert sum(kind == "label_example" for kind in kinds) == 1
+
+
+def test_source_quota_finds_low_global_rank_sources(tmp_path: Path) -> None:
+    entries = [
+        {"id": f"report-{index}", "text": f"report-{index}", "kind": "report_evidence", "split": "fit"}
+        for index in range(40)
+    ]
+    entries.extend(
+        [
+            {"id": "knowledge-0", "text": "knowledge-0", "kind": "knowledge_card", "split": "fit"},
+            {"id": "label-0", "text": "label-0", "kind": "gold_label", "split": "fit"},
+        ]
+    )
+
+    client = FakeClient()
+    build_index(entries, tmp_path, client)
+    result = LightRagIndex.load(tmp_path, client=client).retrieve("query", source_quota=True)
+
+    ids = {item["id"] for item in result}
+    assert "knowledge-0" in ids
+    assert "label-0" in ids
+    assert sum(item["kind"] == "report_evidence" for item in result) == 3
