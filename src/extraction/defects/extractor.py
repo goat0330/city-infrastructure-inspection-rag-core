@@ -536,7 +536,7 @@ def _expand_lane_and_section(values: dict[str, str], section_label: str) -> None
     if not location:
         return
     lane_match = _LANE_PREFIX_RE.match(values.get("description") or "")
-    if lane_match and not location.startswith(lane_match.group(1)):
+    if lane_match and _LANE_PREFIX_RE.match(location) is None:
         location = lane_match.group(1) + location
     if location in ("左幅", "右幅") and section_label and not location.endswith(section_label):
         location = location + section_label

@@ -324,3 +324,19 @@ def test_side_prefix_skips_when_side_already_present() -> None:
 
     assert len(result) == 1
     assert result[0].location == "左侧护栏"
+
+
+def test_side_prefix_skips_when_lane_is_already_present_and_keeps_section() -> None:
+    xml = document_xml(
+        paragraph("5.1.2 上部结构"),
+        table(
+            row(cell("位置"), cell("病害种类"), cell("具体位置")),
+            row(cell("左幅"), cell("渗水"), cell("左侧桥台侧墙局部渗水")),
+        ),
+    )
+    document = parse_document_xml(xml, source_file="lane-side-section.docx")
+
+    result = extract_defects(document)
+
+    assert len(result) == 1
+    assert result[0].location == "左幅上部结构"
