@@ -1,0 +1,300 @@
+{
+  "schema_version": "1.0",
+  "template": "information_extraction_v1.docx",
+  "indexing": {
+    "tables": "0-based",
+    "rows": "0-based",
+    "columns": "0-based"
+  },
+  "fixed_headings": {
+    "immutable": true,
+    "items": [
+      "1、简要信息",
+      "2、详细信息",
+      "（1）详细结论",
+      "（2）建议明细",
+      "病害列表",
+      "病害成因",
+      "处置建议",
+      "安全影响"
+    ],
+    "auto_numbered_display": {
+      "stored_text": "病害列表",
+      "expected_display": "（3）病害列表",
+      "rule": "保留模板原段落及其 numPr，渲染器不得重建或覆盖。"
+    }
+  },
+  "missing_value_policy": {
+    "explicit_none": "无",
+    "not_extracted": "未提取到",
+    "zero_recommendation_category": "汇总文本中省略该类别"
+  },
+  "scalars": {
+    "report_title": {
+      "placeholder": "{{report_title}}",
+      "location": {
+        "paragraph_index": 0
+      },
+      "required": true,
+      "example": "上界路 K46+500 上跨车行桥·无对比年度的信息提取报告"
+    },
+    "bridge_name": {
+      "placeholder": "{{bridge_name}}",
+      "location": {
+        "table_index": 0,
+        "row": 1,
+        "column": 1
+      }
+    },
+    "report_date": {
+      "placeholder": "{{report_date}}",
+      "location": {
+        "table_index": 0,
+        "row": 2,
+        "column": 1
+      }
+    },
+    "overall_score": {
+      "placeholder": "{{overall_score}}",
+      "location": {
+        "table_index": 0,
+        "row": 3,
+        "column": 1
+      }
+    },
+    "overall_grade": {
+      "placeholder": "{{overall_grade}}",
+      "location": {
+        "table_index": 0,
+        "row": 4,
+        "column": 1
+      }
+    },
+    "superstructure_score": {
+      "placeholder": "{{superstructure_score}}",
+      "location": {
+        "table_index": 0,
+        "row": 5,
+        "column": 1
+      }
+    },
+    "superstructure_grade": {
+      "placeholder": "{{superstructure_grade}}",
+      "location": {
+        "table_index": 0,
+        "row": 6,
+        "column": 1
+      }
+    },
+    "substructure_score": {
+      "placeholder": "{{substructure_score}}",
+      "location": {
+        "table_index": 0,
+        "row": 7,
+        "column": 1
+      }
+    },
+    "substructure_grade": {
+      "placeholder": "{{substructure_grade}}",
+      "location": {
+        "table_index": 0,
+        "row": 8,
+        "column": 1
+      }
+    },
+    "deck_system_score": {
+      "placeholder": "{{deck_system_score}}",
+      "location": {
+        "table_index": 0,
+        "row": 9,
+        "column": 1
+      }
+    },
+    "deck_system_grade": {
+      "placeholder": "{{deck_system_grade}}",
+      "location": {
+        "table_index": 0,
+        "row": 10,
+        "column": 1
+      }
+    },
+    "previous_overall_score": {
+      "placeholder": "{{previous_overall_score}}",
+      "location": {
+        "table_index": 0,
+        "row": 11,
+        "column": 1
+      }
+    },
+    "previous_overall_grade": {
+      "placeholder": "{{previous_overall_grade}}",
+      "location": {
+        "table_index": 0,
+        "row": 12,
+        "column": 1
+      }
+    },
+    "defect_development_trend": {
+      "placeholder": "{{defect_development_trend}}",
+      "location": {
+        "table_index": 0,
+        "row": 13,
+        "column": 1
+      }
+    },
+    "overall_conclusion": {
+      "placeholder": "{{overall_conclusion}}",
+      "location": {
+        "table_index": 0,
+        "row": 14,
+        "column": 1
+      }
+    },
+    "major_risks": {
+      "placeholder": "{{major_risks}}",
+      "location": {
+        "table_index": 0,
+        "row": 15,
+        "column": 1
+      }
+    },
+    "recommendations_summary": {
+      "placeholder": "{{recommendations_summary}}",
+      "location": {
+        "table_index": 0,
+        "row": 16,
+        "column": 1
+      }
+    }
+  },
+  "paragraph_slots": {
+    "score_and_grade": {
+      "placeholder": "{{score_and_grade}}",
+      "anchor_heading": "（1）详细结论",
+      "ordinal_after_heading": 1
+    },
+    "history_and_defects": {
+      "placeholder": "{{history_and_defects}}",
+      "anchor_heading": "（1）详细结论",
+      "ordinal_after_heading": 2
+    },
+    "current_structure_state": {
+      "placeholder": "{{current_structure_state}}",
+      "anchor_heading": "（1）详细结论",
+      "ordinal_after_heading": 3
+    },
+    "comprehensive_judgement": {
+      "placeholder": "{{comprehensive_judgement}}",
+      "anchor_heading": "（1）详细结论",
+      "ordinal_after_heading": 4
+    }
+  },
+  "repeaters": {
+    "recommendations": {
+      "table_index": 1,
+      "prototype_row": 1,
+      "prototype_placeholders": {
+        "recommendation.index": {
+          "column": 0,
+          "placeholder": "{{recommendation.index}}"
+        },
+        "recommendation.category": {
+          "column": 1,
+          "placeholder": "{{recommendation.category}}"
+        },
+        "recommendation.content": {
+          "column": 2,
+          "placeholder": "{{recommendation.content}}"
+        },
+        "recommendation.location": {
+          "column": 3,
+          "placeholder": "{{recommendation.location}}"
+        }
+      },
+      "numbering": {
+        "mode": "renderer",
+        "start": 1,
+        "continuous": true
+      },
+      "empty_behavior": "删除原型行，仅保留表头。",
+      "after_render": "删除未使用的原型行。"
+    },
+    "defects": {
+      "table_index": 2,
+      "prototype_row": 1,
+      "prototype_placeholders": {
+        "defect.index": {
+          "column": 0,
+          "placeholder": "{{defect.index}}"
+        },
+        "defect.location": {
+          "column": 1,
+          "placeholder": "{{defect.location}}"
+        },
+        "defect.type": {
+          "column": 2,
+          "placeholder": "{{defect.type}}"
+        },
+        "defect.description": {
+          "column": 3,
+          "placeholder": "{{defect.description}}"
+        },
+        "defect.is_new": {
+          "column": 4,
+          "placeholder": "{{defect.is_new}}"
+        },
+        "defect.previous_status": {
+          "column": 5,
+          "placeholder": "{{defect.previous_status}}"
+        },
+        "defect.development_degree": {
+          "column": 6,
+          "placeholder": "{{defect.development_degree}}"
+        }
+      },
+      "numbering": {
+        "mode": "renderer",
+        "start": 1,
+        "continuous": true
+      },
+      "vertical_merge": {
+        "column": 0,
+        "group_key": "defect.index",
+        "only_consecutive_equal_values": true
+      },
+      "empty_behavior": "删除原型行，仅保留表头。",
+      "after_render": "删除未使用的原型行。"
+    },
+    "causes": {
+      "anchor_heading": "病害成因",
+      "prototype_paragraph_offset": 1,
+      "prototype": "{{cause.text}}",
+      "numbering": {
+        "mode": "renderer_prefix",
+        "format": "（{n}）",
+        "start": 1
+      },
+      "empty_behavior": "删除原型段落，保留固定章节标题。"
+    },
+    "treatments": {
+      "anchor_heading": "处置建议",
+      "prototype_paragraph_offset": 1,
+      "prototype": "{{treatment.text}}",
+      "numbering": {
+        "mode": "renderer_prefix",
+        "format": "（{n}）",
+        "start": 1
+      },
+      "empty_behavior": "删除原型段落，保留固定章节标题。"
+    },
+    "safety_impacts": {
+      "anchor_heading": "安全影响",
+      "prototype_paragraph_offset": 1,
+      "prototype": "{{safety_impact.text}}",
+      "numbering": {
+        "mode": "none"
+      },
+      "empty_behavior": "删除原型段落，保留固定章节标题。"
+    }
+  }
+}
