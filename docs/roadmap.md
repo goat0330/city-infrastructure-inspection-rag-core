@@ -34,16 +34,23 @@
 
 ### 评测与错题本
 
-- [x] 保留严格官方代理分。
+- [x] 保留严格内部 scorer 代理分。
 - [x] 增加字段级诊断分、病害规模分桶、模板簇分桶。
 - [x] 每次合并记录 commit、配置、分项得分和失败样本。
 
 ### B2 首轮门禁结果
 
-- 161/161 份 Word-first 转换后的 DOCX 成功完成批量抽取。
-- 86/86 份成功 Gold 与预测按来源报告完成对齐。
-- 内部确定性代理总分为 36.22594：概要/评分 9.32968、病害 20.44107、建议 6.16978；这不是比赛平台最终分。
+- 以 `0000961` 为主线基线，161/161 份 Word-first 转换后的 DOCX 成功完成 `predict-batch`。
+- 评测 manifest 的 `source_docx` 是唯一对齐依据：161 条原始预测自动选出并排序为 86 条 Gold 评测记录，排除 75 条非交集预测；缺失或歧义匹配 fail closed。
+- benchmark 默认验证必须返回 `0` 并输出 `verify : OK`；`alignment.json`、`score.json`、`diagnostics.json`、`summaries.json`、`errorbook.md`、`leaderboard.csv` 和 `aligned-predictions.jsonl` 是验收产物。
+- 当前 Round A 内部 scorer：全量 44.82606、fit 40.593175、holdout 46.820635；这些结果只用于固定 scorer/manifest/权重下的回归比较，不是比赛平台最终分。
 - B2 仍保留显式未实现字段：`causes`、`treatments`、`safety_impact`。
+
+### 后续提分项（保持 Word-first）
+
+- [ ] `recommendations`：减少段落误召回，提高建议部位与建议内容的边界精度。
+- [ ] 文本嵌套病害：识别嵌在结论/建议等长文本中的病害观察，按具体观察拆分并保留 `SourceAnchor`。
+- [ ] 继续处理 8 个 Gold 失败样例、跨年度病害对齐和证据约束长文本生成。
 
 ## B3：端到端交付
 

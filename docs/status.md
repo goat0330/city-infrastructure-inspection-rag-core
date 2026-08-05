@@ -1,8 +1,8 @@
-# 当前状态（B2 Word-first 工作基线）
+# 当前状态（B2 Word-first 工作基线，commit 0000961）
 
 ## 已完成
 
-- Word-first 范围冻结：`.doc → LibreOffice → .docx → OOXML/python-docx`。
+- Word-first 范围冻结：`.doc → LibreOffice → .docx → OOXML/python-docx`；Word 结构是 benchmark 的事实来源，PDF/OCR/RAG 不替代该输入边界。
 - 94 个标签、161 份报告完成全量审计。
 - 报告转换：161/161 成功，全部 `target_is_usable=true`。
 - 标签解析：86 成功、8 个明确失败；Gold 自评分 100。
@@ -15,7 +15,7 @@
 - B2 高权重抽取主链：概要/评分、病害、建议三个确定性抽取器已接入 `predict` / `predict-batch`。
 - 病害抽取支持病害表识别、跨页/重复表头、合并单元格继承、多位置观察和 Gold 模板默认状态值，并保留质量标记。
 - 建议抽取支持表格与处理建议章节双路证据；类别推断仅在批量预测主链显式开启，并记录 `recommendation_category_inferred`。
-- B2 真实 Word 验证已完成：161/161 份 DOCX 成功，86/86 份 Gold 对齐。
+- B2 真实 Word 验证已完成：`predict-batch` 对 161/161 份 DOCX 成功，manifest 的 `source_docx` 将预测自动对齐到 86/86 份 Gold。
 
 ## 尚未完成
 
@@ -24,24 +24,39 @@
 - DOCX → 最终 `.doc` 导出、测试集最终交付包和包级全量验收仍待 B3 完成。
 - 跨年度病害对齐和证据约束长文本生成。
 
-## B2 真实验证结果
+## Round A 真实验证结果
 
-以下结果来自本地保留的训练/验证数据运行，不代表比赛平台最终成绩；原始数据和 `runs/` 产物不进入公开仓库。
+以下结果来自本地保留的训练/验证数据运行，不代表比赛平台最终成绩；原始数据、Gold 原文和 `runs/` 产物不进入公开仓库。fit/holdout 是同一 manifest、权重和内部 scorer 下的拆分结果，不能与官方最终分数混用。
 
-| 指标 | 结果 |
+| split | 内部 scorer |
 |---|---:|
-| 批量输入 DOCX | 161 |
-| 抽取成功 | 161/161 |
-| Gold 对齐 | 86/86 |
-| 全量预测病害观察 | 9,080 |
-| 全量预测建议 | 990 |
-| Gold 病害观察 | 2,761 |
-| Gold 建议 | 503 |
-| 内部确定性代理总分 | 36.22594 |
+| 全量 | 44.82606 |
+| fit | 40.593175 |
+| holdout | 46.820635 |
 
-内部代理分项为：概要/评分 9.32968、病害 20.44107、建议 6.16978。该分数用于回归比较和错题定位，不应描述为官方竞赛分数。
+### 真实 benchmark 门禁
 
-当前最重要的剩余提分点是：减少建议段落的误召回、提高建议部位与内容的边界精度、补齐概要中的历史/趋势字段，以及处理 8 个 Gold 失败样例。
+从仓库根目录执行以下命令；本地数据准备后，所有参数均为仓库相对路径：
+
+```bash
+# 一键入口：predict-batch -> source_docx 对齐 -> benchmark
+python scripts/run_b2_word_pipeline.py --input-dir runs/p0-converted --gold runs/p0-gold/gold.json --manifest runs/b2-night/eval-manifest.json --output-dir runs/b2-night/round-a-merged --commit 0000961 --config round-a-word-first
+
+# 等价的分步命令
+python -m inspection predict-batch --input-dir runs/p0-converted --output runs/b2-night/round-a-merged/raw-predictions.jsonl --report runs/b2-night/round-a-merged/prediction-report.json
+python scripts/run_b2_benchmark.py --gold runs/p0-gold/gold.json --predictions runs/b2-night/round-a-merged/raw-predictions.jsonl --manifest runs/b2-night/eval-manifest.json --weights data/core/score_weights.json --output-dir runs/b2-night/round-a-merged/benchmark --commit 0000961 --config round-a-word-first
+```
+
+第一条命令的 sidecar 报告必须为 `input_count=161`、`prediction_count=161`、`failed_count=0`。第二条命令必须保留默认验证并以返回码 `0`、`verify : OK` 收尾。
+
+manifest 的 86 条记录按 `fit=75`、`holdout=11` 分组；`benchmark/` 的验收产物为：
+
+- `alignment.json`：`mode=manifest-source-docx`，86 条 manifest 记录从 161 条原始预测中选出并排序为 86 条评测记录，排除 75 条非 Gold 交集预测；缺失或歧义会 fail closed。
+- `aligned-predictions.jsonl`：manifest 顺序下的评测视图；原始 `raw-predictions.jsonl` 不被原地改写。
+- `score.json`：`score_dataset` 的全量分数来源，必须有 86 条记录且无 missing/extra sample。
+- `diagnostics.json`、`summaries.json`、`errorbook.md`、`leaderboard.csv`：汇总诊断、fit/holdout/stress 视图、无 Gold 原文的错题摘要和实验记录。
+
+当前后续提分焦点为：`recommendations` 的误召回、建议部位与内容边界，以及嵌套在长文本中的病害识别和拆分；8 个 Gold 失败样例仍作为独立挑战集处理。
 
 ## 数据现状
 
@@ -55,5 +70,7 @@
 | Gold失败 | 8 |
 | 未唯一归属报告 | 67 |
 | 报告转换可用 | 161 |
+| predict-batch 输入/成功/失败 | 161/161/0 |
+| manifest `source_docx` / 对齐评测记录 | 86/86 |
 
 8个失败标签和67个未唯一归属报告不应静默忽略，但也不阻塞 B2：前者作为 Gold 解析挑战集，后者主要用于不崩溃、路由覆盖率和输出完整性测试。

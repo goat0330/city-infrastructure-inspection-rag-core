@@ -12,7 +12,7 @@ import unittest
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPOSITORY_ROOT))
 
-from src.evaluation import score_dataset  # noqa: E402
+from src.evaluation import normalize_text, score_dataset  # noqa: E402
 
 
 def record() -> dict[str, object]:
@@ -89,6 +89,10 @@ class ScorerTests(unittest.TestCase):
         self.assertLess(result["total_score"], 100.0)
         self.assertEqual(result["sections"]["summary"]["counts"]["false_negative"], 1)
         self.assertEqual(result["sections"]["summary"]["counts"]["false_positive"], 1)
+
+    def test_numeric_score_format_ignores_trailing_decimal_zeroes(self) -> None:
+        self.assertEqual(normalize_text("100"), normalize_text("100.00"))
+        self.assertEqual(normalize_text("67.4"), normalize_text("67.40"))
 
     def test_rows_are_one_to_one_and_text_has_partial_fact_credit(self) -> None:
         gold = record()

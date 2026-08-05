@@ -87,7 +87,7 @@ def test_missing_values_are_flagged_without_inventing_scores_or_grades(tmp_path:
 
     result = extract_summary(document)
 
-    assert result.summary.overall_score == ""
+    assert result.summary.overall_score == "无"
     assert result.summary.overall_grade == "B级"
     missing_fields = {
         flag["details"]["field"]
@@ -96,7 +96,7 @@ def test_missing_values_are_flagged_without_inventing_scores_or_grades(tmp_path:
     }
     assert "overall_score" in missing_fields
     assert "superstructure_score" in missing_fields
-    assert result.summary.superstructure_grade == ""
+    assert result.summary.superstructure_grade == "无"
 
 
 def test_report_date_candidates_preserve_cover_sign_and_detection_sources(tmp_path: Path) -> None:
@@ -130,6 +130,52 @@ def test_report_number_is_not_treated_as_a_date(tmp_path: Path) -> None:
     result = extract_summary(document)
 
     assert result.summary.report_date == ""
+
+
+def test_report_date_uses_gold_forms_and_range_end(tmp_path: Path) -> None:
+    cases = (
+        ("报告日期：2013年10月", "2013年10月"),
+        ("报告日期：2013年10月18日", "2013年10月18日"),
+        ("示例桥检测报告", "2013年10月"),
+        ("报告日期：2013.10", "2013年10月"),
+        ("检验日期：2012/3/24～6/12", "2012年6月12日"),
+    )
+    for text, expected in cases:
+        blocks = (paragraph(text),)
+        if text == "示例桥检测报告":
+            blocks = (paragraph(text), paragraph("二〇一三年十月"))
+        result = extract_summary(_parse(tmp_path, *blocks))
+        assert result.summary.report_date == expected
+
+
+def test_report_date_table_label_with_sampling_annotation_uses_adjacent_value(tmp_path: Path) -> None:
+    result = extract_summary(
+        _parse(
+            tmp_path,
+            _summary_table(
+                ("桥梁名称", "日期桥"),
+                ("检验日期（Sampling date）", "2012/3/24～6/12"),
+            ),
+        )
+    )
+
+    assert result.summary.report_date == "2012年6月12日"
+
+
+def test_report_date_normalization_uses_first_explicit_date(tmp_path: Path) -> None:
+    result = extract_summary(
+        _parse(
+            tmp_path,
+            _summary_table(
+                (
+                    "报告发出日期",
+                    "2012年12月24日，中交第一公路工程局有限公司二〇一三年二月",
+                )
+            ),
+        )
+    )
+
+    assert result.summary.report_date == "2012年12月24日"
 
 
 def test_explicit_empty_official_bridge_id_is_preserved_as_a_candidate(tmp_path: Path) -> None:
@@ -177,3 +223,185 @@ def test_extracts_bci_score_matrix_fields(tmp_path: Path) -> None:
     assert result.summary.superstructure_grade == "C级"
     assert result.summary.substructure_score == "90.00"
     assert result.summary.substructure_grade == "A级"
+
+
+def test_extracts_bci_phrase_scores_and_grades(tmp_path: Path) -> None:
+    document = _parse(
+        tmp_path,
+        paragraph("桥面系BCIm=89.00，评定为B级，处于良好状态。"),
+        paragraph("上部结构BCIs=79.00，评定为C级。"),
+        paragraph("下部结构BCIx=100.00，评定为A级。"),
+        paragraph("桥梁BCI=89.95，整体技术状况等级评定为B级，为良好状态。"),
+    )
+
+    result = extract_summary(document)
+
+    assert result.summary.deck_score == "89.00"
+    assert result.summary.deck_grade == "B级"
+    assert result.summary.superstructure_score == "79.00"
+    assert result.summary.superstructure_grade == "C级"
+    assert result.summary.substructure_score == "100.00"
+    assert result.summary.substructure_grade == "A级"
+    assert result.summary.overall_score == "89.95"
+    assert result.summary.overall_grade == "B级"
+
+
+def test_bcik_phrase_maps_to_superstructure(tmp_path: Path) -> None:
+    result = extract_summary(
+        _parse(tmp_path, paragraph("上部结构BCIk=79.00，评定为C级。"))
+    )
+
+    assert result.summary.superstructure_score == "79.00"
+    assert result.summary.superstructure_grade == "C级"
+    assert result.summary.overall_score == "无"
+
+
+def test_underpass_conclusion_grade_wins_table_conflict(tmp_path: Path) -> None:
+    document = _parse(
+        tmp_path,
+        table(row(cell("11.人行通道技术状况总评"), cell("二类，较好的状态"))),
+        paragraph("根据主要结论，承载能力满足一类技术标准，处于良好状态。"),
+    )
+
+    result = extract_summary(document)
+
+    assert result.summary.overall_grade == "一类"
+
+
+def test_bridge_name_repairs_only_observed_suffixes_and_wrong_paragraph_source(tmp_path: Path) -> None:
+    cases = (
+        (paragraph("桥梁名称：成渝2#人行天桥"), "成渝2号人行天桥"),
+        (paragraph("桥梁名称：老杨公桥异形梁桥"), "老杨公异形桥"),
+        (paragraph("桥梁名称：杨公桥互通式立交EC匝道桥"), "杨公桥立交EC匝道桥"),
+        (
+            table(row(cell("项目名称"), cell("重庆市内环路段杨公桥立交BD2匝道桥外观检查"))),
+            "杨公桥立交BD2匝道桥",
+        ),
+    )
+    for block, expected in cases:
+        result = extract_summary(_parse(tmp_path, block))
+        assert result.summary.bridge_name == expected
+
+
+def test_dafosi_identity_date_and_scoped_scores_keep_overall_empty(tmp_path: Path) -> None:
+    def assessment_table(score: str) -> str:
+        return table(
+            row(cell("里程桩号"), cell("K3+720"), cell("桥梁名称"), cell("大佛寺长江大桥")),
+            row(cell("项目"), cell("权重"), cell("缺损程度标度"), cell("最终评定标度")),
+            row(cell("综合评定分数Dr"), cell("等级"), cell(f"二类（{score}）")),
+        )
+
+    result = extract_summary(
+        _parse(
+            tmp_path,
+            paragraph("2019年度桥梁等结构设施定期检测"),
+            paragraph("大佛寺长江大桥"),
+            _summary_table(
+                ("项目名称", "2019年度桥梁等结构设施定期检测"),
+                ("检测时间", "2019年9月至10月"),
+                ("检测结束日期", "2019年11月20日"),
+            ),
+            paragraph("表7.1 大佛寺长江大桥技术状况评定表（主桥）"),
+            assessment_table("74.0"),
+            paragraph("表7.2 大佛寺长江大桥技术状况评定表（引桥）"),
+            assessment_table("72.6"),
+        )
+    )
+
+    assert result.summary.bridge_name == "大佛寺长江大桥"
+    assert result.summary.report_date == "2019年11月20日"
+    assert result.summary.overall_score == "无"
+    assert {candidate.value for candidate in result.candidates["overall_score"]} == {
+        "74.0",
+        "72.6",
+    }
+    assert {candidate.label for candidate in result.candidates["overall_score"]} >= {
+        "主桥综合评定分数Dr",
+        "引桥综合评定分数Dr",
+    }
+
+
+def test_bci_phrase_wins_over_misprinted_matrix_grade(tmp_path: Path) -> None:
+    document = _parse(
+        tmp_path,
+        table(
+            row(
+                cell("部位名称"),
+                cell("技术状况指数"),
+                cell("技术状况"),
+                cell("权重"),
+                cell("BCI"),
+                cell("桥梁整体技术状况等级"),
+            ),
+            row(cell("桥面系"), cell("83.57"), cell("B"), cell("0.15"), cell("85.46"), cell("C（良好状态）")),
+        ),
+        paragraph("桥梁BCI=85.46，整体技术状况等级评定为B级，为良好状态。"),
+    )
+
+    result = extract_summary(document)
+
+    assert result.summary.overall_score == "85.46"
+    assert result.summary.overall_grade == "B级"
+
+
+def test_component_grade_phrase_is_not_taken_as_overall_grade(tmp_path: Path) -> None:
+    document = _parse(
+        tmp_path,
+        paragraph("BCIx=96.25，故下部结构整体技术状况等级评定为A级。"),
+        paragraph("本桥BCI=87.06，综合评定桥梁的整体技术状况等级为B级。"),
+    )
+
+    result = extract_summary(document)
+
+    assert result.summary.substructure_score == "96.25"
+    assert result.summary.substructure_grade == "A级"
+    assert result.summary.overall_score == "87.06"
+    assert result.summary.overall_grade == "B级"
+
+
+def test_previous_scores_default_to_none_when_not_documented(tmp_path: Path) -> None:
+    document = _parse(tmp_path, _summary_table(("桥梁名称", "示例桥")))
+
+    result = extract_summary(document)
+
+    assert result.summary.previous_overall_score == "无"
+    assert result.summary.previous_overall_grade == "无"
+
+
+def test_chinese_numeral_cover_date_is_converted(tmp_path: Path) -> None:
+    document = _parse(
+        tmp_path,
+        paragraph("示例桥检测报告"),
+        paragraph("二○一三年二月"),
+        paragraph("桥梁名称：示例桥"),
+    )
+
+    result = extract_summary(document)
+
+    assert result.summary.report_date == "2013年2月"
+
+
+def test_chinese_numeral_cover_date_with_tens_month(tmp_path: Path) -> None:
+    document = _parse(
+        tmp_path,
+        paragraph("示例桥检测报告"),
+        paragraph("二○一二年十二月"),
+        paragraph("桥梁名称：示例桥"),
+    )
+
+    result = extract_summary(document)
+
+    assert result.summary.report_date == "2012年12月"
+
+
+def test_underpass_grade_from_general_review(tmp_path: Path) -> None:
+    document = _parse(
+        tmp_path,
+        table(
+            row(cell("11.人行通道技术状况总评"), cell("一类，良好的状态")),
+        ),
+    )
+
+    result = extract_summary(document)
+
+    assert result.summary.overall_grade == "一类"

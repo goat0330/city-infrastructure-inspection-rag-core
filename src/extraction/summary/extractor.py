@@ -66,9 +66,34 @@ def _normalised_key(value: str) -> str:
 # These are intentionally labels, not semantic guesses.  A score and a grade
 # are added independently whenever the source states them independently.
 _ALIASES: dict[str, tuple[str, ...]] = {
-    "bridge_name": ("桥梁名称", "桥名"),
+    "bridge_name": (
+        "桥梁名称",
+        "桥名",
+        "工程名称",
+        "设施名称",
+        "桥梁工程名称",
+        "工程设施名称",
+        "工程/设施名称",
+        "工程（设施）名称",
+        "项目名称",
+    ),
     "bridge_id": ("桥梁编号", "桥梁ID", "桥梁Id", "桥梁id"),
-    "report_date": ("报告日期", "出具日期", "报告出具日期", "签发日期", "签字日期", "检测日期", "检测时间"),
+    "report_date": (
+        "报告日期",
+        "出具日期",
+        "报告出具日期",
+        "报告发出日期",
+        "签发日期",
+        "签字日期",
+        "检测结束日期",
+        "检测完成日期",
+        "检测结束时间",
+        "检测日期",
+        "检验日期",
+        "检查日期",
+        "检测时间",
+        "检查时间",
+    ),
     "overall_score": (
         "总体技术状况评分",
         "总体技术状况得分",
@@ -157,6 +182,9 @@ _SORTED_ALIASES = sorted(
 _SOURCE_PRIORITY = {
     "overall_assessment_table": 400,
     "cover": 320,
+    "facility_name": 600,
+    "cover_name": 500,
+    "conclusion_name": 400,
     "section_score_table": 300,
     "section_score": 280,
     "sign": 260,
@@ -166,15 +194,60 @@ _SOURCE_PRIORITY = {
     "safety_assessment": 100,
     "paragraph": 80,
     "recommendations_table": 300,
+    "bci": 500,
+    "underpass_conclusion": 520,
+    "project_name": 80,
+    "filename": 40,
 }
 
-_DATE_PRIORITY = {"cover": 300, "sign": 250, "detection": 200}
+_DATE_PRIORITY = {
+    "cover": 300,
+    "sign": 290,
+    "detection_end": 220,
+    "detection": 200,
+    "range": 100,
+}
 _DATE_RE = re.compile(
-    r"(?:19|20)\d{2}(?:年\s*(?:0?[1-9]|1[0-2])月(?:\s*(?:0?[1-9]|[12]\d|3[01])日)?|[./-]\s*(?:0?[1-9]|1[0-2])(?:[./-]\s*(?:0?[1-9]|[12]\d|3[01]))?)"
+    r"(?P<year>(?:19|20)\d{2})"
+    r"(?:年\s*(?P<month_cn>1[0-2]|0?[1-9])月(?:\s*(?P<day_cn>3[01]|[12]\d|0?[1-9])日)?"
+    r"|[./-]\s*(?P<month>1[0-2]|0?[1-9])(?:[./-]\s*(?P<day>3[01]|[12]\d|0?[1-9]))?)"
+)
+_DATE_RANGE_RE = re.compile(
+    r"(?P<year1>(?:19|20)\d{2})[./-]\s*"
+    r"(?P<month1>1[0-2]|0?[1-9])"
+    r"(?:[./-]\s*(?P<day1>3[01]|[12]\d|0?[1-9]))?\s*"
+    r"(?:~|～|至|到)\s*"
+    r"(?:(?P<year2>(?:19|20)\d{2})[./-]\s*)?"
+    r"(?P<month2>1[0-2]|0?[1-9])"
+    r"(?:[./-]\s*(?P<day2>3[01]|[12]\d|0?[1-9]))?"
+)
+_CN_DATE_RANGE_RE = re.compile(
+    r"(?P<year1>(?:19|20)\d{2})年\s*"
+    r"(?P<month1>1[0-2]|0?[1-9])月"
+    r"(?:\s*(?P<day1>3[01]|[12]\d|0?[1-9])日)?\s*"
+    r"(?:~|～|至|到|-|—)\s*"
+    r"(?:(?P<year2>(?:19|20)\d{2})年\s*)?"
+    r"(?P<month2>1[0-2]|0?[1-9])月"
+    r"(?:\s*(?P<day2>3[01]|[12]\d|0?[1-9])日)?"
 )
 _SCORE_RE = re.compile(r"(?<![\d.])\d+(?:\.\d+)?")
-_GRADE_RE = re.compile(r"(?:[A-Ea-e]\s*级?|优等?|良好?|中等?|差)")
+_GRADE_RE = re.compile(r"(?:[A-Ea-e]\s*级?|[一二三四五六]类|优等?|良好?|中等?|差)")
 _RECOMMENDATION_COUNT_RE = re.compile(r"(\d+)\s*条")
+
+_BCI_SCORE_RE = re.compile(r"BCI\s*([mMkKsSxX]?)\s*[=＝]\s*(\d+(?:\.\d+)?)")
+_BCI_COMPONENT = {"m": "deck", "s": "superstructure", "k": "superstructure", "x": "substructure"}
+_GRADE_AFTER_RE = re.compile(r"评定(?:为)?\s*([A-Ea-e]\s*级|[一二三四五六]类)")
+_OVERALL_GRADE_RE = re.compile(
+    r"(?<!下部结构)(?<!上部结构)(?<!桥面系)整体技术状况等级(?:评定|定)?为\s*([A-Ea-e]\s*级)"
+)
+_UNDERPASS_GRADE_RE = re.compile(r"技术状况总评\s*[，,、\t\s]*([一二三四五六]类)")
+_UNDERPASS_CONCLUSION_GRADE_RE = re.compile(r"满足\s*([一二三四五六]类)\s*技术标准")
+
+_CN_DIGIT: dict[str, int] = {character: 0 for character in "〇零○ＯＯO0"}
+_CN_DIGIT.update({"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9})
+_CN_DATE_RE = re.compile(
+    r"([〇零○ＯＯO0一二三四五六七八九]{4})年\s*([〇零○ＯＯO0一二三四五六七八九十]+)月(?:\s*([〇零○ＯＯO0一二三四五六七八九十]+)日)?"
+)
 
 _SCORE_MARKERS = ("评分", "分数", "得分", "等级", "级别")
 _OVERALL_ASSESSMENT_MARKERS = (
@@ -198,6 +271,18 @@ _ROUTE_SCORE = "scoring"
 _ROUTE_CONCLUSION = "inspection_conclusion"
 _ROUTE_SAFETY = "safety_assessment"
 
+_GENERIC_BRIDGE_NAME_RE = (
+    re.compile(
+        r"^(?:(?:19|20)\d{2}年度|年度)?"
+        r"桥梁(?:等结构设施)?定期检测(?:评估)?(?:项目|报告)?$"
+    ),
+    re.compile(r"^(?:检测评估项目|检测评估|检测报告|桥梁检测报告|报告)$"),
+)
+_BRIDGE_NAME_RE = re.compile(
+    r"(?P<name>[\u3400-\u9fffA-Za-z0-9ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ#＃+—\-]{2,80}"
+    r"(?:人行天桥|桥式通道|匝道桥|立交桥|大桥|中桥|小桥|天桥|桥(?!梁|等)|通道|立交))"
+)
+
 
 def _clean(value: str) -> str:
     value = unicodedata.normalize("NFKC", value or "").replace("\u00a0", " ")
@@ -206,6 +291,12 @@ def _clean(value: str) -> str:
 
 def _compact(value: str) -> str:
     return re.sub(r"\s+", "", _clean(value))
+
+
+def _alias_pattern(alias: str) -> str:
+    """Match a label even when Word inserts spaces between its characters."""
+
+    return r"\s*".join(re.escape(character) for character in alias)
 
 
 def _source_sort_key(source: SourceAnchor | None) -> tuple[int, int, int, int, int]:
@@ -410,20 +501,27 @@ def extract_summary(
         categories = route_categories.get(block.block_index, set())
         if isinstance(block, TableBlock):
             source_kind = _table_source_kind(block, categories, blocks)
-            _extract_table(block, source_kind, collector)
+            _extract_table(
+                block,
+                source_kind,
+                collector,
+                scope=_score_scope(block, blocks),
+            )
         elif isinstance(block, ParagraphBlock):
             source_kind = _paragraph_source_kind(block, categories, first_heading)
             _extract_paragraph(block, source_kind, collector)
 
     _extract_route_text(selected_routes, collector)
+    _extract_cover_names(blocks, first_heading, collector)
     _extract_cover_dates(blocks, first_heading, collector)
+    _extract_filename_bridge_name(document.source_file, collector)
     recommendation_count = _select_recommendation_count(collector)
     if recommendation_count is None:
         recommendation_count = _recommendation_count_from_summary(collector)
 
     summary = BridgeSummary(
         **{
-            field: _select_value(field, collector.values[field])
+            field: _selected_or_missing(field, collector.values[field])
             for field in _SUMMARY_FIELDS
         }
     )
@@ -552,6 +650,21 @@ def _is_summary_table(table: TableBlock) -> bool:
     )
 
 
+def _score_scope(table: TableBlock, blocks: Sequence[object]) -> str | None:
+    """Return a nearby main/approach-bridge scope for a score table."""
+
+    start = max(0, table.block_index - 3)
+    for block in reversed(blocks[start:table.block_index]):
+        if not isinstance(block, ParagraphBlock):
+            continue
+        compact = _compact(block.raw_text)
+        has_main = "主桥" in compact
+        has_approach = "引桥" in compact
+        if has_main != has_approach:
+            return "主桥" if has_main else "引桥"
+    return None
+
+
 def _looks_like_score_table(compact: str) -> bool:
     if "bci" in compact.casefold() and "技术状况" in compact:
         return True
@@ -564,6 +677,8 @@ def _extract_table(
     table: TableBlock,
     source_kind: str,
     collector: _CandidateCollector,
+    *,
+    scope: str | None = None,
 ) -> None:
     rows = [[_clean(cell.raw_text) for cell in row.cells] for row in table.rows]
     if not rows:
@@ -575,11 +690,20 @@ def _extract_table(
             key_field = _field_for_key(cell.raw_text)
             if key_field is not None and index + 1 < len(cells):
                 value_cell = cells[index + 1]
+                candidate_kind = (
+                    "project_name"
+                    if key_field == "bridge_name" and _compact(cell.raw_text) == "项目名称"
+                    else (
+                        "facility_name"
+                        if key_field == "bridge_name"
+                        else source_kind
+                    )
+                )
                 _add_field(
                     collector,
                     key_field,
                     value_cell.raw_text,
-                    source_kind,
+                    candidate_kind,
                     value_cell.source or cell.source or table.source,
                     label=cell.raw_text,
                 )
@@ -593,7 +717,11 @@ def _extract_table(
 
     _extract_header_columns(table, source_kind, collector)
     if source_kind in {"overall_assessment_table", "section_score_table"}:
-        _extract_score_matrix(table, source_kind, collector)
+        _extract_score_matrix(table, source_kind, collector, scope=scope)
+
+    _extract_final_assessment_row(table, source_kind, collector, scope=scope)
+
+    _extract_bci_scores(_clean(table.raw_text), table.source, collector)
 
     recommendation_header = _recommendation_header_index(rows)
     if recommendation_header is not None:
@@ -647,6 +775,8 @@ def _extract_score_matrix(
     table: TableBlock,
     source_kind: str,
     collector: _CandidateCollector,
+    *,
+    scope: str | None = None,
 ) -> None:
     rows = list(table.rows)
     for header_index, header in enumerate(rows[:8]):
@@ -684,7 +814,7 @@ def _extract_score_matrix(
                         cell.raw_text,
                         source_kind,
                         cell.source or table.source,
-                        label=category_cell.raw_text,
+                        label=_score_label(category_cell.raw_text, scope),
                     )
                 if cell.column_index in grade_columns:
                     if not _clean(cell.raw_text):
@@ -703,9 +833,50 @@ def _extract_score_matrix(
                         cell.raw_text,
                         source_kind,
                         cell.source or table.source,
-                        label=category_cell.raw_text,
+                        label=_score_label(category_cell.raw_text, scope),
                     )
         return
+
+
+def _extract_final_assessment_row(
+    table: TableBlock,
+    source_kind: str,
+    collector: _CandidateCollector,
+    *,
+    scope: str | None = None,
+) -> None:
+    """Read legacy ``综合评定分数Dr`` rows that lack a score header column."""
+
+    for row in table.rows:
+        cells = list(row.cells)
+        if not cells or "综合评定分数" not in _compact(cells[0].raw_text):
+            continue
+        row_text = "\t".join(cell.raw_text for cell in cells)
+        score_match = re.search(r"[（(]\s*(\d+(?:\.\d+)?)\s*[）)]", row_text)
+        if score_match is not None:
+            _add_field(
+                collector,
+                "overall_score",
+                score_match.group(1),
+                source_kind,
+                cells[-1].source or table.source,
+                label=_score_label(cells[0].raw_text, scope),
+            )
+        grade_match = _GRADE_RE.search("\t".join(cell.raw_text for cell in cells[1:]))
+        if grade_match is not None:
+            _add_field(
+                collector,
+                "overall_grade",
+                grade_match.group(0),
+                source_kind,
+                cells[-1].source or table.source,
+                label=_score_label("等级", scope),
+            )
+
+
+def _score_label(label: str, scope: str | None = None) -> str:
+    cleaned = _clean(label)
+    return f"{scope}{cleaned}" if scope and scope not in cleaned else cleaned
 
 
 def _score_column_kind(value: str) -> str | None:
@@ -745,13 +916,27 @@ def _field_base_for_category(value: str) -> str | None:
         return "substructure"
     if "桥面" in compact:
         return "deck"
+    if compact in {"主桥", "引桥", "主桥总体", "引桥总体"}:
+        return "overall"
     if "总体" in compact or "整体" in compact or compact in {"总评", "全桥"}:
         return "overall"
     return None
 
 
 def _field_for_key(value: str) -> str | None:
-    return _ALIAS_TO_FIELD.get(_normalised_key(value))
+    normalised = _normalised_key(value)
+    field = _ALIAS_TO_FIELD.get(normalised)
+    if field is not None:
+        return field
+    label = _clean(value)
+    for alias, alias_field in _SORTED_ALIASES:
+        if re.fullmatch(
+            _alias_pattern(alias) + r"\s*(?:[（(][^）)]*[）)])?",
+            label,
+            flags=re.IGNORECASE,
+        ):
+            return alias_field
+    return None
 
 
 def _extract_paragraph(
@@ -762,6 +947,13 @@ def _extract_paragraph(
     if not _clean(block.raw_text):
         return
     _extract_embedded_fields(block.raw_text, source_kind, block.source, collector)
+    if source_kind == _ROUTE_CONCLUSION:
+        _extract_plain_bridge_name(
+            block.raw_text,
+            "conclusion_name",
+            block.source,
+            collector,
+        )
     _extract_score_phrases(block.raw_text, source_kind, block.source, collector)
 
 
@@ -777,8 +969,9 @@ def _extract_embedded_fields(
     matches: list[tuple[int, int, str, str]] = []
     for alias, field in _SORTED_ALIASES:
         pattern = re.compile(
-            re.escape(alias)
-            + r"\s*(?:(?:[:：=])\s*|(?:为|是)\s*|(?=[\d.无暂无不适用A-Ea-e优良中差]|$))"
+            _alias_pattern(alias)
+            + r"\s*(?:[（(][^）)]*[）)])?\s*"
+            + r"(?:(?:[:：=])\s*|(?:为|是)\s*|(?=[\d.无暂无不适用A-Ea-e优良中差]|$))"
         )
         for match in pattern.finditer(text):
             if any(start <= match.start() < end or match.start() <= start < match.end() for start, end, _, _ in matches):
@@ -792,6 +985,12 @@ def _extract_embedded_fields(
             continue
         date_kind = _date_kind_for_alias(alias) if field == "report_date" else None
         candidate_kind = _date_source_kind(source_kind, date_kind)
+        if field == "bridge_name":
+            candidate_kind = (
+                "project_name"
+                if _compact(alias) == "项目名称"
+                else "facility_name"
+            )
         _add_field(
             collector,
             field,
@@ -802,6 +1001,80 @@ def _extract_embedded_fields(
             date_kind=date_kind,
         )
 
+    _extract_bci_scores(text, source, collector)
+
+
+def _extract_bci_scores(
+    text: str,
+    source: SourceAnchor | None,
+    collector: _CandidateCollector,
+) -> None:
+    """Extract BCI/BCIm/BCIs/BCIx score phrases and their attached grades.
+
+    These phrases appear in technical-condition-index reports (often inside
+    large cover tables) where the component scores are written as
+    ``桥面系BCIm=89.00，评定为B级`` style sentences.  The text phrase is the
+    authoritative statement; a dedicated high-priority source kind lets it win
+    over the score matrix when the matrix carries a misprint.
+    """
+
+    for match in _BCI_SCORE_RE.finditer(text):
+        suffix = (match.group(1) or "").lower()
+        base = _BCI_COMPONENT.get(suffix, "overall")
+        _add_field(
+            collector,
+            f"{base}_score",
+            match.group(2),
+            "bci",
+            source,
+            label="BCI指数",
+        )
+        window = text[match.end(): match.end() + 200]
+        if base == "overall":
+            overall_match = _OVERALL_GRADE_RE.search(window)
+            if overall_match:
+                _add_field(
+                    collector,
+                    "overall_grade",
+                    overall_match.group(1),
+                    "bci",
+                    source,
+                    label="整体技术状况等级",
+                )
+            else:
+                fallback = _GRADE_AFTER_RE.search(window)
+                if fallback:
+                    _add_field(
+                        collector,
+                        "overall_grade",
+                        fallback.group(1),
+                        "bci",
+                        source,
+                        label="整体技术状况等级",
+                    )
+        else:
+            grade_match = _GRADE_AFTER_RE.search(window)
+            if grade_match:
+                _add_field(
+                    collector,
+                    f"{base}_grade",
+                    grade_match.group(1),
+                    "bci",
+                    source,
+                    label="BCI等级",
+                )
+
+    underpass = _UNDERPASS_GRADE_RE.search(text)
+    if underpass:
+        _add_field(
+            collector,
+            "overall_grade",
+            underpass.group(1),
+            "bci",
+            source,
+            label="技术状况总评",
+        )
+
 
 def _extract_score_phrases(
     raw_text: str,
@@ -810,6 +1083,37 @@ def _extract_score_phrases(
     collector: _CandidateCollector,
 ) -> None:
     text = _clean(raw_text)
+    for scope in ("主桥", "引桥"):
+        scoped_score = re.search(
+            rf"{scope}\s*(?:总体|整体)?\s*技术状况.*?"
+            rf"评定为\s*{_GRADE_RE.pattern}\s*[（(]\s*"
+            rf"(\d+(?:\.\d+)?)\s*[）)]",
+            text,
+        )
+        if scoped_score is not None:
+            _add_field(
+                collector,
+                "overall_score",
+                scoped_score.group(1),
+                source_kind,
+                source,
+                label=f"{scope}总体技术状况评分",
+            )
+        scoped_grade = re.search(
+            rf"{scope}\s*(?:总体|整体)?\s*技术状况.*?"
+            rf"评定为\s*({_GRADE_RE.pattern})",
+            text,
+        )
+        if scoped_grade is not None:
+            _add_field(
+                collector,
+                "overall_grade",
+                scoped_grade.group(1),
+                source_kind,
+                source,
+                label=f"{scope}总体技术状况等级",
+            )
+
     patterns = (
         ("overall", "总体(?:技术状况)?"),
         ("superstructure", "上部结构"),
@@ -821,7 +1125,12 @@ def _extract_score_phrases(
             rf"({label_pattern})\s*(?:评分|分数|得分)\s*(?:为|是|[:：=])?\s*([^，,；;。\s]*(?:\s*分)?)",
             text,
         )
-        if score_match:
+        scoped_overall = (
+            base == "overall"
+            and score_match is not None
+            and _score_scope_before(text, score_match.start(1)) is not None
+        )
+        if score_match and not scoped_overall:
             _add_field(
                 collector,
                 f"{base}_score",
@@ -834,7 +1143,7 @@ def _extract_score_phrases(
                 rf"{re.escape(score_match.group(2).strip())}\s*分?\s*[（(]\s*({_GRADE_RE.pattern})\s*[）)]",
                 text,
             )
-            if grade_match:
+            if grade_match and not scoped_overall:
                 _add_field(
                     collector,
                     f"{base}_grade",
@@ -847,7 +1156,13 @@ def _extract_score_phrases(
             rf"{label_pattern}\s*(?:技术状况)?\s*(?:等级|级别)\s*(?:为|是|[:：=])?\s*({_GRADE_RE.pattern})",
             text,
         )
-        if grade_match:
+        scoped_grade = (
+            base == "overall"
+            and _score_scope_before(text, grade_match.start()) is not None
+            if grade_match is not None
+            else False
+        )
+        if grade_match and not scoped_grade:
             _add_field(
                 collector,
                 f"{base}_grade",
@@ -856,6 +1171,7 @@ def _extract_score_phrases(
                 source,
                 label=base,
             )
+
     previous_patterns = (
         ("previous_overall_score", r"上一次(?:总体)?(?:技术状况)?(?:评分|分数|得分)"),
         ("previous_overall_grade", r"上一次(?:总体)?(?:技术状况)?(?:等级|级别)"),
@@ -867,6 +1183,22 @@ def _extract_score_phrases(
         )
         if match:
             _add_field(collector, field, match.group(1), source_kind, source, label=field)
+
+    for match in _UNDERPASS_CONCLUSION_GRADE_RE.finditer(text):
+        _add_field(
+            collector,
+            "overall_grade",
+            match.group(1),
+            "underpass_conclusion",
+            source,
+            label="技术标准",
+        )
+
+
+def _score_scope_before(text: str, start: int) -> str | None:
+    prefix = text[max(0, start - 12) : start].rstrip()
+    matches = list(re.finditer(r"(主桥|引桥)\s*(?:总体|整体)?$", prefix))
+    return matches[-1].group(1) if matches else None
 
 
 def _extract_route_text(
@@ -930,6 +1262,34 @@ def _extract_route_text(
                 )
 
 
+def _cn_units(value: str) -> int:
+    digits = _CN_DIGIT
+    if "十" in value:
+        tens_part, _, ones_part = value.partition("十")
+        tens = digits.get(tens_part, 1) if tens_part else 1
+        ones = digits.get(ones_part, 0) if ones_part else 0
+        return tens * 10 + ones
+    return digits.get(value, 0)
+
+
+def _extract_cn_date(text: str) -> str | None:
+    """Convert a Chinese-numeral cover date like ``二○一三年二月`` to ``2013年2月``."""
+
+    match = _CN_DATE_RE.search(text)
+    if match is None:
+        return None
+    year = "".join(str(_CN_DIGIT.get(character, 0)) for character in match.group(1))
+    month = _cn_units(match.group(2))
+    if not year or month < 1 or month > 12:
+        return None
+    result = f"{year}年{month}月"
+    if match.group(3):
+        day = _cn_units(match.group(3))
+        if 1 <= day <= 31:
+            result += f"{day}日"
+    return result
+
+
 def _extract_cover_dates(
     blocks: Sequence[object],
     first_heading: int,
@@ -939,12 +1299,22 @@ def _extract_cover_dates(
         if not isinstance(block, ParagraphBlock) or block.block_index >= first_heading:
             continue
         text = _clean(block.raw_text)
+        cn_date = _extract_cn_date(text)
+        if cn_date is not None:
+            collector.add(
+                "report_date",
+                cn_date,
+                "cover",
+                block.source,
+                label="封面中文日期",
+                date_kind="cover",
+            )
         if any(_compact(alias) in _compact(text) for alias in _ALIASES["report_date"]):
             continue
         for match in _DATE_RE.finditer(text):
             collector.add(
                 "report_date",
-                match.group(0),
+                _date_value(match.group(0)),
                 "cover",
                 block.source,
                 label="封面日期",
@@ -964,6 +1334,8 @@ def _add_field(
 ) -> None:
     if field == "report_date":
         date_kind = date_kind or _date_kind_for_alias(label)
+        if date_kind not in {"cover", "sign", "detection_end"} and _is_date_range(value):
+            date_kind = "range"
         value = _date_value(value)
         if not value and _clean(value) != "":
             return
@@ -979,15 +1351,17 @@ def _add_field(
 
 def _date_kind_for_alias(alias: str) -> str:
     compact = _compact(alias)
-    if "检测" in compact:
+    if any(marker in compact for marker in ("检测结束", "检测完成", "检测终止")):
+        return "detection_end"
+    if any(marker in compact for marker in ("检测", "检验", "检查")):
         return "detection"
-    if "签发" in compact or "签字" in compact or "出具" in compact:
+    if any(marker in compact for marker in ("签发", "签字", "出具", "发出")):
         return "sign"
     return "cover"
 
 
 def _date_source_kind(source_kind: str, date_kind: str | None) -> str:
-    if date_kind in {"cover", "sign", "detection"} and source_kind in {
+    if date_kind in {"cover", "sign", "detection_end", "detection", "range"} and source_kind in {
         "cover",
         "paragraph",
         "conclusion",
@@ -997,17 +1371,192 @@ def _date_source_kind(source_kind: str, date_kind: str | None) -> str:
     return source_kind
 
 
+def _format_date(year: str, month: str, day: str | None = None) -> str | None:
+    try:
+        year_number = int(year)
+        month_number = int(month)
+        day_number = int(day) if day is not None else None
+    except (TypeError, ValueError):
+        return None
+    if not 1 <= month_number <= 12:
+        return None
+    if day_number is not None and not 1 <= day_number <= 31:
+        return None
+    result = f"{year_number}年{month_number}月"
+    if day_number is not None:
+        result += f"{day_number}日"
+    return result
+
+
 def _date_value(value: str) -> str:
     cleaned = _clean(value).strip("：:=，,；;。．")
+    for range_pattern in (_DATE_RANGE_RE, _CN_DATE_RANGE_RE):
+        range_match = range_pattern.search(cleaned)
+        if range_match is None:
+            continue
+        return (
+            _format_date(
+                range_match.group("year2") or range_match.group("year1"),
+                range_match.group("month2"),
+                range_match.group("day2"),
+            )
+            or cleaned
+        )
+    chinese_match = _CN_DATE_RE.search(cleaned)
     match = _DATE_RE.search(cleaned)
-    return match.group(0) if match else cleaned
+    if chinese_match is not None and (
+        match is None or chinese_match.start() < match.start()
+    ):
+        chinese = _extract_cn_date(cleaned[chinese_match.start() :])
+        if chinese is not None:
+            return chinese
+    if match is None:
+        return cleaned
+    return (
+        _format_date(
+            match.group("year"),
+            match.group("month_cn") or match.group("month"),
+            match.group("day_cn") or match.group("day"),
+        )
+        or cleaned
+    )
+
+
+def _is_date_range(value: str) -> bool:
+    cleaned = _clean(value)
+    return _DATE_RANGE_RE.search(cleaned) is not None or _CN_DATE_RANGE_RE.search(cleaned) is not None
+
+
+def _is_generic_bridge_name(value: str) -> bool:
+    compact = _compact(value).strip("：:=，,；;。． ")
+    return not compact or any(pattern.fullmatch(compact) for pattern in _GENERIC_BRIDGE_NAME_RE)
+
+
+def _is_specific_facility_name(value: str) -> bool:
+    compact = _compact(value)
+    return (
+        len(compact) >= 3
+        and any(marker in compact for marker in ("桥", "立交", "通道", "隧道"))
+        and not _is_generic_bridge_name(compact)
+    )
+
+
+def _normalise_bridge_name(value: str) -> str:
+    cleaned = _clean(value).strip("：:=，,；;。． ")
+    cleaned = re.split(
+        r"(?:所在路名|在路名|路名|桥梁编号|桥梁ID|等级)\s*[:：=]",
+        cleaned,
+        maxsplit=1,
+        flags=re.IGNORECASE,
+    )[0].strip()
+    cleaned = re.sub(
+        r"^(?:桥梁名称|桥名|工程名称|设施名称|桥梁工程名称|工程设施名称|工程/设施名称|工程（设施）名称|项目名称)\s*[:：=]\s*",
+        "",
+        cleaned,
+    )
+    cleaned = re.sub(
+        r"(?:检测评估项目|检测评估|评估报告|检测报告|定期检测报告|检测项目|外观检查|报告)\s*$",
+        "",
+        cleaned,
+    )
+    cleaned = re.sub(r"互通式(?=立交)", "", cleaned)
+    cleaned = re.sub(r"桥异形梁桥$", "异形桥", cleaned)
+    cleaned = re.sub(r"(?<!立交)(\d+)#(?=人行天桥)", r"\1号", cleaned)
+    cleaned = _strip_project_road_prefix(cleaned)
+    cleaned = cleaned.strip("：:=，,；;。． ")
+    return "" if _is_generic_bridge_name(cleaned) else cleaned
+
+
+def _bridge_name_from_text(raw_text: str) -> str:
+    text = _clean(raw_text)
+    if not text:
+        return ""
+    for segment in re.split(r"[\n\t，,。；;：:、（）()]+", text):
+        compact = _compact(segment)
+        if not compact:
+            continue
+        compact = re.split(
+            r"(?:整体|总体|技术状况|评定为|检测结果|需进行|属于|进行了|位于)",
+            compact,
+            maxsplit=1,
+        )[0]
+        for marker in ("对", "于"):
+            if marker in compact:
+                compact = compact.rsplit(marker, 1)[-1]
+        matches = list(_BRIDGE_NAME_RE.finditer(compact))
+        for match in reversed(matches):
+            candidate = _normalise_bridge_name(match.group("name"))
+            if _is_specific_facility_name(candidate):
+                return candidate
+    return ""
+
+
+def _extract_plain_bridge_name(
+    raw_text: str,
+    source_kind: str,
+    source: SourceAnchor | None,
+    collector: _CandidateCollector,
+) -> None:
+    name = _bridge_name_from_text(raw_text)
+    if name:
+        collector.add(
+            "bridge_name",
+            name,
+            source_kind,
+            source,
+            label="设施名",
+        )
+
+
+def _extract_cover_names(
+    blocks: Sequence[object],
+    first_heading: int,
+    collector: _CandidateCollector,
+) -> None:
+    for block in blocks:
+        if not isinstance(block, ParagraphBlock) or block.block_index >= first_heading:
+            continue
+        if len(_compact(block.raw_text)) > 80:
+            continue
+        _extract_plain_bridge_name(block.raw_text, "cover_name", block.source, collector)
+
+
+def _extract_filename_bridge_name(
+    source_file: str,
+    collector: _CandidateCollector,
+) -> None:
+    if not source_file:
+        return
+    stem = re.split(r"[\\/]", source_file)[-1]
+    stem = re.sub(r"\.(?:docx?|DOCX?)$", "", stem)
+    parts = re.split(r"[-_—（）()]+", stem)
+    for part in reversed(parts):
+        part = re.sub(r"^\d+", "", part)
+        name = _normalise_bridge_name(part)
+        if _is_specific_facility_name(name):
+            collector.add(
+                "bridge_name",
+                name,
+                "filename",
+                SourceAnchor(source_file, -1, source_file),
+                label="文件名",
+            )
+            return
+    name = _bridge_name_from_text(stem)
+    if name:
+        collector.add(
+            "bridge_name",
+            name,
+            "filename",
+            SourceAnchor(source_file, -1, source_file),
+            label="文件名",
+        )
 
 
 def _normalise_field_value(field: str, value: str) -> str:
     cleaned = _clean(value).strip("：:=，,；;。．")
     if field == "bridge_name":
-        cleaned = re.split(r"(?:所在路名|路名|桥梁编号|桥梁ID|等级)\s*[:：=]", cleaned, maxsplit=1, flags=re.IGNORECASE)[0]
-        return cleaned.strip("：:=，,；;。． ")
+        return _normalise_bridge_name(cleaned)
     if field.endswith("_score"):
         if not cleaned or cleaned in {"无", "暂无", "不适用"}:
             return cleaned
@@ -1035,6 +1584,11 @@ def _select_value(field: str, values: Sequence[SummaryCandidate]) -> str:
     ordered = sorted(
         values,
         key=lambda candidate: (
+            0
+            if field == "bridge_name" and _is_specific_facility_name(candidate.value)
+            else 1
+            if field == "bridge_name"
+            else 0,
             -(_DATE_PRIORITY.get(candidate.date_kind or "", 0) if field == "report_date" else _selection_priority(field, candidate)),
             -candidate.priority,
             _source_sort_key(candidate.source),
@@ -1043,17 +1597,80 @@ def _select_value(field: str, values: Sequence[SummaryCandidate]) -> str:
         ),
     )
     nonempty = [candidate for candidate in ordered if candidate.value.strip()]
-    return (nonempty[0] if nonempty else ordered[0]).value
+    if field == "overall_score":
+        unified = [
+            candidate
+            for candidate in nonempty
+            if not _is_scoped_overall_score(candidate)
+        ]
+        if nonempty and not unified:
+            return ""
+        nonempty = unified
+        if not nonempty:
+            return ""
+    selected_candidate = nonempty[0] if nonempty else ordered[0]
+    selected = selected_candidate.value
+    if field == "bridge_name" and selected_candidate.source_kind == "project_name":
+        selected = _strip_project_road_prefix(selected)
+    if field == "bridge_name" and selected_candidate.source_kind == "paragraph":
+        project_candidates = [
+            candidate
+            for candidate in nonempty
+            if candidate.source_kind == "project_name"
+        ]
+        if project_candidates:
+            project = project_candidates[0].value
+            if "匝道" in project and "匝道" not in selected:
+                selected = _strip_project_road_prefix(project)
+    if field.endswith("_score"):
+        numeric = _numeric_value(selected)
+        if numeric is not None:
+            decimal_forms = [
+                candidate.value
+                for candidate in (nonempty or ordered)
+                if "." in candidate.value and _numeric_value(candidate.value) == numeric
+            ]
+            if decimal_forms:
+                selected = decimal_forms[0]
+    return selected
+
+
+def _is_scoped_overall_score(candidate: SummaryCandidate) -> bool:
+    label = _compact(candidate.label)
+    return "主桥" in label or "引桥" in label
+
+
+def _strip_project_road_prefix(value: str) -> str:
+    return re.sub(r"^.*?路段(?=[\u3400-\u9fffA-Za-z0-9])", "", value)
+
+
+def _numeric_value(value: str) -> float | None:
+    match = _SCORE_RE.search(_clean(value))
+    if match is None:
+        return None
+    try:
+        return float(match.group(0))
+    except ValueError:
+        return None
+
+
+def _selected_or_missing(field: str, values: Sequence[SummaryCandidate]) -> str:
+    value = _select_value(field, values)
+    if not value.strip() and field in _SCORE_FIELDS:
+        return "无"
+    return value
 
 
 def _selection_priority(field: str, candidate: SummaryCandidate) -> int:
     if field not in _SCORE_FIELDS:
         return candidate.priority
     return {
+        "bci": 500,
         "overall_assessment_table": 400,
         "section_score_table": 300,
         "section_score": 280,
         "summary_page": 200,
+        "underpass_conclusion": 520,
         "conclusion": 100,
     }.get(candidate.source_kind, 80)
 

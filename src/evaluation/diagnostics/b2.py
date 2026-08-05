@@ -744,6 +744,31 @@ def _bucket_summary(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     }
 
 
+def subset_summaries(
+    records: Sequence[Mapping[str, Any]],
+    groups: Mapping[str, Sequence[str]],
+) -> dict[str, Any]:
+    """Summarize named subsets of diagnostic records by ``sample_id``.
+
+    ``groups`` maps a deterministic label to the ordered list of sample ids in
+    that subset.  Only aggregate counts and micro/macro views are retained, so
+    the returned payload never contains field values, anchors, or raw text.
+    """
+
+    by_id: dict[str, Mapping[str, Any]] = {}
+    for record in records:
+        sample_id = str(record.get("sample_id", ""))
+        if sample_id and sample_id not in by_id:
+            by_id[sample_id] = record
+    ordered = sorted(groups.items(), key=lambda item: str(item[0]))
+    return {
+        str(label): _bucket_summary(
+            [by_id[str(sample_id)] for sample_id in sample_ids if str(sample_id) in by_id]
+        )
+        for label, sample_ids in ordered
+    }
+
+
 def _defect_bucket(count: int) -> str:
     if count == 0:
         return "0"

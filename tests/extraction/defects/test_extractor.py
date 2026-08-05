@@ -232,3 +232,148 @@ def test_missing_status_fields_use_auditable_gold_template_defaults() -> None:
     assert result[0].previous_status == "无"
     assert result[0].development == "无"
     assert "defaulted_defect_fields" in {flag["code"] for flag in result.quality_flags}
+
+
+def test_location_gets_lane_prefix_when_description_leads_with_lane() -> None:
+    xml = document_xml(
+        table(
+            row(cell("位置"), cell("病害种类"), cell("具体位置")),
+            row(cell("车行道"), cell("破损"), cell("右幅0#桥台附近桥面铺装局部破损")),
+        )
+    )
+    document = parse_document_xml(xml, source_file="lane.docx")
+
+    result = extract_defects(document)
+
+    assert len(result) == 1
+    assert result[0].location == "右幅车行道"
+    assert result[0].description == "右幅0#桥台附近桥面铺装局部破损"
+
+
+def test_location_lane_prefix_skips_when_lane_already_present() -> None:
+    xml = document_xml(
+        table(
+            row(cell("位置"), cell("病害种类"), cell("具体位置")),
+            row(cell("右幅桥面"), cell("破损"), cell("右幅桥面局部破损")),
+        )
+    )
+    document = parse_document_xml(xml, source_file="lane-already.docx")
+
+    result = extract_defects(document)
+
+    assert len(result) == 1
+    assert result[0].location == "右幅桥面"
+
+
+def test_bare_lane_location_is_expanded_with_section_heading() -> None:
+    xml = document_xml(
+        paragraph("5.1.2 上部结构"),
+        table(
+            row(cell("位置"), cell("病害种类"), cell("具体位置")),
+            row(cell("左幅"), cell("纵裂"), cell("第1跨1#板跨中1条纵裂")),
+        ),
+    )
+    document = parse_document_xml(xml, source_file="section.docx")
+
+    result = extract_defects(document)
+
+    assert len(result) == 1
+    assert result[0].location == "左幅上部结构"
+
+
+def test_bare_lane_location_unchanged_without_section_heading() -> None:
+    xml = document_xml(
+        table(
+            row(cell("位置"), cell("病害种类"), cell("具体位置")),
+            row(cell("左幅"), cell("纵裂"), cell("第1跨1#板跨中1条纵裂")),
+        )
+    )
+    document = parse_document_xml(xml, source_file="section-missing.docx")
+
+    result = extract_defects(document)
+
+    assert len(result) == 1
+    assert result[0].location == "左幅"
+
+
+def test_text_fallback_is_scoped_and_splits_concrete_observations() -> None:
+    xml = document_xml(
+        paragraph("桥梁概况"),
+        paragraph("桥面铺装局部破损。"),
+        paragraph("检测结论"),
+        paragraph("桥面局部存在裂缝，栏杆多处破损；左幅/右幅两处均存在渗水。"),
+        paragraph("安全性评估"),
+        paragraph("桥台局部出现沉降。"),
+    )
+    document = parse_document_xml(xml, source_file="text-fallback.docx")
+
+    result = extract_defects(document)
+
+    assert [
+        (record.location, record.defect_type, record.description)
+        for record in result
+    ] == [
+        ("桥面", "裂缝", "桥面局部存在裂缝"),
+        ("栏杆", "破损", "栏杆多处破损"),
+        ("左幅", "渗水", "左幅存在渗水"),
+        ("右幅", "渗水", "右幅存在渗水"),
+        ("桥台", "沉降", "桥台局部出现沉降"),
+    ]
+    assert "fallback_defect_text" in {flag["code"] for flag in result.quality_flags}
+    assert all(record.evidence[0].paragraph_index is not None for record in result)
+
+
+def test_text_fallback_requires_numbered_underfill_and_table_wins_deduplication() -> None:
+    defect_table = table(
+        row(cell("序号"), cell("部位"), cell("类型"), cell("描述")),
+        row(cell("1"), cell("桥面"), cell("裂缝"), cell("桥面局部存在裂缝")),
+    )
+    xml = document_xml(
+        paragraph("病害明细表"),
+        defect_table,
+        paragraph("检测结论"),
+        paragraph("（1）桥面局部存在裂缝。"),
+        paragraph("（2）栏杆多处破损。"),
+        paragraph("（3）桥台局部出现渗水。"),
+    )
+    document = parse_document_xml(xml, source_file="text-underfill.docx")
+
+    result = extract_defects(document)
+
+    assert [
+        (record.location, record.defect_type, record.description)
+        for record in result
+    ] == [
+        ("桥面", "裂缝", "桥面局部存在裂缝"),
+        ("栏杆", "破损", "栏杆多处破损"),
+        ("桥台", "渗水", "桥台局部出现渗水"),
+    ]
+    fallback = next(flag for flag in result.quality_flags if flag["code"] == "fallback_defect_text")
+    assert fallback["details"]["reason"] == "text_candidates_exceed_table_rows"
+    assert fallback["details"]["added_row_count"] == 2
+
+
+def test_empty_result_reads_only_bounded_legacy_appearance_section() -> None:
+    section = (
+        "4.2 外观病害检查表4.2 序号位置病害种类病害情况"
+        "1桥面/桥面无泄水孔"
+        "2栏杆锈蚀、松动钢丝网局部锈蚀、松动"
+        "4.3 桥梁线形测量"
+    )
+    xml = document_xml(
+        paragraph("前置段落桥面局部破损。"),
+        table(*(row(cell("封面信息")) for _ in range(9)), row(cell(section))),
+        paragraph("后置段落梁体裂缝。"),
+    )
+    document = parse_document_xml(xml, source_file="legacy-text.docx")
+
+    result = extract_defects(document)
+
+    assert [
+        (record.location, record.defect_type, record.description)
+        for record in result
+    ] == [
+        ("桥面", "设施缺失", "桥面无泄水孔"),
+        ("栏杆", "锈蚀、松动", "钢丝网局部锈蚀、松动"),
+    ]
+    assert "fallback_defect_text" in {flag["code"] for flag in result.quality_flags}

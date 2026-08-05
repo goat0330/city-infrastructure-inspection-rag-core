@@ -33,8 +33,10 @@ _INDEX_RE = re.compile(
     r"(?:第[0-9零一二三四五六七八九十百千万]+[章节篇条项]?"
     r"|[（(][0-9零一二三四五六七八九十百千万]+[）)]"
     r"|[⑴-⒇]"
+    r"|[①-⑳]"
     r"|[0-9]+(?:\.[0-9]+)+[、.:：)）]?"
     r"|[0-9]+[、.:：)）]"
+    r"|[0-9]+(?=\s+(?:建议|应|需|须|严禁|立即|及时|对|按照|根据|修复|维修|加强|严格))"
     r"|[零一二三四五六七八九十百千万]+[、.:：)）])"
 )
 _ITEM_SEPARATOR_RE = re.compile(r"[;；]+")
@@ -89,18 +91,65 @@ _TITLE_WORDS = (
     "建议",
     "建议明细",
     "建议列表",
+    "建议明细表",
+    "结论及建议",
+    "结论与建议",
     "维修建议",
     "养护建议",
+    "维修养护建议",
+    "维护建议",
+    "维护处置建议",
     "处理建议",
     "处置建议",
     "处治建议",
+    "应采取的措施",
+    "应立即维护的设施",
+    "日常养护中采取措施",
+    "日常养护中采取才措施",
+)
+_RECOMMENDATION_HEADING_WORDS = (
+    "结论及建议",
+    "结论与建议",
     "建议明细表",
+    "维修养护建议",
+    "维护建议",
+    "维护处置建议",
+    "养护建议",
+    "维修建议",
+    "处理建议",
+    "处置建议",
+    "处治建议",
+    "应采取的措施",
+    "应立即维护的设施",
+    "日常养护中采取措施",
+    "日常养护中采取才措施",
+    "建议",
+)
+_DIRECTIVE_WORDS = (
+    "建议",
+    "应",
+    "需",
+    "须",
+    "严禁",
+    "禁止",
+    "立即",
+    "及时",
+    "尽快",
+    "必须",
+    "做好",
+    "加强",
+    "严格",
+    "可",
 )
 _ACTION_WORDS = (
     "建议",
     "维修",
     "养护",
+    "维护",
     "修复",
+    "中修",
+    "大修",
+    "小修",
     "加固",
     "处理",
     "处置",
@@ -113,14 +162,86 @@ _RECOMMENDATION_ACTION_WORDS = (
     "建议",
     "维修",
     "养护",
+    "维护",
     "修复",
     "修补",
+    "中修",
+    "大修",
+    "小修",
     "加固",
     "更换",
     "清理",
+    "封闭",
+    "浇注",
+    "检查",
+    "观测",
+    "巡查",
+    "保护",
     "处理",
     "处置",
     "处治",
+)
+_STRONG_RECOMMENDATION_ACTION_WORDS = tuple(
+    word for word in _RECOMMENDATION_ACTION_WORDS if word != "建议"
+)
+_REPAIR_ACTION_WORDS = (
+    "维修",
+    "修复",
+    "修补",
+    "修理",
+    "中修",
+    "大修",
+    "小修",
+    "加固",
+    "更换",
+    "清理",
+    "封闭",
+    "浇注",
+    "补强",
+    "灌浆",
+    "堵漏",
+    "除锈",
+    "涂刷",
+    "疏通",
+    "恢复",
+    "拆除",
+    "重装",
+    "处理",
+    "处置",
+    "处治",
+)
+_MONITORING_ACTION_WORDS = (
+    "检查",
+    "观测",
+    "巡查",
+    "日常养护",
+    "日常维护",
+    "定期养护",
+    "定期维护",
+)
+_STATISTIC_COUNT_RE = re.compile(
+    r"(?:[0-9]+|[零一二三四五六七八九十百千万]+)\s*"
+    r"(?:处|条|根|个|套|项|片|块|点|次|组|跨)"
+)
+_STATISTIC_DEFECT_WORDS = (
+    "裂缝",
+    "开裂",
+    "破损",
+    "露筋",
+    "锈蚀",
+    "渗水",
+    "泛碱",
+    "坑槽",
+    "坑洞",
+    "蜂窝",
+    "麻面",
+    "脱落",
+    "剥落",
+    "缺失",
+    "变形",
+    "磨损",
+    "病害",
+    "不密实",
 )
 _CONTINUATION_PREFIXES = (
     "具体",
@@ -140,7 +261,116 @@ _CONTINUATION_PREFIXES = (
 _INFERRED_LOCATION_RE = re.compile(
     r"(?:对于|由于|针对|对|在|于)"
     r"([^，,;；。:：]{1,50}?)"
-    r"(?=(?:存在|有|出现|多处|局部|设置|采取|进行|及时|应|建议|修补|维修|养护|处理|处置|处治|清理|检查|做好|严格|破损|裂缝|渗水|露筋|锈蚀|缺失|病害|等病害|变形|错位|开裂|刮痕|脱落|堵塞|积水|泛碱|积土|推积|堆积|变窄|高差|止水带))"
+    r"(?=(?:存在|有|出现|多处|局部|设置|采取|进行|及时|应|建议|修补|维修|中修|大修|小修|养护|处理|处置|处治|清理|检查|做好|严格|破损|裂缝|渗水|露筋|锈蚀|缺失|堵塞|刮痕|变形|错位|开裂|断裂|脱落|积水|泛碱|积土|推积|堆积|变窄|高差|止水带|坑槽|病害|等病害))"
+)
+_EXCLUDED_RECOMMENDATION_MARKERS = (
+    "检测方法",
+    "检测过程",
+    "检测步骤",
+    "试验",
+    "试验方法",
+    "试验过程",
+    "试验步骤",
+    "评定依据",
+    "评定标准",
+    "技术要求",
+    "原因分析",
+    "主要原因",
+    "现场检查",
+    "具体病害情况见",
+    "具体情况见",
+    "照片",
+    "典型照片",
+    "外观状况良好",
+    "未见明显",
+    "未见新开展",
+    "暂未见",
+    "现状为",
+    "现状病害",
+    "主要病害",
+    "病害的发展",
+    "病害如不",
+    "如不及时",
+    "目前而言",
+    "影响较小",
+    "承载能力",
+    "整体性",
+    "板底多条纵向裂缝",
+    "目前不能够满足",
+    "不维修处理就",
+    "主体结构完好",
+    "养护等级",
+    "养护类别",
+    "技术状况",
+)
+_EXCLUDED_RECOMMENDATION_PREFIXES = (
+    "检查",
+    "检测",
+    "试验",
+    "评定依据",
+    "评定标准",
+    "技术要求",
+    "原因",
+    "通过",
+    "评价",
+    "依据",
+    "根据现场",
+    "根据结构",
+    "采用",
+    "本桥技术状况",
+    "桥梁名称",
+    "桥梁编号",
+    "所在路名",
+    "等级",
+    "重要桥梁",
+    "较重要桥梁",
+    "一般桥梁",
+    "交通运输",
+    "Ⅱ类养护",
+    "为掌握",
+    "受",
+    "委托",
+    "本次",
+    "本报告",
+    "根据",
+    "根据外观检查",
+    "现场检查",
+)
+_LOCATION_SUFFIXES = (
+    "车辆刮痕",
+    "车辆",
+    "装饰砖",
+    "保护带",
+    "止水带",
+    "混凝土",
+    "变形严重",
+    "竖裂",
+    "斜裂",
+    "纵裂",
+    "横裂",
+    "开裂",
+    "裂缝",
+    "刮痕",
+    "破损",
+    "露筋",
+    "锈蚀",
+    "渗水",
+    "泛碱",
+    "积水",
+    "坑槽",
+    "高差",
+    "磨损",
+    "漏筋",
+    "积淤",
+    "等",
+    "堵塞",
+    "缺失",
+    "长草",
+    "杂草",
+    "病害",
+    "情况",
+    "部位",
+    "处",
 )
 _INFERRED_SUFFIX_RE = re.compile(
     r"(?:纵向裂缝|横向裂缝|裂缝|破损|锈蚀|渗水|露筋|缺失|病害|斜裂|开裂|刮痕|坑槽|断裂|变形|沉降|脱落|堆积|覆盖|混凝土|保护带|止水带|装饰砖|车辆|接缝填料|填料|泥沙|泥土|垃圾|杂物|积水|盖板)$"
@@ -216,6 +446,7 @@ class _Candidate:
     source_kind: str
     block_index: int
     numbered: bool = False
+    preferred: bool = False
 
 
 @dataclass(frozen=True)
@@ -252,10 +483,45 @@ def extract_recommendations(
         route.heading.block_index
         for route in target_routes
     }
+    custom_blocks, custom_headings = _custom_recommendation_blocks(
+        document,
+        target_routes,
+    )
+    explicit_route_blocks = {
+        block.block_index
+        for route in target_routes
+        if isinstance(route.heading, ParagraphBlock)
+        and _is_recommendation_heading(route.heading)
+        for block in route.blocks
+    }
+    explicit_route_headings = {
+        route.heading.block_index
+        for route in target_routes
+        if isinstance(route.heading, ParagraphBlock)
+        and _is_recommendation_heading(route.heading)
+    }
+    # An explicit recommendation section is a stronger source boundary than
+    # a broad route inferred from a summary table or historical narrative.
+    # Do not mix the two sources once that section is available.
+    preferred_blocks = explicit_route_blocks or custom_blocks or route_blocks
+    preferred_headings = (
+        explicit_route_headings
+        or custom_headings
+        or route_headings
+    )
+    explicit_preferred_blocks = {
+        block.block_index
+        for block in document.blocks
+        if not explicit_route_blocks
+        and not custom_blocks
+        and isinstance(block, ParagraphBlock)
+        and block.block_index not in preferred_blocks
+        and _is_explicit_numbered_recommendation(block.raw_text)
+    }
 
     fallback_blocks: set[int] = set()
     for block in document.blocks:
-        if block.block_index in route_blocks:
+        if block.block_index in preferred_blocks | explicit_preferred_blocks:
             continue
         if isinstance(block, TableBlock):
             if _looks_like_recommendation_table(block):
@@ -269,14 +535,16 @@ def extract_recommendations(
     previous_paragraph_candidate: int | None = None
     previous_paragraph_block: int | None = None
     previous_paragraph_numbered = False
+    previous_paragraph_preferred = False
 
     for block in document.blocks:
-        in_target_route = block.block_index in route_blocks
+        in_preferred = block.block_index in preferred_blocks | explicit_preferred_blocks
         in_fallback = block.block_index in fallback_blocks
-        if not in_target_route and not in_fallback:
+        if not in_preferred and not in_fallback:
             previous_paragraph_candidate = None
             previous_paragraph_block = None
             previous_paragraph_numbered = False
+            previous_paragraph_preferred = False
             continue
 
         if isinstance(block, TableBlock):
@@ -284,28 +552,34 @@ def extract_recommendations(
                 previous_paragraph_candidate = None
                 previous_paragraph_block = None
                 previous_paragraph_numbered = False
+                previous_paragraph_preferred = False
                 continue
             table_candidates = _table_candidates(block)
+            for candidate in table_candidates:
+                candidate.preferred = in_preferred
             candidates.extend(table_candidates)
             previous_paragraph_candidate = None
             previous_paragraph_block = None
             previous_paragraph_numbered = False
+            previous_paragraph_preferred = False
             continue
 
-        if block.block_index in route_headings and _is_heading_only(block.raw_text):
+        if block.block_index in preferred_headings and _is_heading_only(block.raw_text):
             previous_paragraph_candidate = None
             previous_paragraph_block = None
             previous_paragraph_numbered = False
+            previous_paragraph_preferred = False
             continue
 
         paragraph_candidates = _paragraph_candidates(
             block,
-            allow_plain_text=in_target_route,
+            allow_plain_text=in_preferred,
         )
         if not paragraph_candidates:
             previous_paragraph_candidate = None
             previous_paragraph_block = None
             previous_paragraph_numbered = False
+            previous_paragraph_preferred = False
             continue
 
         contiguous = (
@@ -315,6 +589,7 @@ def extract_recommendations(
         if (
             contiguous
             and previous_paragraph_candidate is not None
+            and previous_paragraph_preferred == in_preferred
             and not paragraph_candidates[0].numbered
             and (
                 previous_paragraph_numbered
@@ -331,12 +606,15 @@ def extract_recommendations(
             previous_paragraph_numbered = previous_paragraph_numbered
             continue
 
+        for candidate in paragraph_candidates:
+            candidate.preferred = in_preferred
         candidates.extend(paragraph_candidates)
         previous_paragraph_candidate = len(candidates) - 1
         previous_paragraph_block = block.block_index
         previous_paragraph_numbered = any(
             candidate.numbered for candidate in paragraph_candidates
         )
+        previous_paragraph_preferred = in_preferred
 
     return _finalise(candidates, infer_categories=infer_categories)
 
@@ -344,6 +622,95 @@ def extract_recommendations(
 def _is_target_route(category: object) -> bool:
     value = getattr(category, "value", category)
     return str(value) in _TARGET_CATEGORIES
+
+
+def _custom_recommendation_blocks(
+    document: DocumentModel,
+    target_routes: Sequence[SectionRoute],
+) -> tuple[set[int], set[int]]:
+    """Recover recommendation sections whose heading won another route."""
+
+    target_blocks = {
+        block.block_index
+        for route in target_routes
+        for block in route.blocks
+    }
+    preferred_blocks: set[int] = set()
+    preferred_headings: set[int] = set()
+    blocks = document.blocks
+    for position, block in enumerate(blocks):
+        if not isinstance(block, ParagraphBlock):
+            continue
+        if block.block_index in target_blocks or not _is_recommendation_heading(block):
+            continue
+        end = _custom_section_end(blocks, position)
+        if any(
+            route.heading.block_index > block.block_index
+            and route.heading.block_index < end
+            and _is_recommendation_heading(route.heading)
+            for route in target_routes
+        ):
+            continue
+        preferred_headings.add(block.block_index)
+        preferred_blocks.update(item.block_index for item in blocks[position:])
+        preferred_blocks.difference_update(
+            item.block_index for item in blocks[end:]
+        )
+    return preferred_blocks, preferred_headings
+
+
+def _custom_section_end(blocks: Sequence[object], start: int) -> int:
+    heading = blocks[start]
+    start_level = _heading_level_value(heading)
+    blank_run = 0
+    for position in range(start + 1, len(blocks)):
+        block = blocks[position]
+        if isinstance(block, ParagraphBlock) and not _compact(block.raw_text):
+            blank_run += 1
+            if blank_run >= 3:
+                return position - blank_run + 1
+        else:
+            blank_run = 0
+        if not isinstance(block, ParagraphBlock):
+            continue
+        level = _heading_level_value(block)
+        if start_level is not None and level is not None and level <= start_level:
+            if _is_recommendation_heading(block):
+                continue
+            return position
+        if start_level is None and (level is not None or _is_heading_only(block.raw_text)):
+            return position
+    return len(blocks)
+
+
+def _heading_level_value(block: object) -> int | None:
+    level = getattr(block, "heading_level", None)
+    if isinstance(level, int):
+        return max(1, level)
+    style_id = str(getattr(block, "style_id", "") or "").strip()
+    match = re.search(r"(?:heading|标题)[ _-]?([1-9])", style_id, re.IGNORECASE)
+    return int(match.group(1)) if match is not None else None
+
+
+def _is_recommendation_heading(block: ParagraphBlock) -> bool:
+    compact = _INDEX_RE.sub("", _compact(block.raw_text), count=1).strip("：:。.;；，,、")
+    return any(
+        compact == title or compact.endswith(title)
+        for title in _RECOMMENDATION_HEADING_WORDS
+    )
+
+
+def _is_explicit_numbered_recommendation(text: str) -> bool:
+    compact = _compact(text)
+    stripped = _INDEX_RE.sub("", compact, count=1)
+    if any(marker in compact for marker in _EXCLUDED_RECOMMENDATION_MARKERS):
+        return False
+    if stripped.startswith(_EXCLUDED_RECOMMENDATION_PREFIXES):
+        return False
+    return any(
+        item.numbered and _is_recommendation_item(item.text, allow_monitoring=True)
+        for item in _split_text_items(text)
+    )
 
 
 def _table_candidates(table: TableBlock) -> list[_Candidate]:
@@ -487,7 +854,13 @@ def _paragraph_candidates(
     items = tuple(
         item
         for item in items
-        if block_looks_like_recommendation or _is_continuation_text(item.text)
+        if block_looks_like_recommendation
+        or (
+            allow_plain_text
+            and item.numbered
+            and _is_recommendation_item(item.text, allow_monitoring=True)
+        )
+        or _is_recommendation_continuation(item.text)
     )
     result: list[_Candidate] = []
     for item in items:
@@ -496,6 +869,8 @@ def _paragraph_candidates(
             continue
         category, body = _category_fields(content)
         location, body = _location_fields(body)
+        if allow_plain_text and not location:
+            location = "桥梁"
         result.append(
             _Candidate(
                 index=_clean_index(item.index),
@@ -519,7 +894,7 @@ def _split_text_items(text: str) -> tuple[_TextItem, ...]:
             _TextItem(
                 index=item.index,
                 text=_clean_text(item.text),
-                numbered=item.numbered,
+                numbered=True,
             )
             for item in numbered
             if _clean_text(item.text)
@@ -527,7 +902,12 @@ def _split_text_items(text: str) -> tuple[_TextItem, ...]:
 
     result = []
     for line in _LINE_SEPARATOR_RE.split(text):
-        for piece in _ITEM_SEPARATOR_RE.split(line):
+        pieces = _ITEM_SEPARATOR_RE.split(line)
+        if len(pieces) > 1 and not all(
+            _looks_like_recommendation_paragraph(piece) for piece in pieces
+        ):
+            pieces = [line]
+        for piece in pieces:
             piece = _clean_text(piece)
             if piece:
                 result.append(_TextItem(index="", text=piece, numbered=False))
@@ -537,7 +917,7 @@ def _split_text_items(text: str) -> tuple[_TextItem, ...]:
 def _numbered_items(text: str) -> tuple[_TextItem, ...]:
     matches = []
     for match in _INDEX_RE.finditer(text):
-        if match.start() > 0 and text[match.start() - 1] not in " \t\r\n;；。！？.!?":
+        if match.start() > 0 and text[match.start() - 1] not in " \t\r\n;；。！？.!?)]）】":
             continue
         matches.append(match)
     if not matches:
@@ -609,7 +989,19 @@ def _infer_category(content: str) -> str | None:
     """
 
     compact = _compact(content)
-    if any(marker in compact for marker in ("恢复缺失", "立即处置", "变形严重")):
+    if "立即维修" in compact or "立即修" in compact:
+        return "立即维修"
+    if any(
+        marker in compact
+        for marker in (
+            "立即处置",
+            "立即处理",
+            "危及安全",
+            "危及结构安全",
+            "恢复缺失",
+            "变形严重",
+        )
+    ):
         return "立即处置"
     if any(
         marker in compact
@@ -635,16 +1027,48 @@ def _infer_category(content: str) -> str | None:
             "日常养护",
             "日常维护",
             "定期观测",
+            "检查",
+            "观测",
+            "巡查",
             "建立该桥",
             "连续性技术档案",
             "严禁行人",
+            "严禁超载",
+            "严禁超速",
             "加强社会车辆",
             "设置明显的标识",
             "加强桥梁的观测",
         )
     ):
         return "预防性养护"
-    return "尽快维修"
+    if any(
+        marker in compact
+        for marker in (
+            "维修",
+            "修复",
+            "修补",
+            "修理",
+            "中修",
+            "大修",
+            "小修",
+            "处理",
+            "清理",
+            "更换",
+            "封闭",
+            "浇注",
+            "灌浆",
+            "堵漏",
+            "补强",
+            "加固",
+            "除锈",
+            "涂刷",
+            "疏通",
+            "恢复",
+            "重装",
+        )
+    ):
+        return "尽快维修"
+    return None
 
 
 def _categories_in(text: str) -> list[str]:
@@ -660,14 +1084,18 @@ def _location_fields(text: str) -> tuple[str, str]:
     if not text:
         return "", ""
 
+    recommendation_location = _recommendation_location(text)
+    if recommendation_location and _INFERRED_LOCATION_RE.search(text) is None:
+        return recommendation_location, text
+
     labelled = _LOCATION_LABEL_RE.match(text)
     if labelled is not None:
         remainder = labelled.group(1).strip()
         separator = re.search(r"[，,;；。]", remainder)
         if separator is None:
-            return _clean_location(remainder), ""
+            return _clean_location_phrase(remainder), ""
         location = _clean_location(remainder[: separator.start()])
-        return location, _clean_text(remainder[separator.end() :])
+        return _clean_location_phrase(location), _clean_text(remainder[separator.end() :])
 
     if "：" in text or ":" in text:
         separator = re.search(r"[:：]", text)
@@ -675,29 +1103,42 @@ def _location_fields(text: str) -> tuple[str, str]:
         prefix = _clean_text(text[: separator.start()])
         remainder = _clean_text(text[separator.end() :])
         if prefix and _is_location_prefix(prefix):
-            return _clean_location(prefix), remainder
+            return _clean_location_phrase(prefix), remainder
 
     inferred = _INFERRED_LOCATION_RE.search(text)
     if inferred is not None:
-        location = _clean_inferred_location(inferred.group(1))
+        location = _compound_location(text, inferred)
         if location:
             return location, text
 
-    subject = _SUBJECT_STATE_RE.match(text)
-    if subject is not None:
-        location = _clean_inferred_location(subject.group(1))
+    leading = re.match(
+        r"^(.{1,50}?)(?=(?:存在|均存在|出现|局部|多处|破损|裂缝|渗水|露筋|锈蚀|缺失|病害|进行(?:清理|维修|修复|修补|处理|养护|维护|更换)))",
+        text,
+    )
+    if leading is not None:
+        location = _clean_location_phrase(leading.group(1))
         if location:
             return location, text
 
-    compound = _COMPOUND_LOCATION_RE.search(text)
-    if compound is not None:
-        location = f"{compound.group(1)}、{compound.group(2)}"
-        return _normalise_location(_clean_location(location)), text
+    relation_location = re.match(
+        r"^(?:对于|针对|对)(?:存在|有|出现)?[^，,;；。:：]{0,40}?"
+        r"(桥面铺装|防撞护栏|防撞栏杆|伸缩缝|顶板|底板|腹板|侧墙|桥台|盖梁|主梁|梁体|梁底|板底|栏杆|护栏|支座|锥坡|桥面|桥梁)"
+        r"(?=(?:存在|有|出现|多处|局部|进行|采取|及时|应|建议|维修|修复|修补|中修|大修|小修|养护|处理|清理|更换))",
+        text,
+    )
+    if relation_location is not None:
+        return relation_location.group(1), text
 
+    for action in ("清理", "维修", "修复", "修补", "处理", "养护", "维护", "设置"):
+        match = re.search(rf"{action}(?:[^，,;；。:：]{{0,8}})(桥面|桥梁|伸缩缝)", text)
+        if match is not None:
+            return match.group(1), text
     generic = _generic_location(text)
     if generic:
         return generic, text
-    if "桥梁" in text and text.startswith("建议"):
+    if "桥梁" in text and any(
+        marker in text for marker in ("做好", "加强", "设置", "养护", "维护", "检查", "观测")
+    ):
         return "桥梁", text
     return "", text
 
@@ -730,6 +1171,110 @@ def _generic_location(text: str) -> str:
     return ""
 
 
+def _recommendation_location(text: str) -> str:
+    compact = _compact(text)
+    if not compact:
+        return ""
+    if (
+        "主梁" in compact
+        and "横向联系" in compact
+    ):
+        return "主梁、横向联系"
+    if "斜拉索" in compact:
+        return "斜拉索"
+    if (
+        "主桥" in compact
+        and "引桥" in compact
+        and "上部结构" in compact
+        and "下部结构" in compact
+        and "桥面系" in compact
+    ):
+        return "全桥"
+    components: list[str] = []
+    if re.search(r"桥墩|墩柱|\d+#?墩|墩", compact):
+        components.append("桥墩")
+    if re.search(r"桥台|\d+#?台|台浸水|台裂缝|台前墙", compact):
+        components.append("桥台")
+    if components:
+        return "、".join(dict.fromkeys(components))
+    if "桥面系" in compact:
+        return "桥面系"
+    if "桥梁" in compact or "大桥" in compact:
+        return "桥梁"
+    return ""
+
+
+def _compound_location(text: str, inferred: re.Match[str]) -> str:
+    clause_end = re.search(r"[，,;；。:：]", text[inferred.start() :])
+    end = inferred.start() + clause_end.start() if clause_end is not None else len(text)
+    clause = text[inferred.start() : end]
+    relation = re.match(r"(?:对于|由于|针对|对|在|于)", clause)
+    body = clause[relation.end() :] if relation is not None else clause
+    if re.search(r"和|及(?!时)|与|、", body):
+        parts = re.split(r"和|及(?!时)|与|、", body)
+        locations = [_clean_location_phrase(part) for part in parts]
+        locations = [location for location in locations if location]
+        if len(locations) >= 2:
+            return "、".join(locations)
+    return _clean_location_phrase(inferred.group(1))
+
+
+def _clean_location_phrase(value: str) -> str:
+    location = _clean_location(value)
+    location = location.replace("桥面系", "桥面")
+    location = re.sub(r"^(?:对于|由于|针对|对|在|于)", "", location)
+    location = re.sub(_DANGLING_LOCATION_RE, "", location)
+    location = re.split(
+        r"(?:存在|均存在|有|出现|多处|局部|采取|进行|及时|应|建议|病害)",
+        location,
+        maxsplit=1,
+    )[0]
+    location = re.sub(r"^(?:破损的|锈蚀的|变形的|缺失的|局部|多处|个别)", "", location)
+    location = re.sub(r"^(?:两个|两处|多个|若干|该|本)(?=桥台|桥墩|桥梁|桥面|栏杆|护栏)", "", location)
+    location = location.rstrip("的")
+    location = re.sub(r"(?:和|与|及(?!时))", "、", location)
+    location = re.sub(r"均$", "", location)
+    location = re.sub(_INFERRED_SUFFIX_RE, "", location)
+    changed = True
+    while changed and location:
+        changed = False
+        for suffix in _LOCATION_SUFFIXES:
+            if location.endswith(suffix):
+                location = location[: -len(suffix)].rstrip("的")
+                changed = True
+                break
+    for head in (
+        "桥面铺装",
+        "防撞护栏",
+        "防撞栏杆",
+        "伸缩缝",
+        "顶板",
+        "底板",
+        "腹板",
+        "侧墙",
+        "桥台",
+        "盖梁",
+        "主梁",
+        "梁体",
+        "梁底",
+        "板底",
+        "栏杆",
+        "护栏",
+        "支座",
+        "锥坡",
+        "桥面",
+        "桥梁",
+    ):
+        position = location.find(head)
+        if position > 0 and not re.search(r"[、,，]", location) and (
+            "处" in location[:position] or location.startswith(("桥面", "桥梁"))
+        ):
+            location = location[position:]
+            break
+    location = re.sub(_DANGLING_LOCATION_RE, "", location)
+    return _normalise_location(_clean_location(location))
+
+
 def _is_location_prefix(prefix: str) -> bool:
     compact = _compact(prefix)
     if not compact or any(word in compact for word in _ACTION_WORDS):
@@ -742,6 +1287,15 @@ def _is_location_prefix(prefix: str) -> bool:
 def _is_continuation_text(text: str) -> bool:
     compact = _compact(text)
     return compact.startswith(_CONTINUATION_PREFIXES)
+
+
+def _is_recommendation_continuation(text: str) -> bool:
+    compact = _compact(text)
+    if not _is_continuation_text(compact):
+        return False
+    if any(marker in compact for marker in _EXCLUDED_RECOMMENDATION_MARKERS):
+        return False
+    return any(word in compact for word in _STRONG_RECOMMENDATION_ACTION_WORDS)
 
 
 def _merge_continuation(
@@ -763,9 +1317,14 @@ def _finalise(
     *,
     infer_categories: bool = False,
 ) -> RecommendationExtractionResult:
+    candidate_list = list(candidates)
+    if any(candidate.preferred for candidate in candidate_list):
+        candidate_list = [
+            candidate for candidate in candidate_list if candidate.preferred
+        ]
     records: list[Recommendation] = []
     flags: list[dict[str, object]] = []
-    for candidate in candidates:
+    for candidate in candidate_list:
         content = _clean_text(candidate.content)
         if not content:
             continue
@@ -822,25 +1381,74 @@ def _looks_like_recommendation_table(table: TableBlock) -> bool:
     return "category" in mapping or "location" in mapping or "index" in mapping
 
 
+def _is_disease_statistics(text: str) -> bool:
+    compact = _compact(text)
+    if not _STATISTIC_COUNT_RE.search(compact):
+        return False
+    if not any(marker in compact for marker in _STATISTIC_DEFECT_WORDS):
+        return False
+    if any(marker in compact for marker in _DIRECTIVE_WORDS):
+        return False
+    return not bool(
+        re.search(
+            r"(?:对|对于|针对)[^。；]{0,40}?"
+            r"(?:进行|采取|维修|修复|修补|处理|处置|处治|清理|检查|观测|养护|维护|封闭)",
+            compact,
+        )
+    )
+
+
+def _is_recommendation_item(text: str, *, allow_monitoring: bool) -> bool:
+    compact = _compact(text)
+    if not compact or _is_disease_statistics(compact):
+        return False
+    if any(action in compact for action in _REPAIR_ACTION_WORDS):
+        return True
+    if allow_monitoring and any(action in compact for action in _MONITORING_ACTION_WORDS):
+        return any(marker in compact for marker in _DIRECTIVE_WORDS) or any(
+            marker in compact for marker in ("定期", "日常", "变形观测", "监测")
+        )
+    return any(marker in compact for marker in _DIRECTIVE_WORDS)
+
+
 def _looks_like_recommendation_paragraph(text: str, *, allow_inspection: bool = False) -> bool:
     compact = _compact(text)
     if not compact or _is_heading_only(compact):
         return False
-    if _CATEGORY_RE.search(compact):
-        return True
+    if _is_disease_statistics(compact):
+        return False
+    index_prefix = _INDEX_RE.match(compact)
+    stripped = compact[index_prefix.end() :] if index_prefix is not None else compact
     has_index = bool(_numbered_items(text))
-    has_recommendation_action = any(word in compact for word in _RECOMMENDATION_ACTION_WORDS)
+    action_text = re.sub(r"《[^》]*》", "", compact)
+    has_repair_action = any(word in action_text for word in _REPAIR_ACTION_WORDS)
+    has_monitoring_action = any(
+        word in action_text for word in _MONITORING_ACTION_WORDS
+    )
+    has_directive = any(word in action_text for word in _DIRECTIVE_WORDS)
+    has_recommendation_action = has_repair_action or (
+        allow_inspection and has_monitoring_action
+    ) or has_directive
+    if has_monitoring_action and not has_repair_action and not allow_inspection:
+        return False
+    explicit_repair = bool(
+        re.search(
+            r"(?:应|需|须|建议|立即|及时|尽快|进行|采取|做好|加强).{0,30}?"
+            r"(?:维修|修复|修补|中修|大修|小修|清理|处理|更换|加固|灌浆|除锈|疏通|养护|维护|封闭|观测|检查)",
+            action_text,
+        )
+    )
+    if any(marker in compact for marker in _EXCLUDED_RECOMMENDATION_MARKERS):
+        if not (allow_inspection and has_index and "技术状况" in compact and explicit_repair):
+            return False
+    if stripped.startswith(_EXCLUDED_RECOMMENDATION_PREFIXES):
+        return False
     if not has_index and any(
-        marker in compact for marker in ("如下建议", "作出如下", "提出如下")
+        marker in compact
+        for marker in ("如下建议", "建议如下", "作出如下", "提出如下")
     ):
         return False
-    if allow_inspection and has_index and (
-        has_recommendation_action or "检查" in compact
-    ):
-        return True
-    if has_recommendation_action and _has_location_context(compact):
-        return True
-    return compact.startswith(("建议", "维修", "养护", "处理", "处置", "处治"))
+    return has_recommendation_action and _has_location_context(compact)
 
 
 def _has_location_context(compact: str) -> bool:
@@ -849,40 +1457,12 @@ def _has_location_context(compact: str) -> bool:
     Narrative paragraphs often contain an action word and a colon while
     describing a test method, cause, conclusion, or metadata row.  Fallback
     extraction must therefore require a short location-like prefix and reject
-    those narrative markers.  Explicit recommendation routes remain more
-    permissive through ``allow_inspection``.
+    those narrative markers.  Explicit route handling is applied by the
+    caller before this location check.
     """
 
-    if re.search(r"(?:病害|维修|养护|处理|处置|处治)?(?:部位|位置|构件|范围)[:：]", compact):
-        return True
-
-    separator = re.search(r"[:：]", compact)
-    if separator is None:
-        return False
-    prefix = compact[: separator.start()]
-    if not prefix or len(prefix) > 30:
-        return False
-    if any(
-        marker in prefix
-        for marker in (
-            "原因",
-            "结论",
-            "结果",
-            "试验",
-            "评估",
-            "评定",
-            "等级",
-            "状况",
-            "状态",
-            "名称",
-            "路名",
-            "单位",
-            "时间",
-            "项目",
-        )
-    ):
-        return False
-    return True
+    location, _ = _location_fields(compact)
+    return bool(location)
 
 
 def _is_heading_only(text: str) -> bool:
