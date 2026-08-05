@@ -28,7 +28,10 @@ jobs:
       - name: Guard raw competition files
         shell: bash
         run: |
-          forbidden="$(git ls-files | grep -Ei '\.(doc|docx|pdf|png|jpe?g|zip|tar|gz)$' || true)"
+          # The two versioned DOCX files under assets/templates are production
+          # templates, not raw competition inputs; all other binary artifacts
+          # remain forbidden.
+          forbidden="$(git ls-files | grep -Ei '\.(doc|docx|pdf|png|jpe?g|zip|tar|gz)$' | grep -Ev '^assets/templates/.*\.docx$' || true)"
           if [ -n "$forbidden" ]; then
             echo "Raw/binary competition artifacts must not be tracked:"
             echo "$forbidden"
