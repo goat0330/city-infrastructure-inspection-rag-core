@@ -36,6 +36,23 @@ def _text(value: object) -> str:
     return "" if value is None else str(value).strip()
 
 
+def _normalise_facility_types(
+    facility_type: str | None,
+    facility_types: Iterable[str] | str | None,
+) -> frozenset[str] | None:
+    values: list[str] = []
+    if facility_type is not None:
+        values.append(_text(facility_type).casefold())
+    if isinstance(facility_types, str):
+        values.append(_text(facility_types).casefold())
+    elif facility_types is not None:
+        if isinstance(facility_types, Mapping):
+            raise TypeError("facility_types must be a string or iterable of strings")
+        values.extend(_text(value).casefold() for value in facility_types)
+    normalised = frozenset(value for value in values if value)
+    return normalised or None
+
+
 def _kind(record: Mapping[str, Any]) -> str:
     return _text(record.get("kind")).lower()
 
@@ -245,10 +262,18 @@ class LightRagIndex:
             raise ValueError("metadata and vectors must have the same row count")
         return cls(root, metadata, vectors, client=client)
 
-    def _candidate_indices(self, sample_id: object, split: object) -> list[int]:
+    def _candidate_indices(
+        self,
+        sample_id: object,
+        split: object,
+        *,
+        facility_types: frozenset[str] | None = None,
+    ) -> list[int]:
         query_split = _text(split).lower()
         candidates: list[int] = []
         for index, record in enumerate(self.metadata):
+            if facility_types is not None and _text(record.get("facility_type")).casefold() not in facility_types:
+                continue
             if sample_id is not None and _same_sample(record, sample_id) and _is_label(record):
                 continue
             if _is_label(record):
@@ -284,17 +309,26 @@ class LightRagIndex:
         top_rerank: int = 8,
         top_k: int = 6,
         source_quota: Mapping[str, int] | bool | None = None,
+        facility_type: str | None = None,
+        facility_types: Iterable[str] | str | None = None,
     ) -> list[dict[str, Any]]:
         """Retrieve metadata using embedding ranking followed by reranking.
 
         ``source_quota=True`` applies the default report/knowledge/label caps;
         a mapping can provide the same caps with canonical keys or aliases.
+        ``facility_type`` or ``facility_types`` filters metadata before ranking
+        and source quotas are applied.
         """
 
         query_text = _text(query)
         if not query_text or top_embedding <= 0 or top_rerank <= 0 or top_k <= 0:
             return []
-        candidate_indices = self._candidate_indices(sample_id, split)
+        allowed_facility_types = _normalise_facility_types(facility_type, facility_types)
+        candidate_indices = self._candidate_indices(
+            sample_id,
+            split,
+            facility_types=allowed_facility_types,
+        )
         if not candidate_indices:
             return []
         if self.client is None or not callable(getattr(self.client, "embed_texts", None)):

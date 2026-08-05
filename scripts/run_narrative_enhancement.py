@@ -23,7 +23,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.agent.narrative import _prompt_baseline, run_narrative_enhancement  # noqa: E402
+from src.agent.narrative import (  # noqa: E402
+    _prompt_baseline,
+    _task_queries as _facility_task_queries,
+    run_narrative_enhancement,
+)
 from src.extraction.pipeline import extract_report  # noqa: E402
 from src.llm.client import ModelCallResult, OpenAIModelClient  # noqa: E402
 from src.parsing import parse_docx  # noqa: E402
@@ -440,65 +444,22 @@ def _run_chat_group(group: str, client: TrackingClient, baseline: Mapping[str, A
     return _normalised_fields(value), result
 
 
-def _query(baseline: Mapping[str, Any]) -> str:
-    summary = baseline.get("summary")
-    summary = summary if isinstance(summary, Mapping) else {}
-    pieces = [summary.get("bridge_name", ""), summary.get("overall_conclusion", "")]
-    for defect in baseline.get("defects", []):
-        if isinstance(defect, Mapping):
-            pieces.append(" ".join(str(defect.get(key, "")) for key in ("location", "defect_type", "description")))
-    return " ".join(str(piece) for piece in pieces if piece)[:3000]
+def _query(
+    baseline: Mapping[str, Any],
+    facility_context: Any = None,
+    report_facts: Sequence[Mapping[str, Any]] | None = None,
+) -> str:
+    return _task_queries(baseline, facility_context, report_facts)["detailed_conclusion"]
 
 
-def _task_queries(baseline: Mapping[str, Any]) -> dict[str, str]:
-    """Build separate retrieval context for each generated narrative field."""
+def _task_queries(
+    baseline: Mapping[str, Any],
+    facility_context: Any = None,
+    report_facts: Sequence[Mapping[str, Any]] | None = None,
+) -> dict[str, str]:
+    """Build separate facility-aware retrieval context for each narrative field."""
 
-    summary = baseline.get("summary")
-    summary = summary if isinstance(summary, Mapping) else {}
-    bridge = str(summary.get("bridge_name", baseline.get("sample_id", "")))
-    overall = str(summary.get("overall_conclusion", ""))
-    risk = str(summary.get("risk_points", ""))
-    compact = _prompt_baseline(baseline)
-    defect_pieces: list[str] = []
-    for defect in compact.get("defects", []):
-        if not isinstance(defect, Mapping):
-            continue
-        descriptions = "; ".join(str(item) for item in defect.get("representative_descriptions", []))
-        defect_pieces.append(
-            " ".join(
-                part
-                for part in (
-                    str(defect.get("location", "")),
-                    str(defect.get("defect_type", "")),
-                    descriptions,
-                )
-                if part
-            )
-        )
-    defect_context = "；".join(piece for piece in defect_pieces if piece)
-    recommendation_pieces: list[str] = []
-    for recommendation in baseline.get("recommendations", []):
-        if not isinstance(recommendation, Mapping):
-            continue
-        recommendation_pieces.append(
-            " ".join(
-                str(recommendation.get(key, ""))
-                for key in ("index", "location", "category", "content")
-                if recommendation.get(key)
-            )
-        )
-    recommendation_context = "；".join(piece for piece in recommendation_pieces if piece)
-
-    def make(task: str, *pieces: str) -> str:
-        context = " ".join(piece.strip() for piece in pieces if piece and piece.strip())
-        return f"task={task}; bridge={bridge}; {context}"[:3000]
-
-    return {
-        "detailed_conclusion": make("detailed_conclusion", overall, risk, defect_context),
-        "causes": make("causes", defect_context, risk, overall),
-        "treatments": make("treatments", recommendation_context, defect_context, risk),
-        "safety_impact": make("safety_impact", risk, defect_context, overall),
-    }
+    return _facility_task_queries(baseline, facility_context, report_facts)
 
 
 def _retrieval_source_bucket(hit: Mapping[str, Any]) -> str | None:
@@ -773,7 +734,10 @@ def run_experiment(
     source_file = str(baseline.get("source_file") or input_path.name)
     facts = _report_facts(input_path, source_file)
     context_facts = _select_context_facts(facts, baseline)
-    task_queries = _task_queries(baseline)
+    facility_context = baseline.get("facility_context")
+    field_states = baseline.get("field_states")
+    locked_facts = baseline.get("locked_facts")
+    task_queries = _task_queries(baseline, facility_context, facts)
     output.mkdir(parents=True, exist_ok=True)
     baseline_path = output / "baseline_prediction.json"
     retrieval_path = output / "retrieval_trace.json"
@@ -894,7 +858,7 @@ def run_experiment(
         "status": retrieval_status,
         "retrieval_available": index_dir is not None,
         "index_dir": str(index_dir) if index_dir is not None else None,
-        "query": _query(baseline),
+        "query": _query(baseline, facility_context, facts),
         "task_queries": task_queries,
         "task_hits": task_hits,
         "hits": retrieval_hits,
@@ -917,6 +881,9 @@ def run_experiment(
             client,
             retriever=StaticRetriever(retrieval_hits),
             split=split,
+            facility_context=facility_context,
+            field_states=field_states,
+            locked_facts=locked_facts,
         )
     except Exception as error:
         d_available = False

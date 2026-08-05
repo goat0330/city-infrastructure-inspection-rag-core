@@ -279,3 +279,81 @@ def test_render_prompt_compacts_long_report_and_retrieval_facts() -> None:
 
     assert "prompt-middle-marker" not in rendered
     assert len(rendered) < len(long_text)
+
+
+@dataclass
+class FakeFacilityContext:
+    facility_name: str
+    facility_type: str = "pedestrian_underpass"
+    facility_noun: str = "人行通道"
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "facility_name": self.facility_name,
+            "facility_type": self.facility_type,
+            "facility_noun": self.facility_noun,
+        }
+
+
+@pytest.mark.parametrize(
+    ("facility_name", "facility_context"),
+    [
+        ("杨公桥A叉口人行通道", None),
+        ("杨公桥EC匝道人行通道", FakeFacilityContext("杨公桥EC匝道人行通道")),
+    ],
+)
+def test_pedestrian_underpass_fixture_keeps_facility_terms_and_safety_priority(
+    facility_name: str, facility_context: Any
+) -> None:
+    baseline_prediction = {
+        "sample_id": "underpass-1",
+        "source_file": "underpass.docx",
+        "summary": {
+            "bridge_name": facility_name,
+            "report_date": "2013年2月",
+            "overall_score": "86",
+            "overall_grade": "一类",
+        },
+        "defects": [{"index": "1", "location": "侧墙", "description": "侧墙局部破损"}],
+        "recommendations": [{"index": "1", "content": "修复侧墙并完善排水设施", "location": "侧墙"}],
+        "detailed_conclusion": ["旧结论"],
+        "causes": ["旧原因"],
+        "treatments": ["旧处置"],
+        "safety_impact": ["旧影响"],
+    }
+    facts = [
+        {"evidence_id": "fact-defect", "section": "defect_table", "text": "顶板、侧墙、翼墙、洞口、沉降缝、止水带、排水设施和附属设施存在局部病害。"},
+        {"evidence_id": "fact-safety", "section": "safety_assessment", "text": "当前安全评估：病害对通行安全影响较小。"},
+        {"evidence_id": "fact-treatment", "section": "treatment_recommendations", "text": "建议修复侧墙并完善排水设施。"},
+    ]
+    sections = {
+        "detailed_conclusion": [f"{facility_name}当前病害需关注。"],
+        "causes": [{"text": "侧墙局部破损与构件状态有关。", "evidence_ids": ["fact-defect"]}],
+        "treatments": [{"recommendation_index": "1", "text": "按建议修复侧墙并完善排水设施。", "evidence_ids": ["fact-treatment", "fact-defect"]}],
+        "safety_impact": [{"text": "当前病害对通行安全影响较小。", "evidence_ids": ["fact-safety"]}],
+    }
+    retriever = FakeRetriever()
+    result = narrative.run_narrative_enhancement(
+        baseline_prediction,
+        "underpass-1",
+        "underpass.docx",
+        facts,
+        FakeClient([sections]),
+        retriever=retriever,
+        facility_context=facility_context,
+        field_states={"report_date": "present"},
+        locked_facts={"facility_name": facility_name, "recommendation_count": 1},
+    )
+
+    assert result["used_fallback"] is False
+    enhanced = result["enhanced_prediction"]
+    generated_text = " ".join(narrative._candidate_texts(result["generated_sections"]))
+    assert "该桥" not in generated_text
+    assert "侧墙" in generated_text and "排水设施" in generated_text
+    assert [item["evidence_ids"] for item in enhanced["causes"]] == [["fact-defect"]]
+    assert enhanced["treatments"][0]["evidence_ids"] == ["fact-treatment", "fact-defect"]
+    assert len(enhanced["recommendations"]) == len(baseline_prediction["recommendations"])
+    assert enhanced["summary"] == baseline_prediction["summary"]
+    assert enhanced["defects"] == baseline_prediction["defects"]
+    assert all("pedestrian_underpass" in call["query"] for call in retriever.calls)
+    assert all("侧墙" in call["query"] and "排水设施" in call["query"] for call in retriever.calls)

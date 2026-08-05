@@ -97,6 +97,32 @@ _PROMPT_SOURCE_KEYS = (
 )
 _MAX_EVIDENCE_TEXT_CHARS = 900
 
+# Facility semantics stay in this adapter so old baselines remain valid while
+# the merged extraction layer supplies a real FacilityContext.
+_RETRIEVAL_SOURCE_QUOTA = {"report_evidence": 3, "knowledge_card": 2, "gold_label": 1}
+FACILITY_COMPONENT_VOCABULARY: dict[str, tuple[str, ...]] = {
+    "bridge": ("桥面系", "上部结构", "下部结构", "主梁", "支座", "桥墩", "桥台", "伸缩缝", "栏杆", "排水设施", "附属设施"),
+    "pedestrian_underpass": ("顶板", "侧墙", "翼墙", "洞口", "沉降缝", "止水带", "排水设施", "附属设施"),
+    "pedestrian_overpass": ("桥面板", "梯道", "栏杆", "扶手", "墩柱", "盖梁", "伸缩缝", "排水设施", "附属设施"),
+    "tunnel": ("洞身", "洞口", "衬砌", "仰拱", "防水层", "沉降缝", "止水带", "排水设施", "附属设施"),
+    "other": ("洞口", "排水设施", "附属设施"),
+}
+_FACILITY_NOUNS = {"bridge": "桥梁", "pedestrian_underpass": "人行通道", "pedestrian_overpass": "人行天桥", "tunnel": "隧道", "other": "设施"}
+_FACILITY_SUFFIXES = (
+    ("人行过街天桥", "pedestrian_overpass", "人行天桥"), ("人行天桥", "pedestrian_overpass", "人行天桥"),
+    ("人行地通道", "pedestrian_underpass", "人行通道"), ("人行地道", "pedestrian_underpass", "人行通道"),
+    ("地下通道", "pedestrian_underpass", "人行通道"), ("人行通道", "pedestrian_underpass", "人行通道"),
+    ("隧道", "tunnel", "隧道"), ("大桥", "bridge", "桥梁"), ("中桥", "bridge", "桥梁"),
+    ("小桥", "bridge", "桥梁"), ("桥梁", "bridge", "桥梁"), ("天桥", "bridge", "天桥"),
+    ("桥", "bridge", "桥梁"), ("通道", "other", "通道"),
+)
+_FACILITY_TYPE_ALIASES = {"bridge": "bridge", "桥": "bridge", "桥梁": "bridge", "pedestrian_underpass": "pedestrian_underpass", "人行通道": "pedestrian_underpass", "人行地通道": "pedestrian_underpass", "人行地道": "pedestrian_underpass", "地下通道": "pedestrian_underpass", "pedestrian_overpass": "pedestrian_overpass", "人行天桥": "pedestrian_overpass", "tunnel": "tunnel", "隧道": "tunnel", "other": "other"}
+_BRIDGE_TERMS = ("该桥", "全桥", "桥面系", "上部结构", "下部结构")
+_ALL_COMPONENT_TERMS = frozenset(term for values in FACILITY_COMPONENT_VOCABULARY.values() for term in values) | frozenset({"墙体", "中隔墙", "边墙", "路面", "人行道", "照明设施", "通风设施"})
+_SEVERE_SAFETY_TERMS = ("严重承载风险", "承载能力不足", "重大安全隐患", "严重影响", "高风险", "失稳", "坍塌", "危及生命")
+_LOW_IMPACT_RE = re.compile(r"影响较小|影响不大|影响有限|不影响(?:整体)?(?:使用|安全|承载)|未见明显(?:安全)?风险|满足.*(?:标准|要求)|良好状态")
+_NEGATION_PREFIXES = ("不", "未", "无", "暂无", "不会", "并非", "没有", "未见")
+
 
 class NarrativeState(TypedDict, total=False):
     """State passed between the five graph nodes."""
@@ -108,6 +134,9 @@ class NarrativeState(TypedDict, total=False):
     split: str
     report_facts: Any
     retrieval_results: Any
+    facility_context: Any
+    field_states: Any
+    locked_facts: Any
     generated_sections: dict[str, Any]
     validation_errors: list[str]
     retry_count: int
@@ -219,6 +248,204 @@ def _prompt_baseline(
     prompt["defects"] = _compact_defects(baseline.get("defects", []))
     prompt["recommendations"] = copy.deepcopy(baseline.get("recommendations", []))
     return prompt
+
+
+def _compact_name(value: Any) -> str:
+    return re.sub(r"[\s\u3000]+", "", str(value or "")).strip()
+
+
+def _facility_semantics(value: Any) -> tuple[str, str, str]:
+    compact = _compact_name(value)
+    explicit = _FACILITY_TYPE_ALIASES.get(compact.casefold())
+    if explicit:
+        return "", explicit, _FACILITY_NOUNS.get(explicit, "设施")
+    for suffix, facility_type, noun in _FACILITY_SUFFIXES:
+        if compact.endswith(suffix):
+            return suffix, facility_type, noun
+    return "", "", ""
+
+
+def _string_items(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [item.strip() for item in re.split(r"[,，、;；]", value) if item.strip()]
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return []
+
+
+def _normalise_facility_context(value: Any, baseline: Mapping[str, Any]) -> dict[str, Any]:
+    """Accept the merged FacilityContext dataclass, a mapping, or old baselines."""
+
+    baseline_context = _jsonable(baseline.get("facility_context", {}))
+    raw: dict[str, Any] = dict(baseline_context) if isinstance(baseline_context, Mapping) else {}
+    if isinstance(value, str):
+        raw["facility_name"] = value
+    else:
+        normalised = _jsonable(value)
+        if isinstance(normalised, Mapping):
+            raw.update(dict(normalised))
+
+    summary = baseline.get("summary")
+    summary_map = summary if isinstance(summary, Mapping) else {}
+    facility_name = str(
+        raw.get("facility_name")
+        or raw.get("name")
+        or baseline.get("facility_name")
+        or summary_map.get("facility_name")
+        or summary_map.get("bridge_name")
+        or ""
+    ).strip()
+    raw_type = str(raw.get("facility_type_raw") or raw.get("type_raw") or "").strip()
+    explicit_type = str(raw.get("facility_type") or raw.get("type") or "").strip()
+    suffix, inferred_type, inferred_noun = _facility_semantics(explicit_type or raw_type or facility_name)
+    facility_type = _FACILITY_TYPE_ALIASES.get(explicit_type.casefold(), explicit_type)
+    if facility_type not in FACILITY_COMPONENT_VOCABULARY:
+        facility_type = inferred_type or "other"
+    if not raw_type:
+        raw_type = suffix or explicit_type or facility_type
+    facility_noun = str(raw.get("facility_noun") or inferred_noun or _FACILITY_NOUNS.get(facility_type, "设施"))
+
+    supplied_components = _string_items(raw.get("components") or raw.get("component_vocabulary"))
+    components = list(dict.fromkeys(supplied_components + list(FACILITY_COMPONENT_VOCABULARY[facility_type])))
+    supplied_forbidden = _string_items(raw.get("forbidden_terms"))
+    forbidden = list(dict.fromkeys(supplied_forbidden))
+    if facility_type not in {"bridge", "pedestrian_overpass"}:
+        forbidden = list(dict.fromkeys(forbidden + list(_BRIDGE_TERMS)))
+
+    context = dict(raw)
+    context.update(
+        {
+            "facility_name": facility_name,
+            "facility_type_raw": raw_type,
+            "facility_type": facility_type,
+            "facility_noun": facility_noun,
+            "components": components,
+            "forbidden_terms": forbidden,
+        }
+    )
+    return context
+
+
+def _default_locked_facts(
+    baseline: Mapping[str, Any], facility_context: Mapping[str, Any]
+) -> dict[str, Any]:
+    summary = baseline.get("summary")
+    summary_map = summary if isinstance(summary, Mapping) else {}
+    locked: dict[str, Any] = {
+        "facility_name": facility_context.get("facility_name", ""),
+        "facility_type": facility_context.get("facility_type", ""),
+        "facility_noun": facility_context.get("facility_noun", ""),
+        "report_date": summary_map.get("report_date", ""),
+        "inspection_date": facility_context.get("inspection_date", ""),
+        "overall_score": summary_map.get("overall_score", ""),
+        "overall_grade": summary_map.get("overall_grade", ""),
+        "previous_overall_score": summary_map.get("previous_overall_score", ""),
+        "previous_overall_grade": summary_map.get("previous_overall_grade", ""),
+        "defects": copy.deepcopy(baseline.get("defects", [])),
+        "recommendations": copy.deepcopy(baseline.get("recommendations", [])),
+        "recommendation_count": _baseline_recommendation_count(baseline),
+    }
+    return {key: value for key, value in locked.items() if value not in (None, "") or key in {"defects", "recommendations", "recommendation_count"}}
+
+
+def _normalise_locked_facts(
+    value: Any,
+    baseline: Mapping[str, Any],
+    facility_context: Mapping[str, Any],
+) -> dict[str, Any]:
+    locked = _default_locked_facts(baseline, facility_context)
+    normalised = _jsonable(value)
+    if isinstance(normalised, Mapping):
+        locked.update(dict(normalised))
+    elif isinstance(normalised, Sequence) and not isinstance(normalised, (str, bytes, bytearray)):
+        for item in normalised:
+            if not isinstance(item, Mapping):
+                continue
+            key = item.get("field") or item.get("name") or item.get("key")
+            if key:
+                locked[str(key)] = item.get("value", item.get("text", ""))
+    return locked
+
+
+def _task_queries(
+    baseline: Mapping[str, Any],
+    facility_context: Any = None,
+    report_facts: Any = None,
+) -> dict[str, str]:
+    """Build independent, facility-aware queries for the four generated fields."""
+
+    context = _normalise_facility_context(facility_context, baseline)
+    summary = baseline.get("summary")
+    summary = summary if isinstance(summary, Mapping) else {}
+    facility_name = str(context.get("facility_name") or baseline.get("sample_id", ""))
+    facility_type = str(context.get("facility_type", "other"))
+    facility_noun = str(context.get("facility_noun", "设施"))
+    report_values = _jsonable(report_facts or [])
+    evidence_text = _json_dump(
+        [baseline.get("defects", []), report_values]
+    )
+    observed_components = [
+        term
+        for term in dict.fromkeys(
+            list(context.get("components", [])) + sorted(_ALL_COMPONENT_TERMS, key=len, reverse=True)
+        )
+        if term and term in evidence_text
+    ]
+    if not observed_components:
+        observed_components = list(context.get("components", []))[:8]
+    components = "、".join(observed_components)
+
+    defect_pieces: list[str] = []
+    for defect in baseline.get("defects", []):
+        if isinstance(defect, Mapping):
+            piece = " ".join(
+                str(defect.get(key, ""))
+                for key in ("location", "defect_type", "description")
+                if defect.get(key)
+            )
+            if piece:
+                defect_pieces.append(piece)
+    safety_pieces: list[str] = []
+    if isinstance(report_values, Sequence) and not isinstance(report_values, (str, bytes, bytearray)):
+        for fact in report_values:
+            if not isinstance(fact, Mapping):
+                continue
+            section = str(fact.get("section", "")).casefold()
+            text = str(fact.get("text", "")).strip()
+            if text and ("safety" in section or "安全" in section or "安全评估" in text):
+                safety_pieces.append(text)
+            if text and ("defect" in section or "病害" in section):
+                defect_pieces.append(text)
+    defect_context = "；".join(dict.fromkeys(piece for piece in defect_pieces if piece)) or "病害事实"
+    safety_context = "；".join(dict.fromkeys(safety_pieces)) or str(summary.get("risk_points", "")) or "安全影响"
+    overall = str(summary.get("overall_conclusion", ""))
+    recommendations: list[str] = []
+    for recommendation in baseline.get("recommendations", []):
+        if isinstance(recommendation, Mapping):
+            piece = " ".join(
+                str(recommendation.get(key, ""))
+                for key in ("index", "location", "category", "content")
+                if recommendation.get(key)
+            )
+            if piece:
+                recommendations.append(piece)
+    recommendation_context = "；".join(recommendations) or "既有建议"
+    common = (
+        f"facility_name={facility_name}; facility_type={facility_type}; "
+        f"facility_noun={facility_noun}; components={components or '按报告构件'}; "
+        f"defects={defect_context}"
+    )
+
+    def make(task: str, *pieces: str) -> str:
+        context_text = " ".join(piece.strip() for piece in pieces if piece and piece.strip())
+        return _compact_prompt_text(f"task={task}; {common}; {context_text}", 3000)
+
+    return {
+        "detailed_conclusion": make("detailed_conclusion", overall, safety_context),
+        "causes": make("causes", defect_context, components),
+        "treatments": make("treatments", recommendation_context, defect_context, components),
+        "safety_impact": make("safety_impact", safety_context, defect_context),
+    }
 
 
 def _compact_evidence(value: Any, max_chars: int = _MAX_EVIDENCE_TEXT_CHARS) -> Any:
@@ -420,17 +647,27 @@ def _response_payload(result: Any) -> Any:
 
 def _render_prompt(state: NarrativeState) -> str:
     template = _PROMPT_PATH.read_text(encoding="utf-8")
+    baseline = state.get("baseline_prediction", {})
+    baseline = baseline if isinstance(baseline, Mapping) else {}
     prompt_baseline = state.get("prompt_baseline")
     if not isinstance(prompt_baseline, Mapping):
         prompt_baseline = _prompt_baseline(
-            state.get("baseline_prediction", {}),
+            baseline,
             sample_id=str(state.get("sample_id", "")),
             source_file=str(state.get("source_file", "")),
         )
+    facility_context = _normalise_facility_context(state.get("facility_context"), baseline)
+    locked_facts = _normalise_locked_facts(state.get("locked_facts"), baseline, facility_context)
+    prompt_locked_facts = copy.deepcopy(locked_facts)
+    if "defects" in prompt_locked_facts:
+        prompt_locked_facts["defects"] = _compact_defects(prompt_locked_facts["defects"])
     replacements = {
         "{{SAMPLE_ID}}": str(state.get("sample_id", "")),
         "{{SOURCE_FILE}}": str(state.get("source_file", "")),
         "{{BASELINE_PREDICTION}}": _json_dump(prompt_baseline),
+        "{{FACILITY_CONTEXT}}": _json_dump(facility_context),
+        "{{FIELD_STATES}}": _json_dump(state.get("field_states", baseline.get("field_states", {}))),
+        "{{LOCKED_FACTS}}": _json_dump(prompt_locked_facts),
         "{{REPORT_FACTS}}": _json_dump(
             _compact_prompt_context(
                 state.get("report_facts", []),
@@ -454,25 +691,19 @@ def _render_prompt(state: NarrativeState) -> str:
     return template
 
 
-def _query_from_baseline(baseline: Mapping[str, Any]) -> str:
-    summary = baseline.get("summary")
-    summary_map = summary if isinstance(summary, Mapping) else {}
-    pieces = [
-        str(summary_map.get("bridge_name", baseline.get("bridge_name", ""))),
-        str(summary_map.get("overall_conclusion", "")),
-        str(summary_map.get("risk_points", "")),
-    ]
-    defects = baseline.get("defects", [])
-    if isinstance(defects, Sequence) and not isinstance(defects, (str, bytes, bytearray)):
-        for defect in defects:
-            if isinstance(defect, Mapping):
-                pieces.append(" ".join(str(defect.get(key, "")) for key in ("location", "defect_type", "description")))
-    return " ".join(piece for piece in pieces if piece).strip()[:2000]
+def _query_from_baseline(
+    baseline: Mapping[str, Any], facility_context: Any = None, report_facts: Any = None
+) -> str:
+    return _task_queries(baseline, facility_context, report_facts)["detailed_conclusion"]
 
 
 def _prepare_context(state: NarrativeState, max_retries: int) -> dict[str, Any]:
     baseline = _prediction_dict(state.get("baseline_prediction", {}))
     report_facts = _jsonable(state.get("report_facts", []))
+    facility_context = _normalise_facility_context(state.get("facility_context"), baseline)
+    field_states = _jsonable(state.get("field_states", {}))
+    locked_facts = _normalise_locked_facts(state.get("locked_facts"), baseline, facility_context)
+    task_queries = _task_queries(baseline, facility_context, report_facts)
     return {
         "baseline_prediction": baseline,
         "prompt_baseline": _prompt_baseline(
@@ -482,6 +713,9 @@ def _prepare_context(state: NarrativeState, max_retries: int) -> dict[str, Any]:
         ),
         "report_facts": report_facts,
         "retrieval_results": [],
+        "facility_context": facility_context,
+        "field_states": field_states if isinstance(field_states, Mapping) else {},
+        "locked_facts": locked_facts,
         "generated_sections": {},
         "validation_errors": [],
         "retry_count": 0,
@@ -492,28 +726,112 @@ def _prepare_context(state: NarrativeState, max_retries: int) -> dict[str, Any]:
         "generation_attempts": 0,
         "generation_errors": [],
         "validation_passed": False,
-        "context": {"query": _query_from_baseline(baseline)},
+        "context": {"query": task_queries["detailed_conclusion"], "task_queries": task_queries},
     }
+
+
+def _retrieval_source_bucket(hit: Mapping[str, Any]) -> str | None:
+    values: list[str] = []
+    for key in ("source_bucket", "source_type", "source_kind", "kind", "source", "type"):
+        value = hit.get(key)
+        if isinstance(value, Mapping):
+            values.extend(str(value.get(name, "")) for name in ("source_bucket", "source_type", "source_kind", "kind", "type", "name"))
+        elif value is not None:
+            values.append(str(value))
+    text = " ".join(values).casefold().replace("-", "_").replace(" ", "_")
+    if any(alias in text for alias in ("gold_label", "label_example", "gold", "label")):
+        return "gold_label"
+    if any(alias in text for alias in ("knowledge_card", "domain_knowledge", "knowledge")):
+        return "knowledge_card"
+    if any(alias in text for alias in ("report_evidence", "report_fact", "current_report", "evidence")):
+        return "report_evidence"
+    return None
+
+
+def _retrieval_hit_key(hit: Mapping[str, Any]) -> str:
+    for key in ("evidence_id", "id"):
+        value = hit.get(key)
+        if value is not None and str(value):
+            return f"{key}:{value}"
+    return _json_dump({key: hit.get(key) for key in ("kind", "source", "text")})
+
+
+def _merge_retrieval_results(task_hits: Mapping[str, Sequence[Mapping[str, Any]]]) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for task in ENHANCED_FIELDS:
+        for raw_hit in task_hits.get(task, []):
+            if not isinstance(raw_hit, Mapping):
+                continue
+            key = _retrieval_hit_key(raw_hit)
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(dict(raw_hit))
+
+    selected: list[dict[str, Any]] = []
+    counts = {bucket: 0 for bucket in _RETRIEVAL_SOURCE_QUOTA}
+    unknown: list[dict[str, Any]] = []
+    for hit in merged:
+        bucket = _retrieval_source_bucket(hit)
+        if bucket not in _RETRIEVAL_SOURCE_QUOTA:
+            unknown.append(hit)
+            continue
+        if counts[bucket] >= _RETRIEVAL_SOURCE_QUOTA[bucket]:
+            continue
+        counts[bucket] += 1
+        selected.append(hit)
+    selected.extend(unknown[: max(0, sum(_RETRIEVAL_SOURCE_QUOTA.values()) - len(selected))])
+    return selected
 
 
 def _retrieve_knowledge(state: NarrativeState, retriever: Any) -> dict[str, Any]:
     if retriever is None:
         return {"retrieval_results": []}
-    query = str(state.get("context", {}).get("query", ""))
-    try:
-        results = retriever.retrieve(
-            query,
-            sample_id=state.get("sample_id", ""),
-            split=state.get("split", "fit"),
-            top_k=5,
+    context = state.get("context", {})
+    context = context if isinstance(context, Mapping) else {}
+    task_queries = context.get("task_queries")
+    if not isinstance(task_queries, Mapping):
+        baseline = state.get("baseline_prediction", {})
+        baseline = baseline if isinstance(baseline, Mapping) else {}
+        task_queries = _task_queries(
+            baseline,
+            state.get("facility_context"),
+            state.get("report_facts", []),
         )
-    except Exception:
-        # Retrieval is optional context.  A retrieval outage must not change the
-        # deterministic baseline or leak an external exception into validation.
-        results = []
-    if results is None:
-        results = []
-    return {"retrieval_results": _jsonable(results)}
+    task_hits: dict[str, list[dict[str, Any]]] = {}
+    for task in ENHANCED_FIELDS:
+        query = str(task_queries.get(task, ""))
+        try:
+            kwargs = {
+                "sample_id": state.get("sample_id", ""),
+                "split": state.get("split", "fit"),
+                "top_k": sum(_RETRIEVAL_SOURCE_QUOTA.values()),
+                "source_quota": dict(_RETRIEVAL_SOURCE_QUOTA),
+            }
+            try:
+                results = retriever.retrieve(query, **kwargs)
+            except TypeError as error:
+                if "source_quota" not in str(error):
+                    raise
+                kwargs.pop("source_quota")
+                results = retriever.retrieve(query, **kwargs)
+        except Exception:
+            # Retrieval is optional context.  A retrieval outage must not change
+            # the deterministic baseline or leak an external exception into validation.
+            results = []
+        if results is None:
+            results = []
+        task_hits[task] = [dict(item) for item in _jsonable(results) if isinstance(item, Mapping)]
+    retrieval_results = _merge_retrieval_results(task_hits)
+    return {
+        "retrieval_results": retrieval_results,
+        "context": {
+            "query": str(task_queries.get("detailed_conclusion", "")),
+            "task_queries": dict(task_queries),
+            "task_hits": task_hits,
+        },
+    }
 
 
 def _generate_narrative(state: NarrativeState, client: Any) -> dict[str, Any]:
@@ -610,7 +928,139 @@ def _context_tokens(value: Any) -> tuple[set[str], set[str]]:
     return set(_NUMBER_RE.findall(text)), set(_GRADE_RE.findall(text))
 
 
-def _has_locked_change(candidate: Mapping[str, Any], baseline: Mapping[str, Any]) -> bool:
+def _record_identifier(record: Mapping[str, Any]) -> str | None:
+    for key in ("evidence_id", "id"):
+        value = record.get(key)
+        if value is not None and str(value):
+            return str(value)
+    return None
+
+
+def _safety_priority(state: NarrativeState) -> tuple[set[str], str, str]:
+    facts = state.get("report_facts", [])
+    if not isinstance(facts, Sequence) or isinstance(facts, (str, bytes, bytearray)):
+        facts = []
+    for label, safety_only in (("current report safety assessment", True), ("current report defect facts", False)):
+        ids: set[str] = set()
+        texts: list[str] = []
+        for fact in facts:
+            if not isinstance(fact, Mapping):
+                continue
+            identifier = _record_identifier(fact)
+            text = str(fact.get("text", ""))
+            section = str(fact.get("section", "")).casefold()
+            is_safety = "safety" in section or "安全" in section or "安全评估" in text or "安全影响" in text
+            is_defect = "defect" in section or "病害" in section or any(
+                term in text for term in ("裂缝", "破损", "渗水", "锈蚀", "沉降", "变形", "脱落", "病害")
+            )
+            if identifier and ((safety_only and is_safety) or (not safety_only and not is_safety and is_defect)):
+                ids.add(identifier)
+                texts.append(text)
+        if ids:
+            return ids, label, " ".join(texts)
+    for bucket, label in (("knowledge_card", "professional knowledge"), ("gold_label", "label example")):
+        ids = {
+            identifier
+            for item in state.get("retrieval_results", [])
+            if isinstance(item, Mapping) and _retrieval_source_bucket(item) == bucket
+            for identifier in [_record_identifier(item)]
+            if identifier
+        }
+        if ids:
+            return ids, label, _json_dump(state.get("retrieval_results", []))
+    return set(), "supplied evidence", ""
+
+
+def _normalise_facility_name(value: Any) -> str:
+    compact = _compact_name(value)
+    compact = re.sub(r"^(?:该|本|此)(?:处|设施)?", "", compact)
+    return compact.replace("人行地通道", "人行通道").replace("人行地道", "人行通道").replace("地下通道", "人行通道")
+
+
+def _facility_semantic_errors(state: NarrativeState, candidate: Mapping[str, Any]) -> list[str]:
+    baseline = state.get("baseline_prediction", {})
+    baseline = baseline if isinstance(baseline, Mapping) else {}
+    facility_context = _normalise_facility_context(state.get("facility_context"), baseline)
+    facility_type = str(facility_context.get("facility_type", "other"))
+    facility_name = _normalise_facility_name(facility_context.get("facility_name", ""))
+    facility_noun = str(facility_context.get("facility_noun", "设施"))
+    texts = _candidate_texts(candidate)
+    narrative_text = " ".join(texts)
+    evidence_text = _json_dump(
+        {
+            "baseline_defects": baseline.get("defects", []),
+            "report_facts": state.get("report_facts", []),
+            "retrieval_results": state.get("retrieval_results", []),
+        }
+    )
+    errors: list[str] = []
+
+    if facility_type not in {"bridge", "pedestrian_overpass"}:
+        unsupported_bridge_terms = [term for term in _BRIDGE_TERMS if term in narrative_text and term not in evidence_text]
+        if unsupported_bridge_terms:
+            errors.append("generated narrative uses an unsupported bridge term: " + "、".join(unsupported_bridge_terms))
+
+    unsupported_components = [
+        term
+        for term in sorted(_ALL_COMPONENT_TERMS, key=len, reverse=True)
+        if term in narrative_text and term not in evidence_text
+    ]
+    if unsupported_components:
+        errors.append("generated narrative uses a component absent from supplied evidence: " + "、".join(dict.fromkeys(unsupported_components)))
+
+    facility_nouns = ("人行通道", "人行天桥", "隧道", "桥梁", "涵洞", "下穿通道", "道路")
+    allowed_nouns = {facility_noun, "设施", "通道"}
+    other_nouns = [noun for noun in facility_nouns if noun in narrative_text and noun not in allowed_nouns]
+    if other_nouns:
+        errors.append("generated narrative uses another facility noun: " + "、".join(other_nouns))
+
+    # A shared site prefix catches the common A/EC interchange mix-up without
+    # treating ordinary Chinese prose before a facility suffix as a name.
+    if facility_name:
+        prefix = next((facility_name[: -len(suffix)] for suffix, _, _ in _FACILITY_SUFFIXES if facility_name.endswith(suffix)), facility_name)
+        anchor = re.split(r"[A-Za-z0-9#]", prefix, maxsplit=1)[0] or prefix[:2]
+        if len(anchor) >= 2:
+            for suffix, _, _ in _FACILITY_SUFFIXES:
+                match = re.search(re.escape(anchor) + r"[\u4e00-\u9fffA-Za-z0-9#]{0,20}" + suffix, narrative_text)
+                if not match:
+                    continue
+                observed = _normalise_facility_name(match.group(0))
+                if observed != facility_name and facility_name not in observed:
+                    errors.append("generated narrative uses another facility name")
+                    break
+
+    priority_ids, priority_label, priority_text = _safety_priority(state)
+    safety_values = candidate.get("safety_impact")
+    if isinstance(safety_values, list):
+        for index, item in enumerate(safety_values):
+            if not isinstance(item, Mapping):
+                continue
+            item_ids = {
+                str(identifier)
+                for identifier in item.get("evidence_ids", [])
+                if isinstance(identifier, (str, int)) and not isinstance(identifier, bool)
+            }
+            if priority_ids and not item_ids.intersection(priority_ids):
+                errors.append(f"safety_impact[{index}] must cite {priority_label}")
+            text = str(item.get("text", ""))
+            if _LOW_IMPACT_RE.search(priority_text):
+                for severe_term in _SEVERE_SAFETY_TERMS:
+                    position = text.find(severe_term)
+                    if position < 0:
+                        continue
+                    prefix = text[max(0, position - 8) : position]
+                    if not any(prefix.endswith(negation) for negation in _NEGATION_PREFIXES):
+                        errors.append("safety_impact exaggerates a report assessment marked as low impact")
+                        break
+    return list(dict.fromkeys(errors))
+
+
+def _has_locked_change(
+    candidate: Mapping[str, Any],
+    baseline: Mapping[str, Any],
+    locked_facts: Any = None,
+    facility_context: Any = None,
+) -> bool:
     """Detect explicit attempts to change known locked fields in model JSON."""
 
     def walk(current: Any, original: Any, at_top: bool = False) -> bool:
@@ -629,7 +1079,55 @@ def _has_locked_change(candidate: Mapping[str, Any], baseline: Mapping[str, Any]
                 return True
         return False
 
-    return walk(candidate, baseline, True)
+    if walk(candidate, baseline, True):
+        return True
+
+    facts = locked_facts if isinstance(locked_facts, Mapping) else {}
+    if not facts:
+        context = _normalise_facility_context(facility_context, baseline)
+        facts = _default_locked_facts(baseline, context)
+
+    def values_for(key: str) -> list[Any]:
+        values: list[Any] = []
+        aliases = {
+            "facility_name": ("facility_name", "name", "bridge_name"),
+            "report_date": ("report_date",),
+            "inspection_date": ("inspection_date",),
+            "overall_score": ("overall_score",),
+            "overall_grade": ("overall_grade",),
+            "previous_overall_score": ("previous_overall_score",),
+            "previous_overall_grade": ("previous_overall_grade",),
+            "facility_type": ("facility_type",),
+            "facility_noun": ("facility_noun",),
+            "defects": ("defects",),
+            "recommendations": ("recommendations",),
+            "recommendation_count": ("recommendation_count",),
+        }.get(key, (key,))
+        for mapping in (candidate, candidate.get("summary"), candidate.get("facility_context")):
+            if not isinstance(mapping, Mapping):
+                continue
+            for alias in aliases:
+                if alias in mapping:
+                    values.append(mapping[alias])
+            if key == "recommendation_count" and "recommendations" in mapping:
+                value = mapping["recommendations"]
+                if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+                    values.append(len(value))
+        return values
+
+    for key, expected in facts.items():
+        if key in ENHANCED_FIELDS or expected in (None, ""):
+            continue
+        for actual in values_for(str(key)):
+            if key in {"facility_name", "facility_type", "facility_noun", "report_date", "inspection_date"}:
+                same = _compact_name(actual) == _compact_name(expected)
+            elif key == "recommendation_count":
+                same = actual == expected
+            else:
+                same = actual == expected
+            if not same:
+                return True
+    return False
 
 
 def _validate_output(state: NarrativeState) -> dict[str, Any]:
@@ -693,8 +1191,16 @@ def _validate_output(state: NarrativeState) -> dict[str, Any]:
             elif any(str(identifier) not in allowed_ids for identifier in evidence_ids):
                 add(f"{field}[{index}] contains an unknown evidence_id")
 
-    if isinstance(baseline, Mapping) and _has_locked_change(candidate, baseline):
+    if isinstance(baseline, Mapping) and _has_locked_change(
+        candidate,
+        baseline,
+        state.get("locked_facts"),
+        state.get("facility_context"),
+    ):
         add("generated output attempts to change a locked deterministic field")
+
+    for message in _facility_semantic_errors(state, candidate):
+        add(message)
 
     allowed_numbers, allowed_grades = _context_tokens(
         {
@@ -803,6 +1309,10 @@ def run_narrative_enhancement(
     client: OpenAIModelClient,
     retriever: Any = None,
     split: str = "fit",
+    *,
+    facility_context: Any = None,
+    field_states: Any = None,
+    locked_facts: Any = None,
 ) -> dict[str, Any]:
     """Run narrative enhancement and return the stable public result envelope."""
 
@@ -819,6 +1329,9 @@ def run_narrative_enhancement(
         "source_file": source_file,
         "report_facts": report_facts,
         "retrieval_results": [],
+        "facility_context": facility_context if facility_context is not None else baseline.get("facility_context"),
+        "field_states": field_states if field_states is not None else baseline.get("field_states", {}),
+        "locked_facts": locked_facts if locked_facts is not None else baseline.get("locked_facts"),
         "generated_sections": {},
         "validation_errors": [],
         "retry_count": 0,
