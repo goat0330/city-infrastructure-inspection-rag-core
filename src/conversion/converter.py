@@ -387,3 +387,256 @@ def convert_directory(
         _write_state(state_file, records)
     ordered = tuple(records[key] for key in sorted(records))
     return BatchResult(ordered)
+
+
+def _find_converted_file_with_suffix(
+    temp_output: Path, source: Path, suffix: str
+) -> Path:
+    expected = temp_output / f"{source.stem}{suffix}"
+    if expected.is_file():
+        return expected
+    candidates = sorted(
+        path for path in temp_output.iterdir()
+        if path.is_file() and path.suffix.casefold() == suffix.casefold()
+    )
+    if len(candidates) == 1:
+        return candidates[0]
+    if not candidates:
+        raise RuntimeError(
+            f"LibreOffice completed without producing a {suffix} file"
+        )
+    raise RuntimeError("LibreOffice produced multiple ambiguous output files")
+
+
+def _convert_docx_one(
+    source: Path,
+    target: Path,
+    soffice: str,
+    runner: CommandRunner,
+) -> Record:
+    started = time.perf_counter()
+    source_size: int | None = None
+    source_hash: str | None = None
+    source_mtime_ns: int | None = None
+    try:
+        source_stat = source.stat()
+        source_size = source_stat.st_size
+        source_mtime_ns = source_stat.st_mtime_ns
+        source_hash = _sha256(source)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(
+            prefix=".docx-to-doc-", dir=str(target.parent)
+        ) as temporary:
+            temporary_root = Path(temporary)
+            temp_output = temporary_root / "output"
+            profile = temporary_root / "profile"
+            temp_output.mkdir()
+            profile.mkdir()
+            command = [
+                soffice,
+                f"-env:UserInstallation={profile.resolve().as_uri()}",
+                "--headless",
+                "--convert-to",
+                "doc:MS Word 97",
+                "--outdir",
+                str(temp_output),
+                str(source),
+            ]
+            result = runner(command)
+            if getattr(result, "returncode", 0) != 0:
+                raise RuntimeError(_command_error(result))
+            converted = _find_converted_file_with_suffix(temp_output, source, ".doc")
+            if converted.stat().st_size <= 0:
+                raise RuntimeError("LibreOffice produced an empty .doc file")
+            os.replace(converted, target)
+            target_stat = target.stat()
+        duration = time.perf_counter() - started
+        return _record(
+            source,
+            target,
+            "success",
+            duration,
+            source_size,
+            source_hash,
+            source_mtime_ns,
+            target_stat.st_size,
+            target_stat.st_mtime_ns,
+            None,
+        )
+    except Exception as exc:
+        duration = time.perf_counter() - started
+        return _record(
+            source,
+            target,
+            "failed",
+            duration,
+            source_size,
+            source_hash,
+            source_mtime_ns,
+            None,
+            None,
+            f"{type(exc).__name__}: {exc}",
+        )
+
+
+def _clean_final_doc_directory(output_root: Path) -> None:
+    """Remove only known temporary/intermediate files from a final-doc root."""
+
+    for path in output_root.iterdir():
+        if path.is_dir() and path.name.startswith(".docx-to-doc-"):
+            shutil.rmtree(path)
+            continue
+        if not path.is_file():
+            continue
+        if (
+            path.suffix.casefold() in {".doc", ".docx", ".tmp", ".lock"}
+            or path.name.startswith(("~$", ".~lock.", ".~"))
+        ):
+            path.unlink()
+
+
+def _convert_docx_many(
+    sources: Sequence[Path],
+    output_root: Path,
+    soffice: str,
+    timeout_seconds: float,
+) -> tuple[Record, ...]:
+    """Run one LibreOffice process, then record success/failure per source."""
+
+    started = time.perf_counter()
+    metadata: dict[Path, tuple[int, str, int]] = {}
+    for source in sources:
+        stat = source.stat()
+        metadata[source] = (stat.st_size, _sha256(source), stat.st_mtime_ns)
+    try:
+        with tempfile.TemporaryDirectory(
+            prefix=".docx-to-doc-", dir=str(output_root)
+        ) as temporary:
+            temporary_root = Path(temporary)
+            temp_output = temporary_root / "output"
+            profile = temporary_root / "profile"
+            temp_output.mkdir()
+            profile.mkdir()
+            command = [
+                soffice,
+                f"-env:UserInstallation={profile.resolve().as_uri()}",
+                "--headless",
+                "--convert-to",
+                "doc:MS Word 97",
+                "--outdir",
+                str(temp_output),
+                *(str(source) for source in sources),
+            ]
+            result = _default_runner(command, timeout_seconds)
+            if getattr(result, "returncode", 0) != 0:
+                raise RuntimeError(_command_error(result))
+
+            records: list[Record] = []
+            for source in sources:
+                target = output_root / f"{source.stem}.doc"
+                try:
+                    converted = temp_output / target.name
+                    if not converted.is_file() or converted.stat().st_size <= 0:
+                        raise RuntimeError("LibreOffice did not produce this .doc output")
+                    os.replace(converted, target)
+                    target_stat = target.stat()
+                    source_size, source_hash, source_mtime_ns = metadata[source]
+                    records.append(
+                        _record(
+                            source,
+                            target,
+                            "success",
+                            time.perf_counter() - started,
+                            source_size,
+                            source_hash,
+                            source_mtime_ns,
+                            target_stat.st_size,
+                            target_stat.st_mtime_ns,
+                            None,
+                        )
+                    )
+                except Exception as exc:
+                    source_size, source_hash, source_mtime_ns = metadata[source]
+                    records.append(
+                        _record(
+                            source,
+                            target,
+                            "failed",
+                            time.perf_counter() - started,
+                            source_size,
+                            source_hash,
+                            source_mtime_ns,
+                            None,
+                            None,
+                            f"{type(exc).__name__}: {exc}",
+                        )
+                    )
+            return tuple(records)
+    except Exception as exc:
+        error = f"{type(exc).__name__}: {exc}"
+        return tuple(
+            _record(
+                source,
+                output_root / f"{source.stem}.doc",
+                "failed",
+                time.perf_counter() - started,
+                metadata[source][0],
+                metadata[source][1],
+                metadata[source][2],
+                None,
+                None,
+                error,
+            )
+            for source in sources
+        )
+
+
+def convert_docx_directory(
+    input_dir: str | Path,
+    output_dir: str | Path,
+    soffice_path: str | Path | None = None,
+    *,
+    timeout_seconds: float = 300.0,
+    runner: CommandRunner | None = None,
+) -> BatchResult:
+    """Convert a flat rendered-DOCX directory to final root-level ``.doc`` files."""
+
+    if timeout_seconds <= 0:
+        raise ValueError("timeout_seconds must be positive")
+    input_root = Path(input_dir).resolve()
+    if not input_root.exists():
+        raise FileNotFoundError(f"Input directory not found: {input_root}")
+    if not input_root.is_dir():
+        raise NotADirectoryError(f"Input path is not a directory: {input_root}")
+
+    output_root = Path(output_dir).resolve()
+    output_root.mkdir(parents=True, exist_ok=True)
+    _clean_final_doc_directory(output_root)
+    sources = sorted(
+        (path for path in input_root.iterdir() if path.is_file() and path.suffix.casefold() == ".docx"),
+        key=lambda path: path.name.casefold(),
+    )
+    target_names = [f"{source.stem}.doc" for source in sources]
+    if len(target_names) != len({name.casefold() for name in target_names}):
+        raise ValueError("DOCX input names collide after conversion to .doc")
+
+    if runner is None:
+        executable = find_soffice(soffice_path) if sources else "soffice"
+        command_runner: CommandRunner = lambda command: _default_runner(command, timeout_seconds)
+    else:
+        executable = str(soffice_path) if soffice_path is not None else "soffice"
+        command_runner = runner
+
+    if runner is None and sources:
+        records = _convert_docx_many(sources, output_root, executable, timeout_seconds)
+    else:
+        records = tuple(
+            _convert_docx_one(
+                source,
+                output_root / f"{source.stem}.doc",
+                executable,
+                command_runner,
+            )
+            for source in sources
+        )
+    return BatchResult(records)

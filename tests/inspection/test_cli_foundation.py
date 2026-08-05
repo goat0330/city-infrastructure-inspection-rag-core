@@ -20,7 +20,15 @@ def test_help_lists_foundation_commands() -> None:
         capture_output=True,
         text=True,
     )
-    for command in ("route", "render", "validate", "package", "validate-package"):
+    for command in (
+        "route",
+        "render",
+        "render-batch",
+        "convert-doc",
+        "validate",
+        "package",
+        "validate-package",
+    ):
         assert command in result.stdout
 
 
@@ -118,6 +126,12 @@ def test_package_command_creates_tar_gz(tmp_path: Path) -> None:
     input_dir = tmp_path / "final-doc"
     input_dir.mkdir()
     (input_dir / "测试桥.doc").write_bytes(b"legacy-doc")
+    code_dir = tmp_path / "code"
+    design_dir = tmp_path / "design"
+    code_dir.mkdir()
+    design_dir.mkdir()
+    (code_dir / "run.py").write_text("pass\n", encoding="utf-8")
+    (design_dir / "plan.md").write_text("# plan\n", encoding="utf-8")
     output = tmp_path / "submission.tar.gz"
     result = subprocess.run(
         [
@@ -127,6 +141,10 @@ def test_package_command_creates_tar_gz(tmp_path: Path) -> None:
             "package",
             "--input-dir",
             str(input_dir),
+            "--code-dir",
+            str(code_dir),
+            "--design-dir",
+            str(design_dir),
             "--output",
             str(output),
         ],
@@ -138,16 +156,42 @@ def test_package_command_creates_tar_gz(tmp_path: Path) -> None:
     payload = json.loads(result.stdout)
     assert payload["valid"] is True
     with tarfile.open(output, "r:gz") as archive:
-        assert archive.getnames() == ["测试桥.doc"]
+        assert archive.getnames() == [
+            "code",
+            "code/run.py",
+            "design",
+            "design/plan.md",
+            "result",
+            "result/测试桥.doc",
+        ]
 
 
 def test_validate_package_command_checks_existing_archive(tmp_path: Path) -> None:
     input_dir = tmp_path / "final-doc-validate"
     input_dir.mkdir()
     (input_dir / "A.doc").write_bytes(b"legacy-doc")
+    code_dir = tmp_path / "code-validate"
+    design_dir = tmp_path / "design-validate"
+    code_dir.mkdir()
+    design_dir.mkdir()
+    (code_dir / "run.py").write_text("pass\n", encoding="utf-8")
+    (design_dir / "plan.md").write_text("# plan\n", encoding="utf-8")
     package = tmp_path / "submission-validate.tar.gz"
     subprocess.run(
-        [sys.executable, "-m", "inspection", "package", "--input-dir", str(input_dir), "--output", str(package)],
+        [
+            sys.executable,
+            "-m",
+            "inspection",
+            "package",
+            "--input-dir",
+            str(input_dir),
+            "--code-dir",
+            str(code_dir),
+            "--design-dir",
+            str(design_dir),
+            "--output",
+            str(package),
+        ],
         cwd=REPO_ROOT, check=True, capture_output=True, text=True,
     )
     output = tmp_path / "package-validation.json"
