@@ -110,7 +110,15 @@ def test_pedestrian_cards_are_read_by_the_jsonl_numpy_index(tmp_path: Path) -> N
     vectors = np.load(tmp_path / "vectors.npy", allow_pickle=False)
 
     assert [record["id"] for record in loaded.metadata] == [record["id"] for record in cards]
-    assert loaded.metadata == metadata == cards
+    expected_metadata = [
+        {
+            **card,
+            "facility_noun": "人行通道",
+            "component_group": card["component"],
+        }
+        for card in cards
+    ]
+    assert loaded.metadata == metadata == expected_metadata
     assert vectors.shape == (len(cards), 3)
     assert np.array_equal(loaded.vectors, built.vectors)
 

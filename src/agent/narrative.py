@@ -104,19 +104,24 @@ FACILITY_COMPONENT_VOCABULARY: dict[str, tuple[str, ...]] = {
     "bridge": ("桥面系", "上部结构", "下部结构", "主梁", "支座", "桥墩", "桥台", "伸缩缝", "栏杆", "排水设施", "附属设施"),
     "pedestrian_underpass": ("顶板", "侧墙", "翼墙", "洞口", "沉降缝", "止水带", "排水设施", "附属设施"),
     "pedestrian_overpass": ("桥面板", "梯道", "栏杆", "扶手", "墩柱", "盖梁", "伸缩缝", "排水设施", "附属设施"),
+    "vehicle_underpass": ("顶板", "侧墙", "翼墙", "洞口", "沉降缝", "止水带", "排水设施", "附属设施"),
     "tunnel": ("洞身", "洞口", "衬砌", "仰拱", "防水层", "沉降缝", "止水带", "排水设施", "附属设施"),
+    "culvert": ("顶板", "侧墙", "翼墙", "洞口", "沉降缝", "止水带", "排水设施", "附属设施"),
+    "road": ("路面", "路基", "边沟", "排水设施", "防护设施", "附属设施"),
     "other": ("洞口", "排水设施", "附属设施"),
 }
-_FACILITY_NOUNS = {"bridge": "桥梁", "pedestrian_underpass": "人行通道", "pedestrian_overpass": "人行天桥", "tunnel": "隧道", "other": "设施"}
+_FACILITY_NOUNS = {"bridge": "桥梁", "pedestrian_underpass": "人行通道", "pedestrian_overpass": "人行天桥", "vehicle_underpass": "车行下穿道", "tunnel": "隧道", "culvert": "涵洞", "road": "道路", "other": "设施"}
 _FACILITY_SUFFIXES = (
     ("人行过街天桥", "pedestrian_overpass", "人行天桥"), ("人行天桥", "pedestrian_overpass", "人行天桥"),
     ("人行地通道", "pedestrian_underpass", "人行通道"), ("人行地道", "pedestrian_underpass", "人行通道"),
     ("地下通道", "pedestrian_underpass", "人行通道"), ("人行通道", "pedestrian_underpass", "人行通道"),
+    ("车行下穿道", "vehicle_underpass", "车行下穿道"), ("下穿道", "vehicle_underpass", "下穿道"),
+    ("涵洞", "culvert", "涵洞"), ("道路", "road", "道路"),
     ("隧道", "tunnel", "隧道"), ("大桥", "bridge", "桥梁"), ("中桥", "bridge", "桥梁"),
     ("小桥", "bridge", "桥梁"), ("桥梁", "bridge", "桥梁"), ("天桥", "bridge", "天桥"),
     ("桥", "bridge", "桥梁"), ("通道", "other", "通道"),
 )
-_FACILITY_TYPE_ALIASES = {"bridge": "bridge", "桥": "bridge", "桥梁": "bridge", "pedestrian_underpass": "pedestrian_underpass", "人行通道": "pedestrian_underpass", "人行地通道": "pedestrian_underpass", "人行地道": "pedestrian_underpass", "地下通道": "pedestrian_underpass", "pedestrian_overpass": "pedestrian_overpass", "人行天桥": "pedestrian_overpass", "tunnel": "tunnel", "隧道": "tunnel", "other": "other"}
+_FACILITY_TYPE_ALIASES = {"bridge": "bridge", "桥": "bridge", "桥梁": "bridge", "pedestrian_underpass": "pedestrian_underpass", "人行通道": "pedestrian_underpass", "人行地通道": "pedestrian_underpass", "人行地道": "pedestrian_underpass", "地下通道": "pedestrian_underpass", "pedestrian_overpass": "pedestrian_overpass", "人行天桥": "pedestrian_overpass", "vehicle_underpass": "vehicle_underpass", "车行下穿道": "vehicle_underpass", "下穿道": "vehicle_underpass", "tunnel": "tunnel", "隧道": "tunnel", "culvert": "culvert", "涵洞": "culvert", "road": "road", "道路": "road", "other": "other"}
 _BRIDGE_TERMS = ("该桥", "全桥", "桥面系", "上部结构", "下部结构")
 _ALL_COMPONENT_TERMS = frozenset(term for values in FACILITY_COMPONENT_VOCABULARY.values() for term in values) | frozenset({"墙体", "中隔墙", "边墙", "路面", "人行道", "照明设施", "通风设施"})
 _SEVERE_SAFETY_TERMS = ("严重承载风险", "承载能力不足", "重大安全隐患", "严重影响", "高风险", "失稳", "坍塌", "危及生命")

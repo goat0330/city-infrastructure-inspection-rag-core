@@ -93,6 +93,24 @@ def test_fit_only_keeps_fit_labels_but_preserves_non_label_entries(tmp_path: Pat
     assert [record["id"] for record in index.metadata] == ["fit-label", "holdout-evidence"]
 
 
+def test_build_infers_facility_metadata_from_sample_identity(tmp_path: Path) -> None:
+    entries = [
+        {
+            "id": "underpass-report",
+            "text": "顶板和侧墙存在病害。",
+            "kind": "evidence",
+            "sample_id": "2012年-杨公桥A叉口人行通道",
+            "split": "fit",
+        }
+    ]
+
+    index = build_index(entries, tmp_path, FakeClient())
+
+    assert index.metadata[0]["facility_type"] == "pedestrian_underpass"
+    assert index.metadata[0]["facility_noun"] == "人行通道"
+    assert index.metadata[0]["component_group"] == "deck_or_slab"
+
+
 def test_retrieve_uses_top30_top8_then_top6_and_excludes_holdout_gold(tmp_path: Path) -> None:
     entries = _entries(40)
     entries.extend(

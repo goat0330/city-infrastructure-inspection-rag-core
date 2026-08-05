@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 import json
 from pathlib import Path
+import re
 from typing import Any
 
 import numpy as np
@@ -30,10 +31,111 @@ _SOURCE_KIND_ALIASES = {
 }
 _DEFAULT_SOURCE_QUOTA = {"report_evidence": 3, "knowledge_card": 2, "gold_label": 1}
 _HOLDOUT_SPLITS = {"holdout", "test", "val", "validation"}
+_FACILITY_TYPE_ALIASES = {
+    "bridge": "bridge",
+    "桥": "bridge",
+    "桥梁": "bridge",
+    "pedestrian_underpass": "pedestrian_underpass",
+    "人行通道": "pedestrian_underpass",
+    "人行地道": "pedestrian_underpass",
+    "人行地通道": "pedestrian_underpass",
+    "vehicle_underpass": "vehicle_underpass",
+    "车行下穿道": "vehicle_underpass",
+    "下穿道": "vehicle_underpass",
+    "tunnel": "tunnel",
+    "隧道": "tunnel",
+    "culvert": "culvert",
+    "涵洞": "culvert",
+    "road": "road",
+    "道路": "road",
+}
+_FACILITY_SUFFIXES = (
+    ("人行地通道", "pedestrian_underpass", "人行通道"),
+    ("人行地道", "pedestrian_underpass", "人行通道"),
+    ("人行通道", "pedestrian_underpass", "人行通道"),
+    ("车行下穿道", "vehicle_underpass", "车行下穿道"),
+    ("下穿道", "vehicle_underpass", "下穿道"),
+    ("隧道", "tunnel", "隧道"),
+    ("涵洞", "culvert", "涵洞"),
+    ("道路", "road", "道路"),
+    ("桥式通道", "bridge", "桥梁"),
+    ("人行天桥", "bridge", "人行天桥"),
+    ("匝道桥", "bridge", "桥梁"),
+    ("立交桥", "bridge", "桥梁"),
+    ("大桥", "bridge", "桥梁"),
+    ("中桥", "bridge", "桥梁"),
+    ("小桥", "bridge", "桥梁"),
+    ("桥", "bridge", "桥梁"),
+)
+_FACILITY_NOUNS = {
+    "bridge": "桥梁",
+    "pedestrian_underpass": "人行通道",
+    "vehicle_underpass": "车行下穿道",
+    "tunnel": "隧道",
+    "culvert": "涵洞",
+    "road": "道路",
+}
+_COMPONENT_GROUPS = (
+    (("顶板", "桥面板", "桥面系", "桥面"), "deck_or_slab"),
+    (("侧墙", "边墙", "翼墙", "墙体"), "wall"),
+    (("洞口", "洞门", "衬砌", "拱腰"), "opening_or_lining"),
+    (("沉降缝", "止水带", "伸缩缝"), "joint_or_waterstop"),
+    (("排水", "泄水孔", "集水井", "边沟"), "drainage"),
+    (("栏杆", "扶手", "附属设施", "照明"), "auxiliary"),
+)
 
 
 def _text(value: object) -> str:
     return "" if value is None else str(value).strip()
+
+
+def _facility_metadata(record: Mapping[str, Any]) -> dict[str, str]:
+    """Infer stable facility metadata without changing source records in place."""
+
+    explicit_type = _text(record.get("facility_type")).casefold()
+    facility_type = _FACILITY_TYPE_ALIASES.get(explicit_type)
+    facility_noun = _text(record.get("facility_noun"))
+    identity_values = (
+        record.get("facility_name"),
+        record.get("sample_id"),
+        record.get("title"),
+        record.get("source_file"),
+    )
+    for value in identity_values:
+        compact = re.sub(r"\s+", "", _text(value))
+        if not compact:
+            continue
+        if facility_type is None:
+            for suffix, inferred_type, inferred_noun in _FACILITY_SUFFIXES:
+                if compact.endswith(suffix):
+                    facility_type = inferred_type
+                    if not facility_noun:
+                        facility_noun = inferred_noun
+                    break
+        if facility_type is not None:
+            break
+    if facility_type is None:
+        return {}
+
+    component_group = _text(record.get("component_group")) or _text(record.get("component"))
+    if not component_group:
+        text = _text(record.get("text"))
+        for terms, group in _COMPONENT_GROUPS:
+            if any(term in text for term in terms):
+                component_group = group
+                break
+    return {
+        "facility_type": facility_type,
+        "facility_noun": facility_noun or _FACILITY_NOUNS.get(facility_type, "设施"),
+        "component_group": component_group or "general",
+    }
+
+
+def _enrich_facility_metadata(record: Mapping[str, Any]) -> dict[str, Any]:
+    enriched = dict(record)
+    for key, value in _facility_metadata(record).items():
+        enriched.setdefault(key, value)
+    return enriched
 
 
 def _normalise_facility_types(
@@ -124,7 +226,7 @@ def _fit_only_records(
         if fit_only and _is_label(record) and _text(record.get("split")).lower() != "fit":
             continue
         record["text"] = _text(record["text"])
-        records.append(record)
+        records.append(_enrich_facility_metadata(record))
     return records
 
 
