@@ -296,6 +296,50 @@ def test_bare_lane_location_unchanged_without_section_heading() -> None:
     assert result[0].location == "左幅"
 
 
+def test_location_gets_side_prefix_when_description_leads_with_side() -> None:
+    xml = document_xml(
+        table(
+            row(cell("位置"), cell("病害种类"), cell("具体位置")),
+            row(cell("栏杆"), cell("开裂"), cell("右侧防撞护栏1处开裂")),
+        )
+    )
+    document = parse_document_xml(xml, source_file="side.docx")
+
+    result = extract_defects(document)
+
+    assert len(result) == 1
+    assert result[0].location == "右侧栏杆"
+
+
+def test_side_prefix_skips_when_side_already_present() -> None:
+    xml = document_xml(
+        table(
+            row(cell("位置"), cell("病害种类"), cell("具体位置")),
+            row(cell("左侧护栏"), cell("破损"), cell("左侧防撞护栏局部破损")),
+        )
+    )
+    document = parse_document_xml(xml, source_file="side-already.docx")
+
+    result = extract_defects(document)
+
+    assert len(result) == 1
+    assert result[0].location == "左侧护栏"
+
+
+def test_side_prefix_skips_when_lane_is_already_present_and_keeps_section() -> None:
+    xml = document_xml(
+        paragraph("5.1.2 上部结构"),
+        table(
+            row(cell("位置"), cell("病害种类"), cell("具体位置")),
+            row(cell("左幅"), cell("渗水"), cell("左侧桥台侧墙局部渗水")),
+        ),
+    )
+    document = parse_document_xml(xml, source_file="lane-side-section.docx")
+
+    result = extract_defects(document)
+
+    assert len(result) == 1
+    assert result[0].location == "左幅上部结构"
 def test_text_fallback_is_scoped_and_splits_concrete_observations() -> None:
     xml = document_xml(
         paragraph("桥梁概况"),

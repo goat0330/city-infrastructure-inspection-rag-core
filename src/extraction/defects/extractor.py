@@ -79,7 +79,7 @@ _EXACT_ONLY_ALIASES = frozenset(
 _PHOTO_REFERENCE_RE = re.compile(
     r"[，,;；。]?\s*(?:见\s*)?(?:照片|照|附图|图)\s*[\w./+#-]+\s*[。；;]?$"
 )
-_LANE_PREFIX_RE = re.compile(r"^(左幅|右幅)")
+_LANE_PREFIX_RE = re.compile(r"^(左幅|右幅|左侧|右侧)")
 _SECTION_MARKERS = ("上部结构", "下部结构", "桥面系")
 
 _TEXT_DEFECT_WORDS = (
@@ -709,18 +709,18 @@ def _display_text(value: str) -> str:
 def _expand_lane_and_section(values: dict[str, str], section_label: str) -> None:
     """Expand a bare location into a fuller location using the description.
 
-    A lane token (``左幅``/``右幅``) that appears at the start of the
-    description but not in the location cell is prepended to the location
-    (``车行道`` + ``右幅`` -> ``右幅车行道``).  A location that contains
-    only a lane token is expanded with the table's section name
-    (``左幅`` + ``上部结构`` -> ``左幅上部结构``).
+    A lane/side token (``左幅``/``右幅``/``左侧``/``右侧``) that appears at
+    the start of the description but not in the location cell is prepended to
+    the location (``车行道`` + ``右幅`` -> ``右幅车行道``, ``栏杆`` + ``右侧``
+    -> ``右侧栏杆``).  A location that contains only a lane token is expanded
+    with the table's section name (``左幅`` + ``上部结构`` -> ``左幅上部结构``).
     """
 
     location = values.get("location") or ""
     if not location:
         return
     lane_match = _LANE_PREFIX_RE.match(values.get("description") or "")
-    if lane_match and not location.startswith(lane_match.group(1)):
+    if lane_match and _LANE_PREFIX_RE.match(location) is None:
         location = lane_match.group(1) + location
     if location in ("左幅", "右幅") and section_label and not location.endswith(section_label):
         location = location + section_label
