@@ -253,10 +253,20 @@ def render_template_report(
     *,
     template_path: str | Path | None = None,
     fields_path: str | Path | None = None,
+    facility_context: object = None,
+    field_states: object = None,
 ) -> Path:
     """Render one prediction using the frozen production DOCX template."""
 
-    submission = source if isinstance(source, SubmissionDocument) else build_submission_document(source)
+    submission = (
+        source
+        if isinstance(source, SubmissionDocument)
+        else build_submission_document(
+            source,
+            facility_context=facility_context,
+            field_states=field_states,
+        )
+    )
     template = Path(template_path) if template_path is not None else DEFAULT_TEMPLATE_PATH
     if not template.is_file():
         raise FileNotFoundError(f"production template not found: {template}")

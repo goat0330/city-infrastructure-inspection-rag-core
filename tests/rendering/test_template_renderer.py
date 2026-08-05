@@ -107,3 +107,126 @@ def test_submission_mapping_uses_existing_contract_names() -> None:
     assert submission.scalars["deck_system_score"] == "80.00"
     assert submission.scalars["major_risks"] == "支座开裂影响耐久性。"
     assert submission.scalars["report_title"] == "测试桥·无对比年度的信息提取报告"
+
+
+def test_facility_context_replaces_bridge_fallback_in_generated_narrative() -> None:
+    record = {
+        "summary": {
+            "bridge_name": "通道-1",
+            "overall_score": "88.00",
+            "overall_grade": "B级",
+        },
+        "facility_context": {"facility_noun": "人行通道"},
+        "recommendations": [],
+        "defects": [],
+    }
+
+    submission = build_submission_document(record)
+
+    assert "该人行通道" in submission.score_and_grade
+    assert "该桥" not in submission.score_and_grade
+    assert "桥梁" not in submission.score_and_grade
+
+    fallback = build_submission_document({
+        "summary": record["summary"],
+        "recommendations": [],
+        "defects": [],
+    })
+    assert "该设施" in fallback.score_and_grade
+
+
+def test_field_states_keep_none_distinct_from_not_extracted(tmp_path: Path) -> None:
+    record = {
+        "summary": {
+            "bridge_name": "测试设施",
+            "report_date": "",
+            "overall_score": "",
+            "overall_grade": "无",
+            "previous_overall_score": "无",
+        },
+        "field_states": {
+            "summary": {
+                "report_date": "not_extracted",
+                "overall_score": "explicit_none",
+                "overall_grade": "not_applicable",
+            }
+        },
+        "recommendations": [],
+        "defects": [],
+    }
+
+    scalars = build_submission_document(record).scalars
+
+    assert scalars["report_date"] == "未提取到"
+    assert scalars["overall_score"] == "无"
+    assert scalars["overall_grade"] == "无"
+    assert scalars["previous_overall_score"] == "无"
+
+    output = render_template_report(
+        record,
+        tmp_path / "field-states.docx",
+        template_path=TEMPLATE,
+        fields_path=FIELDS,
+    )
+    document = Document(output)
+    assert document.tables[0].rows[3].cells[1].text == "无"
+    assert document.tables[0].rows[3].cells[1].text != "未提取到"
+
+
+def test_summary_and_narrative_fields_keep_separate_sources() -> None:
+    record = {
+        "summary": {
+            "bridge_name": "测试设施",
+            "overall_conclusion": "概要短结论。",
+        },
+        "narrative": {
+            "detailed_conclusion": ("详细段一。", "详细段二。", "详细段三。", "详细段四。")
+        },
+        "recommendations": [],
+        "defects": [],
+    }
+
+    submission = build_submission_document(record)
+
+    assert submission.scalars["overall_conclusion"] == "概要短结论。"
+    assert submission.score_and_grade == "详细段一。"
+    assert submission.comprehensive_judgement == "详细段四。"
+
+
+def test_recommendation_summary_has_three_categories_and_preserves_source() -> None:
+    derived = build_submission_document(
+        {
+            "summary": {"bridge_name": "测试设施"},
+            "recommendations": [{"category": "尽快维修"}],
+            "defects": [],
+        }
+    )
+    assert derived.scalars["recommendations_summary"] == "0条立即处置、1条尽快维修、0条预防性养护"
+
+    source = build_submission_document(
+        {
+            "summary": {
+                "bridge_name": "测试设施",
+                "recommendations_summary": "9条立即处置、0条尽快维修、0条预防性养护",
+            },
+            "recommendations": [{"category": "尽快维修"}],
+            "defects": [],
+        }
+    )
+    assert source.scalars["recommendations_summary"] == "9条立即处置、0条尽快维修、0条预防性养护"
+
+
+def test_facility_render_has_no_unresolved_placeholders(tmp_path: Path) -> None:
+    output = render_template_report(
+        {
+            "summary": {"bridge_name": "人行通道"},
+            "facility_context": {"subject": "该人行通道"},
+            "recommendations": [],
+            "defects": [],
+        },
+        tmp_path / "facility.docx",
+        template_path=TEMPLATE,
+        fields_path=FIELDS,
+    )
+
+    assert "{{" not in _all_text(Document(output))

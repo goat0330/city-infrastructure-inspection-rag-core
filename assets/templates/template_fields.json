@@ -27,7 +27,8 @@
   "missing_value_policy": {
     "explicit_none": "无",
     "not_extracted": "未提取到",
-    "zero_recommendation_category": "汇总文本中省略该类别"
+    "zero_recommendation_category": "汇总文本中保留该类别并显示0条",
+    "recommendation_categories": ["立即处置", "尽快维修", "预防性养护"]
   },
   "scalars": {
     "report_title": {
@@ -164,7 +165,8 @@
         "table_index": 0,
         "row": 16,
         "column": 1
-      }
+      },
+      "aggregation": "调用方传入的最终汇总优先；缺失时按三类生成并保留零项"
     }
   },
   "paragraph_slots": {
