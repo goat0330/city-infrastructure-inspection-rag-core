@@ -31,6 +31,42 @@ def _add_common_data_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--output-dir", type=Path, required=True)
 
 
+def _add_semantic_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--semantic-live",
+        action="store_true",
+        help="enable bounded RAG + Qwen-compatible semantic enhancement",
+    )
+    parser.add_argument(
+        "--semantic-index-dir",
+        type=Path,
+        help="fit-only LightRagIndex directory required by --semantic-live",
+    )
+    parser.add_argument(
+        "--semantic-split",
+        default="holdout",
+        help="split passed to LightRagIndex retrieval (default: holdout)",
+    )
+
+
+def _semantic_runtime(args: argparse.Namespace) -> dict[str, object]:
+    if not args.semantic_live:
+        return {}
+    if args.semantic_index_dir is None:
+        raise ValueError("--semantic-live requires --semantic-index-dir")
+    from src.llm.client import OpenAIModelClient
+    from src.rag import LightRagIndex
+
+    client = OpenAIModelClient(timeout=120, retry_delay=0.2)
+    index = LightRagIndex.load(args.semantic_index_dir, client=client)
+    return {
+        "semantic_enabled": True,
+        "semantic_client": client,
+        "semantic_index": index,
+        "semantic_split": args.semantic_split,
+    }
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m inspection")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -68,6 +104,7 @@ def build_parser() -> argparse.ArgumentParser:
     predict.add_argument("--input", type=Path, required=True)
     predict.add_argument("--output", type=Path, required=True)
     predict.add_argument("--report", type=Path)
+    _add_semantic_args(predict)
 
     predict_batch = subparsers.add_parser(
         "predict-batch", help="extract a DOCX directory into prediction JSONL"
@@ -75,6 +112,7 @@ def build_parser() -> argparse.ArgumentParser:
     predict_batch.add_argument("--input-dir", type=Path, required=True)
     predict_batch.add_argument("--output", type=Path, required=True)
     predict_batch.add_argument("--report", type=Path)
+    _add_semantic_args(predict_batch)
 
     render = subparsers.add_parser("render", help="render one Gold or prediction JSON record to DOCX")
     render.add_argument("--input", type=Path, required=True)
@@ -223,8 +261,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         report_path = args.report or args.output.with_suffix(".report.json")
         try:
-            result = extract_report(args.input)
-        except (OSError, ValueError, TypeError, KeyError) as exc:
+            result = extract_report(args.input, **_semantic_runtime(args))
+        except (OSError, ValueError, TypeError, KeyError, RuntimeError) as exc:
             _write_json(
                 {
                     "status": "failed",
@@ -251,8 +289,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         from src.extraction import predict_batch
 
         try:
-            result = predict_batch(args.input_dir, args.output, report_path=args.report)
-        except (OSError, ValueError, TypeError) as exc:
+            result = predict_batch(
+                args.input_dir,
+                args.output,
+                report_path=args.report,
+                **_semantic_runtime(args),
+            )
+        except (OSError, ValueError, TypeError, RuntimeError) as exc:
             parser.error(str(exc))
         _write_json(result)
         return 0 if result["failed_count"] == 0 else 1

@@ -902,7 +902,7 @@ def run_experiment(
             baseline,
             sample_id,
             source_file,
-            context_facts,
+            facts,
             client,
             retriever=StaticRetriever(retrieval_hits),
             split=split,
@@ -925,12 +925,21 @@ def run_experiment(
         "LLM with evidence+RAG+similar labels",
         fields_d,
         baseline,
-        context_facts,
+        facts,
         retrieval_hits,
         _aggregate(client.calls[start_d:]),
         available=d_available,
         used_fallback=bool(narrative.get("used_fallback")),
         error=d_error or "; ".join(str(item) for item in narrative.get("validation_errors", [])) or None,
+    )
+    groups["D"]["field_results"] = dict(
+        narrative.get(
+            "field_results",
+            {
+                field: ("fallback" if narrative.get("used_fallback") else "enhanced")
+                for field in TARGET_FIELDS
+            },
+        )
     )
     locked_differences = _locked_top_level_differences(enhanced, baseline)
     groups["D"]["locked_top_level_differences"] = locked_differences
@@ -957,7 +966,16 @@ def run_experiment(
         "locked_fields_unchanged": not locked_differences,
         "groups": {group: groups[group]["call_metrics"] for group in ("A", "B", "C", "D")},
         "enhanced_prediction_written": True,
-        "current_best_config": "D" if groups["D"]["available"] and not groups["D"]["used_fallback"] else "A",
+        "current_best_config": (
+            "D"
+            if groups["D"]["available"] and not groups["D"]["used_fallback"]
+            else (
+                "D-partial"
+                if groups["D"].get("field_results")
+                and "enhanced" in groups["D"]["field_results"].values()
+                else "A"
+            )
+        ),
         "outputs": {"baseline_prediction": str(baseline_path), "enhanced_prediction": str(enhanced_path), "retrieval_trace": str(retrieval_path), "ab_results": str(ab_path), "experiment_summary": str(summary_path)},
         "unresolved": ["真实运行需提供 fit-only RAG index" ] if index_dir is None else [],
     }

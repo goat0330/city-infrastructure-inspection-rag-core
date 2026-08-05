@@ -193,6 +193,8 @@ _ALIASES: dict[str, tuple[str, ...]] = {
     "trend": ("病害发展趋势与具体说明", "病害发展趋势", "发展趋势"),
     "overall_conclusion": (
         "主要结论",
+        "评估结论",
+        "检测结果",
         "外观及专项检测结果综述",
         "综合评估",
         "综合结论",
@@ -1373,8 +1375,10 @@ def _score_scope_before(text: str, start: int) -> str | None:
 
 def _conclusion_source_kind(label: str, fallback: str) -> str:
     compact = _compact(label)
-    if "主要结论" in compact or "总体结论" in compact or "综合结论" in compact:
+    if any(marker in compact for marker in ("主要结论", "总体结论", "综合结论", "评估结论")):
         return "major_conclusion"
+    if compact == "检测结果":
+        return "conclusion_review"
     if "外观及专项检测结果综述" in compact:
         return "conclusion_review"
     if "综合评估" in compact:
@@ -1683,6 +1687,19 @@ def _normalise_bridge_name(value: str) -> str:
         "",
         cleaned,
     )
+    # Cover tables sometimes concatenate a valid facility name with the full
+    # project scope.  Keep the facility prefix and discard the metadata tail.
+    cleaned = re.split(
+        r"\s*(?:检测项目|检测类别|委托检测|外观检查|专项检测|结构验算|荷载试验)\s*[:：]?",
+        cleaned,
+        maxsplit=1,
+    )[0].strip()
+    match = re.search(
+        r"(.{2,80}?(?:人行地通道|人行地道|地下通道|人行通道|车行下穿道|下穿道|人行天桥|匝道桥|立交桥|大桥|中桥|小桥|天桥|隧道|涵洞|道路|桥|通道|立交))(?=检测评估|检测项目|检测类别|委托检测|$)",
+        cleaned,
+    )
+    if match is not None:
+        cleaned = match.group(1)
     cleaned = re.sub(r"互通式(?=立交)", "", cleaned)
     cleaned = re.sub(r"桥异形梁桥$", "异形桥", cleaned)
     cleaned = re.sub(r"(?<!立交)(\d+)#(?=人行天桥)", r"\1号", cleaned)
@@ -1802,6 +1819,44 @@ def _normalise_field_value(field: str, value: str) -> str:
     return cleaned
 
 
+def _bridge_name_quality(value: str) -> tuple[int, int]:
+    compact = _compact(value)
+    penalty = sum(1 for marker in (
+        "检测项目", "检测类别", "委托检测", "外观检查",
+        "专项检测", "结构验算", "荷载试验",
+    ) if marker in compact)
+    return penalty, len(compact)
+
+
+def _conclusion_quality(value: str) -> tuple[int, int, int, int]:
+    compact = _compact(value)
+    defect_hits = sum(1 for marker in _RISK_DEFECT_MARKERS if marker in compact)
+    component_hits = sum(1 for marker in (
+        "桥面", "上部结构", "下部结构", "主梁", "梁体", "桥台",
+        "桥墩", "支座", "栏杆", "护栏", "顶板", "侧墙", "翼墙",
+    ) if marker in compact)
+    fragment_penalty = (
+        1
+        if _looks_like_conclusion_fragment(value)
+        and defect_hits == 0
+        and component_hits <= 1
+        else 0
+    )
+    heading_hits = sum(compact.count(marker) for marker in (
+        "基本资料", "结构建模", "计算说明", "验算结果", "静载试验",
+        "动载试验", "目录", "页码",
+    ))
+    numeric_headings = len(re.findall(r"(?:^|\s)\d+(?:\.\d+)+", value))
+    toc_penalty = (
+        1
+        if (heading_hits >= 2 or numeric_headings >= 5) and defect_hits <= 1
+        else 0
+    )
+    # Lower tuple is better: reject contents-like fragments and single-test
+    # snippets, then prefer richer defect/component coverage.
+    return toc_penalty, fragment_penalty, -(defect_hits + component_hits), len(compact)
+
+
 def _select_value(field: str, values: Sequence[SummaryCandidate]) -> str:
     if not values:
         return ""
@@ -1813,6 +1868,11 @@ def _select_value(field: str, values: Sequence[SummaryCandidate]) -> str:
             else 1
             if field == "bridge_name"
             else 0,
+            # Explicit facility-name fields must beat incidental body mentions;
+            # quality only breaks ties at the same source priority.
+            -candidate.priority if field == "bridge_name" else 0,
+            *(_bridge_name_quality(candidate.value) if field == "bridge_name" else (0, 0)),
+            *(_conclusion_quality(candidate.value) if field == "overall_conclusion" else (0, 0, 0, 0)),
             -(_DATE_PRIORITY.get(candidate.date_kind or "", 0) if field in {"report_date", "inspection_date"} else _selection_priority(field, candidate)),
             -candidate.priority,
             _source_sort_key(candidate.source),

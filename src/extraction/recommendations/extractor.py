@@ -70,6 +70,7 @@ _CONTENT_MARKERS = (
     "维修建议",
     "养护建议",
     "处理建议",
+    "处理意见",
     "处置建议",
     "处治建议",
     "建议明细",
@@ -108,6 +109,7 @@ _TITLE_WORDS = (
     "维护建议",
     "维护处置建议",
     "处理建议",
+    "处理意见",
     "处置建议",
     "处治建议",
     "应采取的措施",
@@ -695,11 +697,63 @@ def extract_recommendations(
         )
         previous_paragraph_preferred = in_preferred
 
+    labelled_candidates = _labelled_recommendation_candidates(document)
+    if labelled_candidates and not candidates:
+        # A labelled key/value row such as “处理意见” is an explicit source.
+        # Prefer it over broad fallback paragraphs and table-of-contents text.
+        for candidate in labelled_candidates:
+            candidate.preferred = True
+        candidates.extend(labelled_candidates)
+
     return _finalise(
         candidates,
         infer_categories=infer_categories,
         facility_noun=facility_noun,
     )
+
+
+def _labelled_recommendation_candidates(document: DocumentModel) -> list[_Candidate]:
+    labels = {
+        "处理意见", "处理建议", "处置建议", "处治建议",
+        "维修建议", "养护建议", "维护建议",
+    }
+    result: list[_Candidate] = []
+    for block in document.blocks:
+        if not isinstance(block, TableBlock):
+            continue
+        for row in block.rows:
+            nonempty = [cell for cell in row.cells if _clean_text(cell.raw_text)]
+            if len(nonempty) < 2:
+                continue
+            label_cell = nonempty[0]
+            label = _INDEX_RE.sub("", _compact(label_cell.raw_text), count=1).strip("：:。.;；，,、")
+            if label not in labels:
+                continue
+            value_cells = [cell for cell in nonempty[1:] if _clean_text(cell.raw_text)]
+            if not value_cells:
+                continue
+            text = "；".join(_clean_text(cell.raw_text) for cell in value_cells)
+            items = _split_text_items(text)
+            for item in items:
+                if not item.text or (
+                    not item.numbered
+                    and not _is_recommendation_item(item.text, allow_monitoring=True)
+                ):
+                    continue
+                anchors = [anchor for anchor in (label_cell.source, *(cell.source for cell in value_cells)) if anchor is not None]
+                result.append(
+                    _Candidate(
+                        index=_clean_index(item.index),
+                        category_hint="",
+                        content=item.text,
+                        location="",
+                        anchors=list(_unique_anchors(anchors or (block.source,))),
+                        source_kind="labelled_table",
+                        block_index=block.block_index,
+                        numbered=item.numbered,
+                    )
+                )
+    return result
 
 
 def _is_target_route(category: object) -> bool:
@@ -1104,11 +1158,27 @@ def _infer_category(content: str) -> str | None:
         )
     ):
         return "立即处置"
+    # A severe deformation paired with replacement/urgent handling is an
+    # explicit safety action, while a bare repair sentence remains quick
+    # repair.  This keeps the category boundary strict without discarding
+    # the legacy Gold-labelled support action.
+    if "变形严重" in compact and any(
+        marker in compact for marker in ("立即", "及时更换", "更换")
+    ):
+        return "立即处置"
+    # Cleaning a named defect is corrective work; generic routine cleaning
+    # remains preventive below.
+    if "清理" in compact and any(
+        marker in compact for marker in ("堵塞", "积土", "积水", "淤积")
+    ):
+        return "尽快维修"
     # A report-level maintenance instruction is preventive care, even when
     # the sentence contains the word “维修”.  Targeted repair sentences are
     # handled below by the concrete-action rules.
     if (
-        any(marker in compact for marker in ("相关养护维修", "日常养护维修", "常规养护维修"))
+        any(marker in compact for marker in (
+            "相关养护维修", "有关养护维修", "日常养护维修", "常规养护维修"
+        ))
         or (
             "参照" in compact
             and any(marker in compact for marker in ("养护规范", "养护技术规范"))
@@ -1116,6 +1186,19 @@ def _infer_category(content: str) -> str | None:
         )
     ):
         return "预防性养护"
+    # A concrete corrective action dominates monitoring words that may occur
+    # later in the same sentence (for example “及时封闭并定期观测”).
+    if any(
+        marker in compact
+        for marker in (
+            "维修", "修复", "修补", "修理", "加固", "更换",
+            "封闭", "灌浆", "堵漏", "补强", "除锈", "涂刷",
+            "重新铺装", "重新勾缝", "勾缝", "抹灰", "灌封",
+            "凿除重做", "凿除后", "恢复面层", "重新安装",
+            "布置排水设施", "增设排水设施",
+        )
+    ):
+        return "尽快维修"
     if any(
         marker in compact
         for marker in (
@@ -1376,13 +1459,13 @@ def _location_fields(text: str) -> tuple[str, str]:
     relation_location = re.match(
         r"^(?:对于|针对|对)(?:存在|有|出现)?[^，,;；。:：]{0,40}?"
         r"(桥面铺装|防撞护栏|防撞栏杆|伸缩缝|顶板|底板|腹板|侧墙|桥台|盖梁|主梁|梁体|梁底|板底|栏杆|护栏|支座|锥坡|桥面|桥梁)"
-        r"(?=(?:存在|有|出现|多处|局部|进行|采取|及时|应|建议|维修|修复|修补|中修|大修|小修|养护|处理|清理|更换))",
+        r"(?=(?:存在|有|出现|多处|局部|进行|采取|布置|增设|及时|应|建议|维修|修复|修补|中修|大修|小修|养护|处理|清理|更换))",
         text,
     )
     if relation_location is not None:
         return relation_location.group(1), text
 
-    for action in ("清理", "维修", "修复", "修补", "处理", "养护", "维护", "设置"):
+    for action in ("清理", "维修", "修复", "修补", "处理", "养护", "维护", "设置", "布置", "增设"):
         match = re.search(rf"{action}(?:[^，,;；。:：]{{0,8}})(桥面|桥梁|伸缩缝)", text)
         if match is not None:
             return match.group(1), text
@@ -1586,7 +1669,8 @@ def _finalise(
         )
         location = _clean_location(candidate.location)
         if not location:
-            location = facility_noun
+            inferred_location, _ = _location_fields(content)
+            location = _clean_location(inferred_location) or facility_noun
         evidence = _unique_anchors(candidate.anchors)
         record = Recommendation(
             index=_clean_index(candidate.index),

@@ -70,6 +70,7 @@ _PROMPT_IDENTITY_KEYS = (
 )
 _MAX_DEFECT_DESCRIPTIONS = 3
 _MAX_DEFECT_DESCRIPTION_CHARS = 240
+_MAX_PROMPT_DEFECT_GROUPS = 32
 _PROMPT_CONTEXT_MAX_ITEMS = 12
 _PROMPT_CONTEXT_MAX_CHARS = 6000
 _PROMPT_CONTEXT_ITEM_CHARS = 720
@@ -144,6 +145,8 @@ class NarrativeState(TypedDict, total=False):
     locked_facts: Any
     generated_sections: dict[str, Any]
     validation_errors: list[str]
+    field_validation_errors: dict[str, list[str]]
+    field_results: dict[str, str]
     retry_count: int
     enhanced_prediction: dict[str, Any]
     used_fallback: bool
@@ -225,13 +228,22 @@ def _compact_defects(defects: Any) -> list[dict[str, Any]]:
         descriptions = grouped.setdefault(key, [])
         if description and description not in descriptions and len(descriptions) < _MAX_DEFECT_DESCRIPTIONS:
             descriptions.append(description)
-    return [
+    result = [
         {
             "location": location,
             "defect_type": defect_type,
             "representative_descriptions": descriptions,
         }
         for (location, defect_type), descriptions in grouped.items()
+    ]
+    if len(result) <= _MAX_PROMPT_DEFECT_GROUPS:
+        return result
+    return [
+        {
+            **item,
+            "representative_descriptions": item["representative_descriptions"][:2],
+        }
+        for item in result[:_MAX_PROMPT_DEFECT_GROUPS]
     ]
 
 
@@ -664,6 +676,7 @@ def _render_prompt(state: NarrativeState) -> str:
     prompt_locked_facts = copy.deepcopy(locked_facts)
     if "defects" in prompt_locked_facts:
         prompt_locked_facts["defects"] = _compact_defects(prompt_locked_facts["defects"])
+    safety_priority_ids, safety_priority_label, _ = _safety_priority(state)
     replacements = {
         "{{SAMPLE_ID}}": str(state.get("sample_id", "")),
         "{{SOURCE_FILE}}": str(state.get("source_file", "")),
@@ -687,6 +700,12 @@ def _render_prompt(state: NarrativeState) -> str:
                 max_chars=3600,
                 max_item_chars=520,
             )
+        ),
+        "{{SAFETY_PRIORITY_IDS}}": _json_dump(
+            {
+                "label": safety_priority_label,
+                "evidence_ids": sorted(safety_priority_ids),
+            }
         ),
         "{{VALIDATION_ERRORS}}": _json_dump(state.get("validation_errors", [])),
     }
@@ -1147,7 +1166,11 @@ def _validate_output(state: NarrativeState) -> dict[str, Any]:
         add(message)
     if not isinstance(candidate, Mapping):
         add("generated sections must be a JSON object")
-        return {"validation_errors": errors, "validation_passed": False}
+        return {
+            "validation_errors": errors,
+            "field_validation_errors": {field: list(errors) for field in ENHANCED_FIELDS},
+            "validation_passed": False,
+        }
 
     for field in ENHANCED_FIELDS:
         if field not in candidate:
@@ -1219,7 +1242,42 @@ def _validate_output(state: NarrativeState) -> dict[str, Any]:
         if any(token not in allowed_grades for token in _GRADE_RE.findall(text)):
             add("generated narrative introduces an unsupported number, grade, or date")
 
-    return {"validation_errors": errors, "validation_passed": not errors}
+    field_errors: dict[str, list[str]] = {}
+    for message in errors:
+        direct = [
+            field
+            for field in ENHANCED_FIELDS
+            if re.search(rf"\b{re.escape(field)}(?:\[|\s|$)", message)
+        ]
+        if direct:
+            targets = direct
+        elif any(
+            marker in message
+            for marker in (
+                "locked deterministic field",
+                "unsupported bridge term",
+                "another facility",
+                "unsupported number",
+            )
+        ):
+            targets = list(ENHANCED_FIELDS)
+        elif "component absent from supplied evidence" in message:
+            terms = message.split(":", 1)[-1].split("、")
+            targets = [
+                field
+                for field in ENHANCED_FIELDS
+                if any(term and term in _json_dump(candidate.get(field, "")) for term in terms)
+            ] or list(ENHANCED_FIELDS)
+        else:
+            targets = list(ENHANCED_FIELDS)
+        for field in targets:
+            field_errors.setdefault(field, []).append(message)
+
+    return {
+        "validation_errors": errors,
+        "field_validation_errors": field_errors,
+        "validation_passed": not errors,
+    }
 
 
 def _canonical_sections(candidate: Mapping[str, Any]) -> dict[str, Any]:
@@ -1245,6 +1303,24 @@ def _canonical_sections(candidate: Mapping[str, Any]) -> dict[str, Any]:
     return canonical
 
 
+def _canonical_field(field: str, value: Any) -> Any:
+    if field == "detailed_conclusion":
+        return list(value)
+    if field in {"causes", "safety_impact"}:
+        return [
+            {"text": item["text"], "evidence_ids": list(item["evidence_ids"])}
+            for item in value
+        ]
+    return [
+        {
+            "recommendation_index": item["recommendation_index"],
+            "text": item["text"],
+            "evidence_ids": list(item["evidence_ids"]),
+        }
+        for item in value
+    ]
+
+
 def _finalize(state: NarrativeState) -> dict[str, Any]:
     baseline = copy.deepcopy(state.get("baseline_prediction", {}))
     if state.get("validation_passed"):
@@ -1260,9 +1336,28 @@ def _finalize(state: NarrativeState) -> dict[str, Any]:
             "used_fallback": False,
             "validation_errors": [],
         }
+    candidate = state.get("generated_sections", {})
+    field_errors = state.get("field_validation_errors", {})
+    if isinstance(candidate, Mapping) and isinstance(field_errors, Mapping):
+        enhanced = copy.deepcopy(baseline)
+        field_results: dict[str, str] = {}
+        for field in ENHANCED_FIELDS:
+            if field in field_errors or field not in candidate:
+                field_results[field] = "fallback"
+                continue
+            enhanced[field] = _canonical_field(field, candidate[field])
+            field_results[field] = "enhanced"
+        return {
+            "enhanced_prediction": enhanced,
+            "generated_sections": candidate,
+            "used_fallback": True,
+            "field_results": field_results,
+            "validation_errors": list(state.get("validation_errors", [])),
+        }
     return {
         "enhanced_prediction": baseline,
         "used_fallback": True,
+        "field_results": {field: "fallback" for field in ENHANCED_FIELDS},
         "validation_errors": list(state.get("validation_errors", [])),
     }
 
@@ -1350,6 +1445,10 @@ def run_narrative_enhancement(
         "retrieval_results": result.get("retrieval_results", []),
         "generated_sections": result.get("generated_sections", {}),
         "validation_errors": result.get("validation_errors", []),
+        "field_results": result.get(
+            "field_results",
+            {field: ("fallback" if result.get("used_fallback") else "enhanced") for field in ENHANCED_FIELDS},
+        ),
         "retry_count": result.get("retry_count", 0),
         "used_fallback": result.get("used_fallback", False),
         "call_metrics": result.get("call_metrics", _empty_metrics()),

@@ -32,6 +32,13 @@ def _recommendation_table() -> str:
     )
 
 
+def _uncategorized_recommendation_table() -> str:
+    return table(
+        row(cell("序号"), cell("建议类别"), cell("建议内容"), cell("病害部位")),
+        row(cell("1"), cell(""), cell("封闭裂缝"), cell("桥面")),
+    )
+
+
 def _write_fixture(path: Path) -> Path:
     return write_docx(
         path,
@@ -41,6 +48,18 @@ def _write_fixture(path: Path) -> Path:
         _defect_table(),
         paragraph("处置建议"),
         _recommendation_table(),
+    )
+
+
+def _write_uncategorized_fixture(path: Path) -> Path:
+    return write_docx(
+        path,
+        paragraph("桥梁概要"),
+        _summary_table(),
+        paragraph("病害明细表"),
+        _defect_table(),
+        paragraph("处置建议"),
+        _uncategorized_recommendation_table(),
     )
 
 
@@ -61,6 +80,58 @@ def test_extract_report_assembles_prediction_and_side_metadata(tmp_path: Path) -
     assert result.prediction.recommendations[0].evidence
     assert result.route_count > 0
     assert result.prediction.causes == ()
+
+
+def test_extract_report_semantic_off_keeps_baseline_without_client_calls(tmp_path: Path) -> None:
+    source = _write_fixture(tmp_path / "语义关闭桥.docx")
+
+    class ExplodingAdapter:
+        def __getattr__(self, name: str):
+            raise AssertionError(f"semantic adapter called while off: {name}")
+
+    baseline = extract_report(source)
+    disabled = extract_report(
+        source,
+        semantic_enabled=False,
+        semantic_client=ExplodingAdapter(),
+        semantic_index=ExplodingAdapter(),
+    )
+
+    assert disabled.prediction.to_dict() == baseline.prediction.to_dict()
+    assert disabled.semantic_trace == {}
+
+
+def test_extract_report_can_enter_injected_semantic_candidate_path(tmp_path: Path) -> None:
+    source = _write_uncategorized_fixture(tmp_path / "语义桥.docx")
+    calls: list[str] = []
+
+    def retrieve(candidate):
+        calls.append(f"retrieve:{candidate.candidate_id}")
+        return [{"evidence_id": candidate.evidence_ids[0], "text": candidate.source_text}]
+
+    def decide(candidate, evidence):
+        calls.append(f"decide:{candidate.candidate_id}")
+        return {
+            "candidate_id": candidate.candidate_id,
+            "task_type": candidate.task_type,
+            "decision": "resolved",
+            "evidence_ids": [evidence[0]["evidence_id"]],
+            "confidence": 0.9,
+            "selection_reason": "测试语义类别",
+            "result": {"category": "预防性养护"},
+        }
+
+    result = extract_report(
+        source,
+        semantic_enabled=True,
+        semantic_retriever=retrieve,
+        semantic_decider=decide,
+    )
+
+    assert calls
+    assert result.prediction.recommendations[0].category == "预防性养护"
+    assert result.semantic_trace["semantic_enabled"] is True
+    assert result.semantic_trace["completed_candidate_ids"]
 
 
 def test_predict_batch_keeps_successes_when_one_docx_fails(tmp_path: Path) -> None:

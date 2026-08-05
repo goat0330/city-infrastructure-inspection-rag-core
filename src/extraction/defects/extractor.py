@@ -127,6 +127,47 @@ _TEXT_DEFECT_WORDS = (
     "掏空",
     "坑洼",
     "长草",
+    # Formal defect tables use a broader vocabulary than narrative fallback
+    # rules. Keep common surface, clearance, debris and joint conditions here
+    # so one-field text candidates are not lost.
+    "堆积",
+    "推积",
+    "覆盖",
+    "凸起",
+    "突起",
+    "外鼓",
+    "滑痕",
+    "刮痕",
+    "划痕",
+    "烟熏",
+    "断裂",
+    "拆除",
+    "被拆",
+    "高差",
+    "变窄",
+    "错位",
+    "纵裂",
+    "横裂",
+    "斜裂",
+    "竖裂",
+    "漏浆",
+    "空洞",
+    "缺角",
+    "积土",
+    "积淤",
+    "锈胀",
+    "跳车",
+    "龟裂",
+    "磨光",
+    "露骨",
+    "坑洞",
+    "不饱满",
+    "抵死",
+    "抵拢",
+    "杂物",
+    "垃圾",
+    "杂草丛生",
+    "模板未拆",
 )
 _TEXT_LOCATION_WORDS = (
     "桥面铺装",
@@ -217,6 +258,20 @@ _TEXT_NEGATIVE_PHRASES = (
     "未见明显病害",
     "未见病害",
 )
+
+# Gold defect tables also contain a small number of formal condition/history
+# rows whose type is not a damage noun. Keep this list table-only so broad
+# words do not expand narrative fallback extraction.
+_FORMAL_TABLE_DEFECT_TYPES = frozenset(
+    (
+        "修补",
+        "现状",
+        "加固",
+        "碳纤维",
+        "遮掩",
+        "外观",
+    )
+)
 _TEXT_SECTION_RE = re.compile(
     r"^\s*(?P<number>(?:第[一二三四五六七八九十百千万0-9]+章)|(?:[0-9]+(?:\.[0-9]+)*))\s*"
     r"(?:[、.．:：)）]|\s|$)"
@@ -284,6 +339,8 @@ class _HeaderAnalysis:
 def extract_defects(
     document: DocumentModel,
     routes: Sequence[SectionRoute] | None = None,
+    *,
+    preserve_figure_refs: bool = True,
 ) -> DefectExtractionResult:
     """Extract individual defect rows from a parsed Word document.
 
@@ -321,6 +378,7 @@ def extract_defects(
         table_records, table_flags = _extract_table(
             table,
             section_label=_section_label_for_table(document, table),
+            preserve_figure_refs=preserve_figure_refs,
         )
         records.extend(table_records)
         flags.extend(table_flags)
@@ -369,6 +427,7 @@ def extract_defects(
                 added_row_count=len(records) - before_merge,
             )
         )
+    records = list(_fill_missing_indices(records))
     return DefectExtractionResult(tuple(records), tuple(flags))
 
 
@@ -475,6 +534,8 @@ def _section_label_for_table(document: DocumentModel, table: TableBlock) -> str:
 def _extract_table(
     table: TableBlock,
     section_label: str = "",
+    *,
+    preserve_figure_refs: bool = True,
 ) -> tuple[list[DefectObservation], list[QualityFlag]]:
     analysis = _analyse_headers(table)
     flags: list[QualityFlag] = []
@@ -563,7 +624,10 @@ def _extract_table(
             cell = _cell_at(row, column) if column is not None else None
             value = _display_text(cell.raw_text) if cell is not None else ""
             if field == "description":
-                value = _clean_description(value)
+                value = _clean_description(
+                    value,
+                    preserve_figure_refs=preserve_figure_refs,
+                )
             if value:
                 values[field] = value
                 origins[field] = _cell_anchor(table, cell)
@@ -583,6 +647,11 @@ def _extract_table(
             continue
 
         reason = is_valid_defect_row(values, row=row, column_map=column_map)
+        if reason == "non_defect_state" and analysis.ambiguous:
+            # Preserve a non-empty row when header semantics are already
+            # ambiguous; the ambiguity flag is the review signal and the row
+            # should not be discarded a second time.
+            reason = None
         if reason is not None:
             if reason == "photo_caption":
                 matched_indices = _merge_caption_row(result, table, row)
@@ -717,7 +786,34 @@ def is_valid_defect_row(
         return "photo_caption"
     if _is_unit_or_placeholder_row(row, values):
         return "unit_or_placeholder"
+    if not _has_concrete_defect_meaning(values):
+        # An ambiguous header map is already recorded as a quality flag. Keep
+        # the non-empty row for review instead of compounding that uncertainty
+        # with a false negative from the semantic gate.
+        if column_map and len(set(column_map.values())) < len(column_map):
+            return None
+        return "non_defect_state"
     return None
+
+
+def _has_concrete_defect_meaning(values: Mapping[str, str]) -> bool:
+    """Keep valid formal-table defect rows out of the closed-vocabulary gate."""
+
+    defect_type = _display_text(values.get("defect_type") or "")
+    description = _display_text(values.get("description") or "")
+    text = _display_text(f"{defect_type} {description}")
+    if not text or _is_placeholder_text(defect_type):
+        return False
+
+    type_has_defect_marker = any(
+        marker in defect_type for marker in _TEXT_DEFECT_WORDS
+    )
+    type_is_formal_state = defect_type in _FORMAL_TABLE_DEFECT_TYPES
+    text_has_defect_marker = any(marker in text for marker in _TEXT_DEFECT_WORDS)
+
+    if any(negative in text for negative in _TEXT_NEGATIVE_PHRASES):
+        return type_has_defect_marker or type_is_formal_state
+    return text_has_defect_marker or type_is_formal_state
 
 
 def _is_repeated_header_row(row: TableRow) -> bool:
@@ -1101,10 +1197,37 @@ def _expand_lane_and_section(values: dict[str, str], section_label: str) -> None
         values["location"] = location
 
 
-def _clean_description(value: str) -> str:
-    """Trim layout whitespace while preserving all description evidence."""
+_TRAILING_FIGURE_REFERENCE_RE = re.compile(
+    r"(?:[，,；;。\s]+)(?:见)?(?:照片|照|附图|图)\s*"
+    r"[0-9一二三四五六七八九十百千]+(?:[.\-][0-9一二三四五六七八九十百千]+)*"
+    r"\s*[。．.]?$"
+)
 
-    return _display_text(value)
+
+def _clean_description(
+    value: str,
+    *,
+    preserve_figure_refs: bool = False,
+) -> str:
+    """Normalize layout whitespace and optional trailing photo references."""
+
+    cleaned = _display_text(value)
+    if preserve_figure_refs:
+        return cleaned
+    return _TRAILING_FIGURE_REFERENCE_RE.sub("", cleaned).strip("，,；;。． ")
+
+
+def _fill_missing_indices(
+    records: Sequence[DefectObservation],
+) -> tuple[DefectObservation, ...]:
+    """Supply stable display indices only for rows whose source index is empty."""
+
+    result: list[DefectObservation] = []
+    for position, record in enumerate(records, start=1):
+        result.append(
+            record if record.index.strip() else replace(record, index=str(position))
+        )
+    return tuple(result)
 
 
 def _extract_text_defects(

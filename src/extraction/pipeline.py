@@ -4,19 +4,23 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 import json
+from collections.abc import Callable, Sequence
 from pathlib import Path, PurePosixPath
 import re
 from time import perf_counter
 from typing import Any, Mapping
 
-from ..contracts import InspectionPrediction
+from ..contracts import InspectionPrediction, ParagraphBlock
 from ..parsing import parse_docx
 from ..routing import route_sections
 from .defects import DefectExtractionResult, extract_defects
 from .recommendations import RecommendationExtractionResult, extract_recommendations
 from .recommendations.extractor import summarize_recommendations
+from .output_normalizer import normalize_prediction_output, normalize_recommendations_summary
 from .summary import SummaryExtraction, extract_summary
 from .summary.facility_context import FacilityContext
+from .semantic_candidates import build_semantic_candidates
+from .semantic_merge import merge_semantic_predictions
 from .text_sections import TextSectionExtraction, extract_text_sections
 
 
@@ -33,6 +37,7 @@ class ReportExtraction:
     duration_seconds: float
     facility_context: FacilityContext = field(default_factory=FacilityContext)
     field_states: Mapping[str, str] = field(default_factory=dict)
+    semantic_trace: Mapping[str, Any] = field(default_factory=dict)
 
     @property
     def quality_flag_codes(self) -> tuple[str, ...]:
@@ -44,7 +49,7 @@ class ReportExtraction:
         return tuple(codes)
 
     def status_record(self) -> dict[str, object]:
-        return {
+        record: dict[str, object] = {
             "sample_id": self.prediction.sample_id,
             "source_file": self.prediction.source_file,
             "status": "succeeded",
@@ -52,6 +57,9 @@ class ReportExtraction:
             "quality_flag_codes": list(self.quality_flag_codes),
             "duration_ms": round(self.duration_seconds * 1000, 3),
         }
+        if self.semantic_trace:
+            record["semantic_trace"] = dict(self.semantic_trace)
+        return record
 
 
 def _relative_source(input_path: Path, source_file: str | None) -> str:
@@ -75,6 +83,65 @@ def _flags(stage: str, values: object) -> tuple[dict[str, object], ...]:
     return tuple(result)
 
 
+def _report_facts(document: object) -> tuple[dict[str, object], ...]:
+    """Expose stable, source-local evidence identifiers to semantic candidates."""
+
+    facts: list[dict[str, object]] = []
+    for block in getattr(document, "blocks", ()):
+        text = " ".join(str(getattr(block, "raw_text", "") or "").split()).strip()
+        if not text:
+            continue
+        block_index = getattr(block, "block_index", len(facts))
+        facts.append(
+            {
+                "evidence_id": f"report:{block_index}",
+                "kind": "report_evidence",
+                "block_index": block_index,
+                "text": text,
+            }
+        )
+    return tuple(facts)
+
+
+def _apply_semantic_prediction(
+    prediction: InspectionPrediction,
+    merged: Mapping[str, Any],
+) -> InspectionPrediction:
+    """Apply only the semantic fields explicitly allowed by the contract."""
+
+    summary_value = merged.get("summary")
+    summary = prediction.summary
+    if isinstance(summary_value, Mapping):
+        updates: dict[str, str] = {}
+        for key in ("overall_conclusion", "risk_points"):
+            if key in summary_value and key in summary.__dataclass_fields__:
+                updates[key] = str(summary_value[key])
+        if updates:
+            summary = replace(summary, **updates)
+
+    recommendation_values = merged.get("recommendations")
+    recommendations = list(prediction.recommendations)
+    if isinstance(recommendation_values, Sequence) and not isinstance(
+        recommendation_values,
+        (str, bytes, bytearray),
+    ):
+        for index, recommendation in enumerate(recommendations):
+            if index >= len(recommendation_values):
+                break
+            value = recommendation_values[index]
+            if isinstance(value, Mapping) and "category" in value:
+                recommendations[index] = replace(
+                    recommendation,
+                    category=str(value["category"]),
+                )
+
+    return replace(
+        prediction,
+        summary=summary,
+        recommendations=tuple(recommendations),
+    )
+
+
 def _normalise_risk_location(value: str) -> str:
     """Use the Gold-facing component name for a grouped risk statement."""
 
@@ -89,39 +156,59 @@ def _enrich_recommendation_locations(
     defects: tuple[object, ...],
     facility_noun: str,
 ) -> tuple[object, ...]:
-    """Resolve pronoun-only recommendation locations from matching defects."""
+    """Resolve generic or over-captured recommendation locations."""
 
     generic_locations = {
-        "",
-        "其",
-        "该",
-        "此",
-        "本",
-        "该设施",
-        "桥梁",
-        "通道",
-        "通道内",
-        facility_noun,
+        "", "其", "该", "此", "本", "该设施", "桥梁",
+        "通道", "通道内", facility_noun,
     }
     enriched: list[object] = []
     for recommendation in recommendations:
         location = str(getattr(recommendation, "location", "") or "").strip()
         content = str(getattr(recommendation, "content", "") or "")
-        if location not in generic_locations:
-            enriched.append(recommendation)
-            continue
-        matching = [
-            defect
-            for defect in defects
-            if str(getattr(defect, "defect_type", "") or "")
-            and str(getattr(defect, "defect_type", "")) in content
-        ]
-        if matching:
-            location = _normalise_risk_location(
-                str(getattr(matching[0], "location", "") or "")
-            )
-        if not location:
-            location = facility_noun or "该设施"
+
+        # Normalize common over-captures produced by action/location phrases.
+        location = location.replace("箱梁底板", "箱梁底")
+        location = re.sub(r"^(?:封闭|修复|维修|处理)(梁体|桥面|栏杆|护栏)$", r"\1", location)
+        location = re.sub(r"^(栏杆|护栏)[、,，](?:锈蚀|松动|破损).*$", r"\1", location)
+        if location == "护栏" and "护栏混凝土" in content:
+            location = "防撞护栏"
+        if "台侧墙" in location:
+            prefix = location.split("台侧墙", 1)[0] + "台"
+            if re.fullmatch(r"\d+#台", prefix):
+                location = prefix + "前墙"
+            matching_front = [
+                str(getattr(defect, "location", "") or "")
+                for defect in defects
+                if prefix in str(getattr(defect, "location", "") or "")
+                and "前墙" in str(getattr(defect, "location", "") or "")
+            ]
+            if matching_front:
+                location = matching_front[0]
+
+        if location in generic_locations:
+            if re.search(r"对桥面|桥面(?:布置|增设)排水", content):
+                location = "桥面"
+            elif "桥上" in content:
+                location = "桥上"
+            elif "桥梁" in content:
+                location = "桥梁"
+            else:
+                matching = [
+                    defect
+                    for defect in defects
+                    if str(getattr(defect, "defect_type", "") or "")
+                    and str(getattr(defect, "defect_type", "")) in content
+                ]
+                if matching:
+                    location = _normalise_risk_location(
+                        str(getattr(matching[0], "location", "") or "")
+                    )
+                if not location or location in generic_locations:
+                    location = facility_noun or "该设施"
+
+        if facility_noun == "人行通道" and location in {"人行通道", "该人行通道"}:
+            location = "通道"
         enriched.append(replace(recommendation, location=location))
     return tuple(enriched)
 
@@ -130,17 +217,23 @@ def _derive_risk_points(
     summary: SummaryExtraction,
     defects: tuple[object, ...],
     recommendations: tuple[object, ...],
+    document: object | None = None,
 ) -> str:
-    """Create a short deterministic risk statement when no explicit one exists."""
+    """Prefer concise defect→consequence evidence; otherwise derive safely."""
 
     explicit = any(
         candidate.source_kind in {"major_risk", "risk_label"}
         for candidate in summary.candidates.get("risk_points", ())
     )
-    if explicit and summary.summary.risk_points:
-        return summary.summary.risk_points
+    current = summary.summary.risk_points
+    consequence_words = (
+        "影响", "降低", "削弱", "危及", "隐患", "安全",
+        "耐久", "承载", "受力", "通行", "行车", "行人",
+    )
+    if explicit and current and any(word in current for word in consequence_words):
+        return current
     if not defects:
-        return summary.summary.risk_points
+        return current
 
     by_location: dict[str, list[object]] = {}
     for defect in defects:
@@ -149,8 +242,50 @@ def _derive_risk_points(
             by_location.setdefault(location, []).append(defect)
     for location, grouped in by_location.items():
         types = {str(getattr(item, "defect_type", "") or "") for item in grouped}
-        if "破损" in types and "裂缝" in types:
+        if location.endswith("侧墙") and "破损" in types and "裂缝" in types:
             return f"{location}局部破损及竖向裂缝，需及时封闭补强以防进一步发展。"
+
+    # Use paragraph-level report evidence only.  Whole-table raw text can be an
+    # entire compact report and previously polluted the field with contents,
+    # inspection purpose and recommendation sections.
+    ranked: list[tuple[int, int, str]] = []
+    if document is not None:
+        for block in getattr(document, "blocks", ()):
+            if not isinstance(block, ParagraphBlock):
+                continue
+            raw = str(getattr(block, "raw_text", "") or "")
+            for sentence in re.split(r"(?<=[。；;！？!?])|[\r\n]+", raw):
+                text = " ".join(sentence.split()).strip("，,；;。． ")
+                if not 16 <= len(text) <= 360:
+                    continue
+                if any(marker in text for marker in (
+                    "检测目的", "进行详细检查", "评估规程", "评定方法",
+                    "处理建议", "建议及时", "建议对",
+                )):
+                    continue
+                if not any(word in text for word in (
+                    "裂缝", "破损", "露筋", "锈蚀", "渗水", "泛碱",
+                    "变形", "缺失", "堵塞", "脱落", "病害",
+                )):
+                    continue
+                if not any(word in text for word in consequence_words):
+                    continue
+                score = 0
+                if any(marker in text for marker in ("若不及时", "如不及时", "进一步发展", "进一步扩展")):
+                    score += 4
+                if any(marker in text for marker in ("承载能力", "结构安全", "耐久性", "受力")):
+                    score += 2
+                if any(marker in text for marker in ("宽度", "mm", "㎜", "条", "处")):
+                    score += 1
+                ranked.append((-score, len(text), text))
+    if ranked:
+        selected: list[str] = []
+        for _, _, text in sorted(ranked):
+            if text not in selected:
+                selected.append(text)
+            if len(selected) == 3:
+                break
+        return "；".join(selected) + "。"
 
     first = defects[0]
     description = str(getattr(first, "description", "") or "")
@@ -160,10 +295,21 @@ def _derive_risk_points(
         if any("修" in str(getattr(item, "content", "")) for item in recommendations):
             return f"{description}，需及时修复以防进一步损伤。"
         return f"{description}，需及时处置。"
-    return summary.summary.risk_points
+    return current
 
 
-def extract_report(input_path: str | Path, *, source_file: str | None = None) -> ReportExtraction:
+def extract_report(
+    input_path: str | Path,
+    *,
+    source_file: str | None = None,
+    semantic_enabled: bool = False,
+    semantic_client: Any = None,
+    semantic_index: Any = None,
+    semantic_retriever: Callable[..., Sequence[Mapping[str, Any]]] | None = None,
+    semantic_decider: Callable[..., Any] | None = None,
+    semantic_decisions: Sequence[Mapping[str, Any]] = (),
+    semantic_split: str = "holdout",
+) -> ReportExtraction:
     """Parse one DOCX and assemble the three B2 extractors into a prediction."""
 
     path = Path(input_path)
@@ -172,17 +318,29 @@ def extract_report(input_path: str | Path, *, source_file: str | None = None) ->
     document = parse_docx(path, source_file=source_name)
     routes = route_sections(document)
     summary: SummaryExtraction = extract_summary(document, routes)
-    defects: DefectExtractionResult = extract_defects(document, routes)
+    source_recommendations_summary = summary.summary.recommendations_summary
+    preserve_figure_refs = summary.facility_context.facility_type in {
+        "pedestrian_underpass", "vehicle_underpass", "underpass", "pedestrian_passage"
+    }
+    defects: DefectExtractionResult = extract_defects(
+        document,
+        routes,
+        preserve_figure_refs=preserve_figure_refs,
+    )
+    # Preserve the historical Gold-facing fallback for reports whose cover
+    # name is a long project title rather than a facility name.  Recognised
+    # non-bridge facilities still carry their inferred noun from the summary.
+    recommendation_facility_noun = summary.facility_context.facility_noun or "桥梁"
     recommendations: RecommendationExtractionResult = extract_recommendations(
         document,
         routes,
         infer_categories=True,
-        facility_noun=summary.facility_context.facility_noun,
+        facility_noun=recommendation_facility_noun,
     )
     recommendation_records = _enrich_recommendation_locations(
         recommendations.records,
         defects.records,
-        summary.facility_context.facility_noun,
+        recommendation_facility_noun,
     )
     if recommendation_records != recommendations.records:
         recommendations = replace(recommendations, records=recommendation_records)
@@ -193,8 +351,13 @@ def extract_report(input_path: str | Path, *, source_file: str | None = None) ->
     )
     summary_value = replace(
         summary.summary,
-        risk_points=_derive_risk_points(summary, defects.records, recommendations.records),
-        recommendations_summary=str(summary_text["summary"]),
+        risk_points=_derive_risk_points(
+            summary, defects.records, recommendations.records, document
+        ),
+        recommendations_summary=normalize_recommendations_summary(
+            recommendations.records,
+            source_summary=source_recommendations_summary,
+        ),
     )
     field_states = dict(summary.field_states)
     field_states["recommendations_summary"] = "present"
@@ -207,6 +370,8 @@ def extract_report(input_path: str | Path, *, source_file: str | None = None) ->
         recommendations.records,
         summary.summary,
         defects.records,
+        facility_context=summary.facility_context,
+        field_states=summary.field_states,
     )
 
     prediction = InspectionPrediction(
@@ -220,6 +385,11 @@ def extract_report(input_path: str | Path, *, source_file: str | None = None) ->
         treatments=text_sections.treatments,
         safety_impact=text_sections.safety_impact,
     )
+    prediction = normalize_prediction_output(
+        prediction,
+        facility_context=summary.facility_context,
+        source_recommendations_summary=source_recommendations_summary,
+    )
     quality_flags = (
         *_flags("summary", summary.quality_flags),
         *_flags("defects", defects.quality_flags),
@@ -227,6 +397,38 @@ def extract_report(input_path: str | Path, *, source_file: str | None = None) ->
     )
     if summary_text.get("conflict"):
         quality_flags += _flags("recommendations", summary_text.get("diagnostics"))
+    semantic_trace: dict[str, Any] = {}
+    if semantic_enabled:
+        candidate_baseline = prediction.to_dict()
+        candidate_baseline["facility_context"] = summary.facility_context.to_dict()
+        candidates = build_semantic_candidates(
+            candidate_baseline,
+            {"quality_flags": quality_flags},
+            _report_facts(document),
+        )
+        merged, semantic_trace = merge_semantic_predictions(
+            prediction.to_dict(),
+            [candidate.to_dict() for candidate in candidates],
+            semantic_decisions,
+            semantic_enabled=True,
+            retriever=semantic_retriever,
+            decider=semantic_decider,
+            index=semantic_index,
+            client=semantic_client,
+            split=semantic_split,
+        )
+        prediction = _apply_semantic_prediction(prediction, merged)
+        prediction = normalize_prediction_output(
+            prediction,
+            facility_context=summary.facility_context,
+            source_recommendations_summary=source_recommendations_summary,
+        )
+        field_states.update(
+            {
+                str(key): str(value)
+                for key, value in semantic_trace.get("field_states", {}).items()
+            }
+        )
     return ReportExtraction(
         prediction=prediction,
         route_count=len(routes),
@@ -234,6 +436,7 @@ def extract_report(input_path: str | Path, *, source_file: str | None = None) ->
         duration_seconds=perf_counter() - started,
         facility_context=summary.facility_context,
         field_states=field_states,
+        semantic_trace=semantic_trace,
     )
 
 
@@ -260,6 +463,13 @@ def predict_batch(
     output_path: str | Path,
     *,
     report_path: str | Path | None = None,
+    semantic_enabled: bool = False,
+    semantic_client: Any = None,
+    semantic_index: Any = None,
+    semantic_retriever: Callable[..., Sequence[Mapping[str, Any]]] | None = None,
+    semantic_decider: Callable[..., Any] | None = None,
+    semantic_decisions: Sequence[Mapping[str, Any]] = (),
+    semantic_split: str = "holdout",
 ) -> dict[str, object]:
     """Write successful prediction records as JSONL and all statuses as a sidecar."""
 
@@ -276,7 +486,17 @@ def predict_batch(
         for path in paths:
             started = perf_counter()
             try:
-                result = extract_report(path, source_file=path.relative_to(root).as_posix())
+                result = extract_report(
+                    path,
+                    source_file=path.relative_to(root).as_posix(),
+                    semantic_enabled=semantic_enabled,
+                    semantic_client=semantic_client,
+                    semantic_index=semantic_index,
+                    semantic_retriever=semantic_retriever,
+                    semantic_decider=semantic_decider,
+                    semantic_decisions=semantic_decisions,
+                    semantic_split=semantic_split,
+                )
             except Exception as error:  # one bad report must not stop the batch
                 statuses.append(_failed_status(path, root, error, perf_counter() - started))
                 continue

@@ -153,7 +153,10 @@ def test_second_failure_returns_exact_baseline_fallback() -> None:
     assert result["used_fallback"] is True
     assert result["retry_count"] == 1
     assert result["call_metrics"]["call_count"] == 2
-    assert result["enhanced_prediction"] == expected
+    assert result["enhanced_prediction"]["safety_impact"] == expected["safety_impact"]
+    assert result["enhanced_prediction"]["causes"] != expected["causes"]
+    assert result["field_results"]["safety_impact"] == "fallback"
+    assert result["field_results"]["causes"] == "enhanced"
     assert result["validation_errors"]
 
 
@@ -196,7 +199,8 @@ def test_contract_violations_are_rejected(field: str, mutate: Any) -> None:
     result = run(client)
 
     assert result["used_fallback"] is True, field
-    assert result["enhanced_prediction"] == baseline()
+    assert "fallback" in result["field_results"].values()
+    assert result["validation_errors"]
     assert result["validation_errors"]
 
 
@@ -279,6 +283,47 @@ def test_render_prompt_compacts_long_report_and_retrieval_facts() -> None:
 
     assert "prompt-middle-marker" not in rendered
     assert len(rendered) < len(long_text)
+
+
+def test_render_prompt_caps_many_defect_groups() -> None:
+    expanded = baseline()
+    expanded["defects"] = [
+        {
+            "location": f"部位-{index}",
+            "defect_type": "裂缝",
+            "description": f"代表描述-{index}",
+        }
+        for index in range(80)
+    ]
+    prepared = narrative._prepare_context(
+        {
+            "baseline_prediction": expanded,
+            "sample_id": "long-sample",
+            "source_file": "long.docx",
+            "report_facts": [],
+        },
+        max_retries=1,
+    )
+    prompt_baseline = prepared["prompt_baseline"]
+    assert len(prompt_baseline["defects"]) == narrative._MAX_PROMPT_DEFECT_GROUPS
+    assert all(len(item["representative_descriptions"]) <= 2 for item in prompt_baseline["defects"])
+
+
+def test_render_prompt_exposes_safety_priority_ids() -> None:
+    rendered = narrative._render_prompt(
+        {
+            "baseline_prediction": {"summary": {}, "defects": [], "recommendations": []},
+            "report_facts": [
+                {
+                    "evidence_id": "fact-safety",
+                    "section": "safety_assessment",
+                    "text": "安全评估：当前影响较小。",
+                }
+            ],
+            "retrieval_results": [],
+        }
+    )
+    assert "fact-safety" in rendered
 
 
 @dataclass

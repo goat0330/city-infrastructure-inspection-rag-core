@@ -1,0 +1,282 @@
+{
+  "groups": {
+    "core": 8,
+    "medium": 8
+  },
+  "sample_count": 16,
+  "samples": [
+    {
+      "baseline_section_f1": {
+        "causes": 0.021739,
+        "defects": 1.0,
+        "detailed_conclusion": 0.094077,
+        "recommendations": 0.5,
+        "safety_impact": 0.088235,
+        "summary": 0.941176,
+        "treatments": 1.0
+      },
+      "baseline_total_score": 65.784545,
+      "converted_docx_relative_path": "2012年/杨公桥A叉口人行通道.docx",
+      "group": "core",
+      "sample_id": "2012年-杨公桥A叉口人行通道",
+      "source_report_relative_path": "2012年/杨公桥A叉口人行通道.doc",
+      "split": "train"
+    },
+    {
+      "baseline_section_f1": {
+        "causes": 0.295203,
+        "defects": 1.0,
+        "detailed_conclusion": 0.10068,
+        "recommendations": 0.0,
+        "safety_impact": 0.094737,
+        "summary": 0.941176,
+        "treatments": 0.983784
+      },
+      "baseline_total_score": 57.20234,
+      "converted_docx_relative_path": "2012年/杨公桥EC匝道人行通道.docx",
+      "group": "core",
+      "sample_id": "2012年-杨公桥EC匝道人行通道",
+      "source_report_relative_path": "2012年/杨公桥EC匝道人行通道.doc",
+      "split": "train"
+    },
+    {
+      "baseline_section_f1": {
+        "causes": 0.317949,
+        "defects": 0.758065,
+        "detailed_conclusion": 0.255411,
+        "recommendations": 1.0,
+        "safety_impact": 0.196193,
+        "summary": 0.764706,
+        "treatments": 0.985075
+      },
+      "baseline_total_score": 69.36332,
+      "converted_docx_relative_path": "2012年/桂花新村大桥.docx",
+      "group": "core",
+      "sample_id": "2012年-桂花新村大桥",
+      "source_report_relative_path": "2012年/桂花新村大桥.doc",
+      "split": "train"
+    },
+    {
+      "baseline_section_f1": {
+        "causes": 0.295359,
+        "defects": 0.417391,
+        "detailed_conclusion": 0.249731,
+        "recommendations": 0.0,
+        "safety_impact": 0.127132,
+        "summary": 0.823529,
+        "treatments": 0.985507
+      },
+      "baseline_total_score": 39.778265,
+      "converted_docx_relative_path": "2012年/梨子湾大桥.docx",
+      "group": "core",
+      "sample_id": "2012年-梨子湾大桥",
+      "source_report_relative_path": "2012年/梨子湾大桥.doc",
+      "split": "train"
+    },
+    {
+      "baseline_section_f1": {
+        "causes": 0.220833,
+        "defects": 0.0,
+        "detailed_conclusion": 0.213705,
+        "recommendations": 0.8,
+        "safety_impact": 0.143906,
+        "summary": 0.705882,
+        "treatments": 0.988713
+      },
+      "baseline_total_score": 40.090475,
+      "converted_docx_relative_path": "2012年/凤中主线桥.docx",
+      "group": "core",
+      "sample_id": "2012年-凤中主线桥",
+      "source_report_relative_path": "2012年/凤中主线桥.doc",
+      "split": "train"
+    },
+    {
+      "baseline_section_f1": {
+        "causes": 0.726776,
+        "defects": 0.0,
+        "detailed_conclusion": 0.261885,
+        "recommendations": 0.5,
+        "safety_impact": 0.323432,
+        "summary": 0.823529,
+        "treatments": 0.986726
+      },
+      "baseline_total_score": 40.583525,
+      "converted_docx_relative_path": "2013年/12-035杨公桥立交EC匝道桥.docx",
+      "group": "core",
+      "sample_id": "2013年-12-035杨公桥立交EC匝道桥",
+      "source_report_relative_path": "2013年/12-035杨公桥立交EC匝道桥.doc",
+      "split": "validation"
+    },
+    {
+      "baseline_section_f1": {
+        "causes": 0.811518,
+        "defects": 0.0,
+        "detailed_conclusion": 0.268877,
+        "recommendations": 0.5,
+        "safety_impact": 0.368571,
+        "summary": 0.823529,
+        "treatments": 0.986239
+      },
+      "baseline_total_score": 41.335375,
+      "converted_docx_relative_path": "2013年/12-027杨公桥立交DA-ED匝道桥.docx",
+      "group": "core",
+      "sample_id": "2013年-12-027杨公桥立交DA-ED匝道桥",
+      "source_report_relative_path": "2013年/12-027杨公桥立交DA-ED匝道桥.doc",
+      "split": "validation"
+    },
+    {
+      "baseline_section_f1": {
+        "causes": 0.849057,
+        "defects": 0.0,
+        "detailed_conclusion": 0.285439,
+        "recommendations": 0.5,
+        "safety_impact": 0.380518,
+        "summary": 0.882353,
+        "treatments": 0.986175
+      },
+      "baseline_total_score": 43.007395,
+      "converted_docx_relative_path": "2013年/12-030杨公桥DC匝道桥.docx",
+      "group": "core",
+      "sample_id": "2013年-12-030杨公桥DC匝道桥",
+      "source_report_relative_path": "2013年/12-030杨公桥DC匝道桥.doc",
+      "split": "validation"
+    },
+    {
+      "baseline_section_f1": {
+        "causes": 0.331034,
+        "defects": 0.413043,
+        "detailed_conclusion": 0.28833,
+        "recommendations": 0.714286,
+        "safety_impact": 0.175487,
+        "summary": 0.823529,
+        "treatments": 0.986408
+      },
+      "baseline_total_score": 54.937185,
+      "converted_docx_relative_path": "2012年/道角村大桥.docx",
+      "group": "medium",
+      "sample_id": "2012年-道角村大桥",
+      "source_report_relative_path": "2012年/道角村大桥.doc",
+      "split": "train"
+    },
+    {
+      "baseline_section_f1": {
+        "causes": 0.230366,
+        "defects": 0.405797,
+        "detailed_conclusion": 0.218519,
+        "recommendations": 0.875,
+        "safety_impact": 0.337968,
+        "summary": 0.823529,
+        "treatments": 0.985663
+      },
+      "baseline_total_score": 57.19226,
+      "converted_docx_relative_path": "2012年/华岩寺大桥.docx",
+      "group": "medium",
+      "sample_id": "2012年-华岩寺大桥",
+      "source_report_relative_path": "2012年/华岩寺大桥.doc",
+      "split": "train"
+    },
+    {
+      "baseline_section_f1": {
+        "causes": 0.226328,
+        "defects": 0.421769,
+        "detailed_conclusion": 0.214039,
+        "recommendations": 1.0,
+        "safety_impact": 0.15894,
+        "summary": 0.764706,
+        "treatments": 0.984772
+      },
+      "baseline_total_score": 58.007975,
+      "converted_docx_relative_path": "2012年/果园大桥.docx",
+      "group": "medium",
+      "sample_id": "2012年-果园大桥",
+      "source_report_relative_path": "2012年/果园大桥.doc",
+      "split": "train"
+    },
+    {
+      "baseline_section_f1": {
+        "causes": 0.162162,
+        "defects": 0.6,
+        "detailed_conclusion": 0.247446,
+        "recommendations": 0.6,
+        "safety_impact": 0.180328,
+        "summary": 0.764706,
+        "treatments": 0.985507
+      },
+      "baseline_total_score": 55.645795,
+      "converted_docx_relative_path": "2012年/成渝K354+365小桥.docx",
+      "group": "medium",
+      "sample_id": "2012年-成渝K354+365小桥",
+      "source_report_relative_path": "2012年/成渝K354+365小桥.doc",
+      "split": "train"
+    },
+    {
+      "baseline_section_f1": {
+        "causes": 0.294372,
+        "defects": 0.636364,
+        "detailed_conclusion": 0.238267,
+        "recommendations": 0.666667,
+        "safety_impact": 0.204482,
+        "summary": 0.823529,
+        "treatments": 0.992308
+      },
+      "baseline_total_score": 59.924655,
+      "converted_docx_relative_path": "2012年/新村分离式立交中桥.docx",
+      "group": "medium",
+      "sample_id": "2012年-新村分离式立交中桥",
+      "source_report_relative_path": "2012年/新村分离式立交中桥.doc",
+      "split": "train"
+    },
+    {
+      "baseline_section_f1": {
+        "causes": 0.489712,
+        "defects": 0.518519,
+        "detailed_conclusion": 0.268757,
+        "recommendations": 1.0,
+        "safety_impact": 0.169643,
+        "summary": 0.705882,
+        "treatments": 0.986755
+      },
+      "baseline_total_score": 61.935115,
+      "converted_docx_relative_path": "2012年/大田坝大桥.docx",
+      "group": "medium",
+      "sample_id": "2012年-大田坝大桥",
+      "source_report_relative_path": "2012年/大田坝大桥.doc",
+      "split": "train"
+    },
+    {
+      "baseline_section_f1": {
+        "causes": 0.118598,
+        "defects": 0.592593,
+        "detailed_conclusion": 0.24186,
+        "recommendations": 0.8,
+        "safety_impact": 0.110759,
+        "summary": 0.823529,
+        "treatments": 0.987212
+      },
+      "baseline_total_score": 59.959115,
+      "converted_docx_relative_path": "2012年/上界路K39+380上跨车行桥.docx",
+      "group": "medium",
+      "sample_id": "2012年-上界路K39+380上跨车行桥",
+      "source_report_relative_path": "2012年/上界路K39+380上跨车行桥.doc",
+      "split": "train"
+    },
+    {
+      "baseline_section_f1": {
+        "causes": 0.055172,
+        "defects": 0.666667,
+        "detailed_conclusion": 0.245176,
+        "recommendations": 0.8,
+        "safety_impact": 0.098139,
+        "summary": 0.823529,
+        "treatments": 0.987212
+      },
+      "baseline_total_score": 61.850845,
+      "converted_docx_relative_path": "2012年/上界路K39+900上跨车行桥.docx",
+      "group": "medium",
+      "sample_id": "2012年-上界路K39+900上跨车行桥",
+      "source_report_relative_path": "2012年/上界路K39+900上跨车行桥.doc",
+      "split": "train"
+    }
+  ],
+  "schema_version": "round2-narrative-revalidation-samples-v1"
+}

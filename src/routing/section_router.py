@@ -80,6 +80,7 @@ _TITLE_KEYWORDS: dict[SectionCategory, tuple[str, ...]] = {
         "检测结论",
         "详细结论",
         "总体结论",
+        "评估结论",
         "检查结论",
         "检测结果",
         "结论",
@@ -93,6 +94,7 @@ _TITLE_KEYWORDS: dict[SectionCategory, tuple[str, ...]] = {
     ),
     SectionCategory.TREATMENT_RECOMMENDATIONS: (
         "处理建议",
+        "处理意见",
         "处置建议",
         "处治建议",
         "处理措施",
@@ -112,6 +114,7 @@ _RECOMMENDATION_CONTAINER_TITLES = (
 )
 _RECOMMENDATION_LEAF_TITLES = (
     "处理建议",
+    "处理意见",
     "处置建议",
     "处治建议",
     "维修建议",
@@ -247,7 +250,7 @@ def _match_table(raw_text: str) -> SectionCategory | None:
         return SectionCategory.SCORING
     if any(marker in text for marker in _TABLE_RECOMMENDATION_MARKERS):
         return SectionCategory.RECOMMENDATIONS
-    if "处理建议" in text or "处置建议" in text or "处治建议" in text:
+    if any(marker in text for marker in ("处理建议", "处理意见", "处置建议", "处治建议")):
         return SectionCategory.TREATMENT_RECOMMENDATIONS
     if "安全性评估" in text or "安全评估" in text:
         return SectionCategory.SAFETY_ASSESSMENT

@@ -11,6 +11,24 @@ from .document import (
 )
 from .evidence import SourceAnchor
 from .prediction import BridgeSummary, DefectObservation, InspectionPrediction, Recommendation
+from .semantic_extraction import (
+    DecisionStatus,
+    DefectRowValidationResult,
+    EvidenceSelectionResult,
+    ExtractionCandidate,
+    FALLBACK_FIELDS_BY_TASK,
+    OUTPUT_FIELDS_BY_TASK,
+    RECOMMENDATION_CATEGORIES,
+    RecommendationCategory,
+    RecommendationCategoryResult,
+    SEMANTIC_TASK_TYPES,
+    SemanticDecision,
+    SemanticDecisionResult,
+    SemanticExtractionGraphState,
+    SemanticTaskType,
+    fallback_fields_for,
+    validate_decision_for_candidate,
+)
 from .status import RunStatus, StageStatus
 
 __all__ = [
@@ -28,4 +46,20 @@ __all__ = [
     "RunStatus",
     "SourceAnchor",
     "StageStatus",
+    "DecisionStatus",
+    "DefectRowValidationResult",
+    "EvidenceSelectionResult",
+    "ExtractionCandidate",
+    "FALLBACK_FIELDS_BY_TASK",
+    "OUTPUT_FIELDS_BY_TASK",
+    "RECOMMENDATION_CATEGORIES",
+    "RecommendationCategory",
+    "RecommendationCategoryResult",
+    "SEMANTIC_TASK_TYPES",
+    "SemanticDecision",
+    "SemanticDecisionResult",
+    "SemanticExtractionGraphState",
+    "SemanticTaskType",
+    "fallback_fields_for",
+    "validate_decision_for_candidate",
 ]
