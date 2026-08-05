@@ -20,9 +20,15 @@ from ...contracts import (
     TableRow,
 )
 from ...routing import SectionCategory, SectionRoute, route_sections
+from ...routing.section_router import (
+    is_recommendation_container_heading,
+    is_recommendation_leaf_heading,
+)
 
 
-RECOMMENDATION_CATEGORIES = ("立即维修", "立即处置", "尽快维修", "预防性养护")
+RECOMMENDATION_CATEGORIES = ("立即处置", "尽快维修", "预防性养护")
+_CATEGORY_ALIASES = {"立即维修": "立即处置"}
+_CATEGORY_TERMS = (*RECOMMENDATION_CATEGORIES, *_CATEGORY_ALIASES)
 
 _TARGET_CATEGORIES = {
     SectionCategory.RECOMMENDATIONS.value,
@@ -41,7 +47,9 @@ _INDEX_RE = re.compile(
 )
 _ITEM_SEPARATOR_RE = re.compile(r"[;；]+")
 _LINE_SEPARATOR_RE = re.compile(r"[\r\n]+")
-_CATEGORY_RE = re.compile("|".join(map(re.escape, RECOMMENDATION_CATEGORIES)))
+_CATEGORY_RE = re.compile(
+    "|".join(map(re.escape, sorted(_CATEGORY_TERMS, key=len, reverse=True)))
+)
 _LOCATION_LABEL_RE = re.compile(
     r"^(?:病害|维修|养护|处理|处置|处治)?"
     r"(?:部位|位置|地点|构件|范围)\s*[:：]\s*(.*)$"
@@ -108,8 +116,6 @@ _TITLE_WORDS = (
     "日常养护中采取才措施",
 )
 _RECOMMENDATION_HEADING_WORDS = (
-    "结论及建议",
-    "结论与建议",
     "建议明细表",
     "维修养护建议",
     "维护建议",
@@ -418,6 +424,7 @@ class RecommendationExtractionResult:
 
     records: tuple[Recommendation, ...] = field(default_factory=tuple)
     quality_flags: tuple[dict[str, object], ...] = field(default_factory=tuple)
+    raw_categories: tuple[dict[str, str], ...] = field(default_factory=tuple)
 
     @property
     def recommendations(self) -> tuple[Recommendation, ...]:
@@ -433,7 +440,59 @@ class RecommendationExtractionResult:
         return {
             "recommendations": [asdict(record) for record in self.records],
             "quality_flags": [dict(flag) for flag in self.quality_flags],
+            "raw_categories": [dict(value) for value in self.raw_categories],
         }
+
+
+def summarize_recommendations(
+    recommendations: Sequence[object] | None = None,
+    *,
+    source_summary: str | Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    """Return a complete three-category recommendation count summary.
+
+    ``source_summary`` may be the report's textual count summary or a mapping
+    of category counts.  The detail counts are always normalized to the Gold
+    categories, including the legacy ``立即维修`` alias.  When both sources
+    are available, a mismatch is exposed through ``conflict`` and
+    ``diagnostics`` rather than silently selecting one source.
+    """
+
+    if isinstance(recommendations, RecommendationExtractionResult):
+        recommendations = recommendations.records
+    detail_counts = _count_recommendations(recommendations or ())
+    parsed_source, source_diagnostics = _parse_source_summary(source_summary)
+    diagnostics = list(source_diagnostics)
+    use_source_only = recommendations is None and parsed_source is not None
+    counts = dict(parsed_source) if use_source_only else detail_counts
+    conflict = (
+        not use_source_only
+        and parsed_source is not None
+        and parsed_source != detail_counts
+    )
+    if conflict:
+        diagnostics.append(
+            {
+                "code": "recommendation_summary_conflict",
+                "source_counts": dict(parsed_source),
+                "detail_counts": dict(detail_counts),
+            }
+        )
+    formatted = _format_recommendation_counts(counts)
+    return {
+        "counts": counts,
+        "summary": formatted,
+        "formatted": formatted,
+        "source_counts": parsed_source,
+        "detail_counts": detail_counts,
+        "conflict": conflict,
+        "diagnostics": tuple(diagnostics),
+    }
+
+
+# Keep both spellings available to callers that use the British spelling in
+# report tooling.
+summarise_recommendations = summarize_recommendations
 
 
 @dataclass
@@ -461,6 +520,7 @@ def extract_recommendations(
     routes: Sequence[SectionRoute] | None = None,
     *,
     infer_categories: bool = False,
+    facility_noun: str = "该设施",
 ) -> RecommendationExtractionResult:
     """Extract recommendations from routed and fallback Word evidence.
 
@@ -471,9 +531,13 @@ def extract_recommendations(
     """
 
     effective_routes = tuple(route_sections(document) if routes is None else routes)
+    facility_noun = _normalise_facility_noun(facility_noun)
     target_routes = tuple(
-        route for route in effective_routes if _is_target_route(route.category)
+        route
+        for route in effective_routes
+        if _is_target_route(route.category) and not _is_container_route(route)
     )
+    has_container_route = any(_is_container_route(route) for route in effective_routes)
     route_blocks = {
         block.block_index
         for route in target_routes
@@ -509,10 +573,12 @@ def extract_recommendations(
         or custom_headings
         or route_headings
     )
+    bounded_recommendation_scope = bool(target_routes or custom_blocks or has_container_route)
     explicit_preferred_blocks = {
         block.block_index
         for block in document.blocks
-        if not explicit_route_blocks
+        if not bounded_recommendation_scope
+        and not explicit_route_blocks
         and not custom_blocks
         and isinstance(block, ParagraphBlock)
         and block.block_index not in preferred_blocks
@@ -520,16 +586,17 @@ def extract_recommendations(
     }
 
     fallback_blocks: set[int] = set()
-    for block in document.blocks:
-        if block.block_index in preferred_blocks | explicit_preferred_blocks:
-            continue
-        if isinstance(block, TableBlock):
-            if _looks_like_recommendation_table(block):
+    if not bounded_recommendation_scope:
+        for block in document.blocks:
+            if block.block_index in preferred_blocks | explicit_preferred_blocks:
+                continue
+            if isinstance(block, TableBlock):
+                if _looks_like_recommendation_table(block):
+                    fallback_blocks.add(block.block_index)
+            elif isinstance(block, ParagraphBlock) and _looks_like_recommendation_paragraph(
+                block.raw_text
+            ):
                 fallback_blocks.add(block.block_index)
-        elif isinstance(block, ParagraphBlock) and _looks_like_recommendation_paragraph(
-            block.raw_text
-        ):
-            fallback_blocks.add(block.block_index)
 
     candidates: list[_Candidate] = []
     previous_paragraph_candidate: int | None = None
@@ -574,6 +641,7 @@ def extract_recommendations(
         paragraph_candidates = _paragraph_candidates(
             block,
             allow_plain_text=in_preferred,
+            facility_noun=facility_noun,
         )
         if not paragraph_candidates:
             previous_paragraph_candidate = None
@@ -616,12 +684,25 @@ def extract_recommendations(
         )
         previous_paragraph_preferred = in_preferred
 
-    return _finalise(candidates, infer_categories=infer_categories)
+    return _finalise(
+        candidates,
+        infer_categories=infer_categories,
+        facility_noun=facility_noun,
+    )
 
 
 def _is_target_route(category: object) -> bool:
     value = getattr(category, "value", category)
     return str(value) in _TARGET_CATEGORIES
+
+
+def _is_container_route(route: SectionRoute) -> bool:
+    if bool(getattr(route, "is_container", False)):
+        return True
+    heading = getattr(route, "heading", None)
+    return isinstance(heading, ParagraphBlock) and is_recommendation_container_heading(
+        heading.raw_text
+    )
 
 
 def _custom_recommendation_blocks(
@@ -693,6 +774,10 @@ def _heading_level_value(block: object) -> int | None:
 
 
 def _is_recommendation_heading(block: ParagraphBlock) -> bool:
+    if is_recommendation_container_heading(block.raw_text):
+        return False
+    if is_recommendation_leaf_heading(block.raw_text):
+        return True
     compact = _INDEX_RE.sub("", _compact(block.raw_text), count=1).strip("：:。.;；，,、")
     return any(
         compact == title or compact.endswith(title)
@@ -845,6 +930,7 @@ def _paragraph_candidates(
     block: ParagraphBlock,
     *,
     allow_plain_text: bool,
+    facility_noun: str,
 ) -> list[_Candidate]:
     items = _split_text_items(block.raw_text)
     block_looks_like_recommendation = _looks_like_recommendation_paragraph(
@@ -870,7 +956,7 @@ def _paragraph_candidates(
         category, body = _category_fields(content)
         location, body = _location_fields(body)
         if allow_plain_text and not location:
-            location = "桥梁"
+            location = facility_noun
         result.append(
             _Candidate(
                 index=_clean_index(item.index),
@@ -964,6 +1050,8 @@ def _resolve_category(
 ) -> tuple[str, bool]:
     hint_categories = _categories_in(category_hint)
     content_categories = _categories_in(content)
+    hint_categories = _normalise_categories(hint_categories)
+    content_categories = _normalise_categories(content_categories)
     if len(hint_categories) > 1:
         return "", True
     if hint_categories:
@@ -990,7 +1078,7 @@ def _infer_category(content: str) -> str | None:
 
     compact = _compact(content)
     if "立即维修" in compact or "立即修" in compact:
-        return "立即维修"
+        return "立即处置"
     if any(
         marker in compact
         for marker in (
@@ -1073,10 +1161,129 @@ def _infer_category(content: str) -> str | None:
 
 def _categories_in(text: str) -> list[str]:
     return [
-        category
-        for category in RECOMMENDATION_CATEGORIES
-        if category in text
+        category for category in _CATEGORY_TERMS if category in text
     ]
+
+
+def _normalise_categories(categories: Sequence[str]) -> list[str]:
+    result: list[str] = []
+    for category in categories:
+        canonical = _CATEGORY_ALIASES.get(category, category)
+        if canonical not in result:
+            result.append(canonical)
+    return result
+
+
+def _normalise_facility_noun(value: str | None) -> str:
+    return _clean_location(value or "") or "该设施"
+
+
+def _empty_category_counts() -> dict[str, int]:
+    return {category: 0 for category in RECOMMENDATION_CATEGORIES}
+
+
+def _count_recommendations(recommendations: Sequence[object]) -> dict[str, int]:
+    counts = _empty_category_counts()
+    for recommendation in recommendations:
+        if isinstance(recommendation, Mapping):
+            value = recommendation.get("category", "")
+        else:
+            value = getattr(recommendation, "category", "")
+        categories = _normalise_categories(_categories_in(str(value)))
+        if len(categories) == 1:
+            counts[categories[0]] += 1
+    return counts
+
+
+_SUMMARY_COUNT_PATTERN = r"(?:[0-9]+|零|一|二|两|三|四|五|六|七|八|九|十|百|千|万)\s*条?"
+_SUMMARY_COUNT_RE = re.compile(rf"(?P<count>{_SUMMARY_COUNT_PATTERN})")
+_SUMMARY_CATEGORY_RE = "|".join(
+    map(re.escape, sorted(_CATEGORY_TERMS, key=len, reverse=True))
+)
+_SUMMARY_PAIR_RE = re.compile(
+    rf"(?:(?P<count_before>{_SUMMARY_COUNT_PATTERN})\s*(?P<category_before>{_SUMMARY_CATEGORY_RE})|"
+    rf"(?P<category_after>{_SUMMARY_CATEGORY_RE})\s*[:：]?\s*(?P<count_after>{_SUMMARY_COUNT_PATTERN}))"
+)
+
+
+def _parse_source_summary(
+    source_summary: str | Mapping[str, object] | None,
+) -> tuple[dict[str, int] | None, list[dict[str, object]]]:
+    if source_summary is None:
+        return None, []
+    if isinstance(source_summary, Mapping):
+        nested_summary = source_summary.get("summary") or source_summary.get(
+            "recommendations_summary"
+        )
+        if isinstance(nested_summary, str):
+            return _parse_source_summary(nested_summary)
+        values = source_summary.get("counts", source_summary)
+        if not isinstance(values, Mapping):
+            return None, [{"code": "recommendation_summary_unparsed"}]
+        counts = _empty_category_counts()
+        diagnostics: list[dict[str, object]] = []
+        for raw_category, raw_count in values.items():
+            categories = _normalise_categories(_categories_in(str(raw_category)))
+            count = _summary_count(raw_count)
+            if len(categories) != 1 or count is None:
+                diagnostics.append(
+                    {
+                        "code": "recommendation_summary_unparsed",
+                        "category": str(raw_category),
+                    }
+                )
+                continue
+            counts[categories[0]] += count
+        return counts, diagnostics
+    text = str(source_summary)
+    counts = _empty_category_counts()
+    matches = list(_SUMMARY_PAIR_RE.finditer(text))
+    for match in matches:
+        category = match.group("category_before") or match.group("category_after") or ""
+        raw_count = match.group("count_before") or match.group("count_after") or ""
+        categories = _normalise_categories(_categories_in(category))
+        count = _summary_count(raw_count)
+        if len(categories) == 1 and count is not None:
+            counts[categories[0]] += count
+    if not matches:
+        return None, [{"code": "recommendation_summary_unparsed"}]
+    return counts, []
+
+
+def _summary_count(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value >= 0 else None
+    text = str(value).strip()
+    match = _SUMMARY_COUNT_RE.search(text)
+    if match is None:
+        return None
+    token = match.group("count").strip().rstrip("条").strip()
+    if token.isdigit():
+        return int(token)
+    if token == "零":
+        return 0
+    if token == "两":
+        return 2
+    if token in "一二三四五六七八九":
+        return "一二三四五六七八九".index(token) + 1
+    if token == "十":
+        return 10
+    if token == "百":
+        return 100
+    if token == "千":
+        return 1000
+    if token == "万":
+        return 10000
+    return None
+
+
+def _format_recommendation_counts(counts: Mapping[str, int]) -> str:
+    return "、".join(
+        f"{counts.get(category, 0)}条{category}"
+        for category in RECOMMENDATION_CATEGORIES
+    )
 
 
 def _location_fields(text: str) -> tuple[str, str]:
@@ -1316,6 +1523,7 @@ def _finalise(
     candidates: Iterable[_Candidate],
     *,
     infer_categories: bool = False,
+    facility_noun: str = "该设施",
 ) -> RecommendationExtractionResult:
     candidate_list = list(candidates)
     if any(candidate.preferred for candidate in candidate_list):
@@ -1324,6 +1532,7 @@ def _finalise(
         ]
     records: list[Recommendation] = []
     flags: list[dict[str, object]] = []
+    raw_categories: list[dict[str, str]] = []
     for candidate in candidate_list:
         content = _clean_text(candidate.content)
         if not content:
@@ -1334,6 +1543,8 @@ def _finalise(
             infer_categories=infer_categories,
         )
         location = _clean_location(candidate.location)
+        if not location and candidate.preferred:
+            location = facility_noun
         evidence = _unique_anchors(candidate.anchors)
         record = Recommendation(
             index=_clean_index(candidate.index),
@@ -1343,6 +1554,15 @@ def _finalise(
             evidence=evidence,
         )
         records.append(record)
+        raw_category = _raw_category(candidate.category_hint, content)
+        if raw_category and category and raw_category != category:
+            raw_categories.append(
+                {
+                    "index": record.index,
+                    "raw_category": raw_category,
+                    "category": category,
+                }
+            )
         if unresolved:
             anchor = evidence[0] if evidence else None
             flag: dict[str, object] = {
@@ -1366,7 +1586,18 @@ def _finalise(
                     "message": "Recommendation category was assigned by the opt-in Gold-derived lexical policy.",
                 }
             )
-    return RecommendationExtractionResult(tuple(records), tuple(flags))
+    return RecommendationExtractionResult(
+        records=tuple(records),
+        quality_flags=tuple(flags),
+        raw_categories=tuple(raw_categories),
+    )
+
+
+def _raw_category(category_hint: str, content: str) -> str:
+    categories = _categories_in(category_hint)
+    if not categories:
+        categories = _categories_in(content)
+    return categories[0] if categories else ""
 
 
 def _looks_like_recommendation_table(table: TableBlock) -> bool:

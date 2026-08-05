@@ -12,6 +12,7 @@ from src.extraction.recommendations import extract_recommendations
 from src.extraction.recommendations.extractor import (
     _looks_like_recommendation_paragraph,
     _location_fields,
+    summarize_recommendations,
 )
 
 
@@ -81,12 +82,15 @@ def test_extracts_table_rows_and_preserves_cell_anchors() -> None:
         (item.index, item.category, item.content, item.location)
         for item in result.records
     ] == [
-        ("1", "立即维修", "修复裂缝", "桥面、伸缩缝"),
+        ("1", "立即处置", "修复裂缝", "桥面、伸缩缝"),
         ("2", "预防性养护", "定期清理", "排水系统"),
     ]
     assert result.records[0].evidence[0].row_index == 1
     assert result.records[0].evidence[0].column_index == 0
     assert result.quality_flags == ()
+    assert result.raw_categories == (
+        {"index": "1", "raw_category": "立即维修", "category": "立即处置"},
+    )
 
 
 def test_splits_numbered_paragraph_list_and_keeps_multiple_locations() -> None:
@@ -158,7 +162,7 @@ def test_resolves_category_from_content_and_flags_unresolved_fallback() -> None:
 
     result = extract_recommendations(model)
 
-    assert [item.category for item in result.records] == ["立即维修"]
+    assert [item.category for item in result.records] == ["立即处置"]
     assert [item.index for item in result.records] == ["1"]
     assert result.quality_flag_codes == ()
 
@@ -472,3 +476,72 @@ def test_audits_recommendations_and_treatment_recommendations_routes() -> None:
         ("尽快维修", "桥面"),
         ("预防性养护", "桥梁"),
     ]
+
+
+def test_a_intersection_composite_parent_does_not_pollute_ec_leaf() -> None:
+    result = extract_recommendations(
+        _model(
+            _paragraph(0, "5 结论与建议", heading_level=1),
+            _paragraph(1, "5.1 检测结论", heading_level=2),
+            _paragraph(2, "（1）检测结果显示人行通道存在裂缝，建议后续关注。"),
+            _paragraph(3, "5.2 安全影响", heading_level=2),
+            _paragraph(4, "（2）安全影响较小，暂不影响通行。"),
+            _paragraph(5, "5.3 检测结果", heading_level=2),
+            _paragraph(6, "（3）检测结果见图2.1.1。"),
+            _paragraph(7, "5.4 处理建议", heading_level=2),
+            _paragraph(8, "（4）尽快维修：人行通道：修补裂缝。"),
+        ),
+        infer_categories=True,
+        facility_noun="人行通道",
+    )
+
+    assert [(item.category, item.location) for item in result.records] == [
+        ("尽快维修", "人行通道"),
+    ]
+
+
+def test_facility_noun_replaces_bridge_default_for_unlabelled_leaf_item() -> None:
+    model = _model(
+        _paragraph(0, "主要建议", heading_level=1),
+        _paragraph(1, "（1）建议定期检查。"),
+    )
+
+    assert extract_recommendations(model, infer_categories=True).records[0].location == "该设施"
+    assert (
+        extract_recommendations(
+            model,
+            infer_categories=True,
+            facility_noun="人行通道",
+        ).records[0].location
+        == "人行通道"
+    )
+
+
+def test_recommendation_summary_has_all_gold_categories_and_reports_conflict() -> None:
+    details = [
+        {"category": "尽快维修"},
+        {"category": "尽快维修"},
+        {"category": "预防性养护"},
+    ]
+
+    summary = summarize_recommendations(
+        details,
+        source_summary="0条立即处置、2条尽快维修、1条预防性养护",
+    )
+    assert summary["counts"] == {
+        "立即处置": 0,
+        "尽快维修": 2,
+        "预防性养护": 1,
+    }
+    assert summary["summary"] == "0条立即处置、2条尽快维修、1条预防性养护"
+    assert summary["conflict"] is False
+
+    conflict = summarize_recommendations(
+        details,
+        source_summary="1条立即处置、2条尽快维修、1条预防性养护",
+    )
+    assert conflict["conflict"] is True
+    assert any(
+        item["code"] == "recommendation_summary_conflict"
+        for item in conflict["diagnostics"]
+    )

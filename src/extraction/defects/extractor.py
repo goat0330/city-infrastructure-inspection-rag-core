@@ -76,9 +76,6 @@ _EXPLICIT_TABLE_MARKERS = (
 _EXACT_ONLY_ALIASES = frozenset(
     ("序号", "编号", "部位", "位置", "类型", "描述", "具体位置", "发展", "新旧")
 )
-_PHOTO_REFERENCE_RE = re.compile(
-    r"[，,;；。]?\s*(?:见\s*)?(?:照片|照|附图|图)\s*[\w./+#-]+\s*[。；;]?$"
-)
 _LANE_PREFIX_RE = re.compile(r"^(左幅|右幅|左侧|右侧)")
 _SECTION_MARKERS = ("上部结构", "下部结构", "桥面系")
 
@@ -729,9 +726,9 @@ def _expand_lane_and_section(values: dict[str, str], section_label: str) -> None
 
 
 def _clean_description(value: str) -> str:
-    """Remove a trailing photo/figure citation from a defect description."""
+    """Trim layout whitespace while preserving all description evidence."""
 
-    return _PHOTO_REFERENCE_RE.sub("", value).strip()
+    return _display_text(value)
 
 
 def _extract_text_defects(
@@ -814,7 +811,7 @@ def _extract_legacy_table_rows(
         if not location:
             continue
         rest = body[start.end() + len(location) : row_end]
-        rest = re.split(r"照片|图\s*4\.2|\(本页|（本页", rest, maxsplit=1)[0].strip()
+        rest = rest.strip()
         table_type, description = _legacy_row_fields(rest)
         for part_index, part in enumerate(_legacy_description_parts(description)):
             candidate = _legacy_text_candidate(

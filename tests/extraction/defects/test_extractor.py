@@ -203,18 +203,22 @@ def test_structural_fallback_maps_common_kind_and_specific_location_headers() ->
     assert result[0].description == "伸缩缝处纵向裂缝"
 
 
-def test_defect_description_drops_trailing_photo_reference() -> None:
+def test_defect_description_preserves_photo_reference_and_measurements() -> None:
     xml = document_xml(
         table(
             row(cell("位置"), cell("病害种类"), cell("具体位置")),
-            row(cell("桥面系"), cell("裂缝"), cell("伸缩缝处纵向裂缝，见照片5.1.1-1")),
+            row(
+                cell("桥面系"),
+                cell("裂缝"),
+                cell("伸缩缝处3处纵向裂缝，宽度约2mm，见图2.1.1、照片5.1.1-1"),
+            ),
         )
     )
     document = parse_document_xml(xml, source_file="photo.docx")
 
     result = extract_defects(document)
 
-    assert result[0].description == "伸缩缝处纵向裂缝"
+    assert result[0].description == "伸缩缝处3处纵向裂缝，宽度约2mm，见图2.1.1、照片5.1.1-1"
 
 
 def test_missing_status_fields_use_auditable_gold_template_defaults() -> None:

@@ -34,6 +34,7 @@ class SectionRoute:
     heading: DocumentBlock
     blocks: tuple[DocumentBlock, ...]
     source: SourceAnchor
+    is_container: bool = False
 
 
 _CATEGORY_ORDER = (
@@ -68,8 +69,10 @@ _TITLE_KEYWORDS: dict[SectionCategory, tuple[str, ...]] = {
     SectionCategory.RECOMMENDATIONS: (
         "建议明细表",
         "建议明细",
+        "主要建议",
         "维修建议",
         "养护建议",
+        "维护建议",
         "建议表",
         "建议",
     ),
@@ -94,11 +97,42 @@ _TITLE_KEYWORDS: dict[SectionCategory, tuple[str, ...]] = {
         "处治建议",
         "处理措施",
         "处置措施",
+        "处治措施",
         "维修处理",
         "维修处治",
         "加固处理",
     ),
 }
+
+_RECOMMENDATION_CONTAINER_TITLES = (
+    "结论与建议",
+    "结论及建议",
+    "综合评估与建议",
+    "评估结论与建议",
+)
+_RECOMMENDATION_LEAF_TITLES = (
+    "处理建议",
+    "处置建议",
+    "处治建议",
+    "维修建议",
+    "养护建议",
+    "维护建议",
+    "主要建议",
+    # Keep the legacy section headings that are already treated as explicit
+    # recommendation sections by the extractor.
+    "建议明细表",
+    "建议明细",
+    "建议列表",
+    "建议表",
+    "建议",
+    "处理措施",
+    "处置措施",
+    "处治措施",
+    "应采取的措施",
+    "应立即维护的设施",
+    "日常养护中采取措施",
+    "日常养护中采取才措施",
+)
 
 _TABLE_DEFECT_MARKERS = (
     "病害部位",
@@ -160,6 +194,10 @@ def route_sections(document: DocumentModel) -> tuple[SectionRoute, ...]:
                 heading=block,
                 blocks=tuple(blocks[index:end]),
                 source=block.source,
+                is_container=(
+                    isinstance(block, ParagraphBlock)
+                    and is_recommendation_container_heading(block.raw_text)
+                ),
             )
         )
     return tuple(routes)
@@ -261,6 +299,31 @@ def _is_keyword_fallback_title(raw_text: str) -> bool:
         if any(text == keyword or text.endswith(keyword) for keyword in keywords):
             return True
     return text.endswith(("章节", "部分")) and _match_title(text) is not None
+
+
+def _normalise_heading_title(raw_text: str) -> str:
+    return _strip_numbering(_compact(raw_text)).strip("：:。.;；，,、")
+
+
+def is_recommendation_container_heading(raw_text: str) -> bool:
+    """Return whether a heading is a composite recommendation container.
+
+    Composite headings provide a boundary for child sections such as
+    ``5.1 检测结论`` and ``5.4 处理建议``.  They must never be used as the
+    plain-text recommendation source themselves.
+    """
+
+    title = _normalise_heading_title(raw_text)
+    return any(title == item or title.endswith(item) for item in _RECOMMENDATION_CONTAINER_TITLES)
+
+
+def is_recommendation_leaf_heading(raw_text: str) -> bool:
+    """Return whether a heading can directly provide recommendation text."""
+
+    if is_recommendation_container_heading(raw_text):
+        return False
+    title = _normalise_heading_title(raw_text)
+    return any(title == item or title.endswith(item) for item in _RECOMMENDATION_LEAF_TITLES)
 
 
 def _heading_level(block: DocumentBlock) -> int | None:

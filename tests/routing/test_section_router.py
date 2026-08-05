@@ -9,6 +9,10 @@ from src.contracts import (
     TableRow,
 )
 from src.routing import SectionCategory, route_sections
+from src.routing.section_router import (
+    is_recommendation_container_heading,
+    is_recommendation_leaf_heading,
+)
 
 
 def _paragraph(
@@ -129,3 +133,23 @@ def test_no_matching_heading_returns_empty_tuple() -> None:
     )
 
     assert route_sections(model) == ()
+
+
+def test_composite_recommendation_heading_is_container_not_leaf() -> None:
+    model = _model(
+        _paragraph(0, "5 结论与建议", heading_level=1),
+        _paragraph(1, "5.1 检测结论", heading_level=2),
+        _paragraph(2, "结论正文"),
+        _paragraph(3, "5.4 处理建议", heading_level=2),
+        _paragraph(4, "建议正文"),
+    )
+
+    routes = route_sections(model)
+
+    parent = next(route for route in routes if route.heading.block_index == 0)
+    leaf = next(route for route in routes if route.heading.block_index == 3)
+    assert parent.is_container
+    assert not leaf.is_container
+    assert is_recommendation_container_heading("5 结论与建议")
+    assert not is_recommendation_leaf_heading("5 结论与建议")
+    assert is_recommendation_leaf_heading("5.4 处理建议")
