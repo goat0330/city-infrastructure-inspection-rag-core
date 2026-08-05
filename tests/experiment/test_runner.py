@@ -164,6 +164,28 @@ def test_task_queries_are_independent_and_retrieval_hits_use_global_source_quota
     assert "l1" not in ids
 
 
+def test_underpass_queries_use_only_facility_specific_components() -> None:
+    baseline = {
+        "sample_id": "underpass-1",
+        "summary": {"bridge_name": "示例人行通道", "overall_conclusion": "通道状态良好"},
+        "facility_context": {
+            "facility_name": "示例人行通道",
+            "facility_type": "pedestrian_underpass",
+            "facility_noun": "人行通道",
+        },
+        "defects": [{"location": "顶板", "defect_type": "刮痕", "description": "顶板有车辆刮痕"}],
+        "recommendations": [],
+    }
+    facts = [{"evidence_id": "fact-1", "section": "defect_table", "text": "顶板有车辆刮痕；上部结构一词仅出现在引用规范中。"}]
+
+    queries = runner._task_queries(baseline, baseline["facility_context"], facts)
+
+    assert "facility_type=pedestrian_underpass" in queries["causes"]
+    assert "顶板" in queries["causes"]
+    assert "桥面系" not in queries["causes"]
+    assert "梯道" not in queries["causes"]
+
+
 def test_real_runner_records_task_queries_and_final_d_hits(tmp_path: Path, monkeypatch) -> None:
     source = tmp_path / "实验桥.docx"
     source.write_bytes(b"placeholder")

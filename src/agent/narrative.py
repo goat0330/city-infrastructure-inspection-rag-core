@@ -391,9 +391,7 @@ def _task_queries(
     )
     observed_components = [
         term
-        for term in dict.fromkeys(
-            list(context.get("components", [])) + sorted(_ALL_COMPONENT_TERMS, key=len, reverse=True)
-        )
+        for term in dict.fromkeys(context.get("components", []))
         if term and term in evidence_text
     ]
     if not observed_components:
@@ -671,6 +669,7 @@ def _render_prompt(state: NarrativeState) -> str:
         "{{SOURCE_FILE}}": str(state.get("source_file", "")),
         "{{BASELINE_PREDICTION}}": _json_dump(prompt_baseline),
         "{{FACILITY_CONTEXT}}": _json_dump(facility_context),
+        "{{FACILITY_NOUN}}": str(facility_context.get("facility_noun", "设施")),
         "{{FIELD_STATES}}": _json_dump(state.get("field_states", baseline.get("field_states", {}))),
         "{{LOCKED_FACTS}}": _json_dump(prompt_locked_facts),
         "{{REPORT_FACTS}}": _json_dump(

@@ -93,7 +93,15 @@ def _prediction_dict(value: Any) -> dict[str, Any]:
 
 def _load_baseline(input_docx: Path, baseline_json: Path | None) -> dict[str, Any]:
     if baseline_json is None:
-        return _prediction_dict(extract_report(input_docx))
+        extraction = extract_report(input_docx)
+        baseline = _prediction_dict(extraction.prediction)
+        # ReportExtraction carries facility metadata outside the public
+        # InspectionPrediction contract. Keep it in the experiment state so
+        # facility-aware retrieval and validation do not have to infer it from
+        # a legacy field such as summary.bridge_name.
+        baseline["facility_context"] = _plain(extraction.facility_context)
+        baseline["field_states"] = _plain(extraction.field_states)
+        return baseline
     return _prediction_dict(json.loads(baseline_json.read_text(encoding="utf-8")))
 
 

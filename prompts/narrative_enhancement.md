@@ -36,6 +36,11 @@ field states:
 locked facts:
 {{LOCKED_FACTS}}
 
+In narrative prose, the only specific facility noun allowed is
+`{{FACILITY_NOUN}}` (generic `设施` or `通道` is also allowed). Do not call the
+facility a different type such as `桥梁`, `人行天桥`, `隧道`, `涵洞`, or `道路`,
+even when one of those words appears only inside the name of a cited standard.
+
 Use component terms only when they occur in the supplied report facts or
 retrieval evidence. For a non-bridge facility, do not call it `该桥` or `全桥`
 and do not use `桥面系`, `上部结构`, or `下部结构` unless that exact term is
