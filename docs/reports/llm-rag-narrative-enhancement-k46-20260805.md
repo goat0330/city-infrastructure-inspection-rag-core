@@ -1,107 +1,130 @@
-# K46 Narrative Enhancement 校准报告（2026-08-05）
+# LLM + RAG Narrative Enhancement 校准报告
 
-## 1. 范围
+日期：2026-08-05
 
-本报告只记录 Word-first 基线之上的 Narrative Enhancement 校准：独立任务检索 Query、RAG 来源配额、Prompt 事实压缩、证据/新增事实审计和锁定字段检查。
+本报告记录 Word-first 确定性抽取主线之上的第一轮 LLM + RAG Narrative 校准。目标只覆盖四个文本字段：`detailed_conclusion`、`causes`、`treatments`、`safety_impact`；桥梁名称、日期、评分、等级、病害、建议明细和历史字段仍由 Baseline 锁定。
 
-本线不修改 Gold、评分逻辑、确定性抽取器、提交打包器或生产 Word 模板。模板渲染另在 `feat/template-rendering` worktree 中维护，并通过独立提交合并。
+本轮没有批跑 92 份初赛测试集，也没有修改 Gold、评分器、确定性抽取器或提交打包器。当前仓库 HEAD 已包含此前 Word-first/模板集成；本报告只评价 Narrative 校准和本轮审计修正。
+
+## 1. K46 单样本校准
 
 样本：
 
 ```text
-runs/p0-converted/2012年/上界路K46+500上跨车行桥.docx
+source = runs/p0-converted/2012年/上界路K46+500上跨车行桥.docx
 sample_id = 2012年-上界路K46+500上跨车行桥
 split = fit
+artifact = runs/narrative-k46-20260805/real-run-p0-v4/
 ```
 
-## 2. 本轮修正
-
-- `_text_values()` 对嵌套 Mapping/Sequence 增加循环保护；`_text_evidence_pairs()` 同样避免自引用递归。
-- `detailed_conclusion`、`causes`、`treatments`、`safety_impact` 各自生成独立检索 Query。
-- D 组使用简单来源配额：`report_evidence=3`、`domain_knowledge=2`、`label_example=1`。
-- 配额选择不再局限于全局 embedding 前 30 条；当知识或标签样例低于全局排名时，从同源候选中补足配额。
-- Prompt 只保留证据 ID、来源锚点、章节和截断后的事实正文；病害描述也限制长度。
-- 检索轨迹保留原始 `kind`，并增加面向验收的 `source_bucket`，避免把内部别名误读成实际来源。
-- D 组输出增加 `locked_top_level_differences` 和 `locked_fields_unchanged`。
-
-## 3. 真实运行结果
-
-实际成功运行产物：
+本轮实际成功运行了 4 个独立任务 Query。D 组最终召回 6 条：
 
 ```text
-runs/narrative-k46-20260805/real-run-p0-v2/
+report_evidence  × 3
+domain_knowledge × 2   (raw kind = knowledge_card)
+label_example    × 1   (raw kind = gold_label)
 ```
 
-| 组别 | Prompt Tokens | Completion Tokens | Total Tokens |
+6 条均为 `split=fit`；当前样本的 Gold 标签没有进入召回结果。D 组 11 次模型调用中，8 次为检索调用，1 次为 Narrative 生成；Prompt 为 7,295 tokens，生成 1,131 tokens，耗时约 180.3 秒。
+
+| 组别 | Prompt tokens | Completion tokens | 新事实旗标 | 引用审计 | 锁定字段 |
+|---|---:|---:|---|---|---|
+| A 规则 Baseline | 0 | 0 | false | true | true |
+| B 无 RAG | 1,570 | 834 | true | false（无 RAG 消融的预期结果） | true |
+| C 当前报告证据 | 3,644 | 1,150 | true | true | true |
+| D 当前报告 + 专业知识 + 标签范例 | 7,295 | 1,131 | true | true | true |
+
+`has_new_facts=true` 现在是实际审计结果，不再被错误的 Mapping 遍历逻辑掩盖。D 的 4 条旗标主要来自没有逐段 `evidence_ids` 的详细结论综合改写；它们是人工复核信号，不等价于已经确认的错误事实。详细结论引用 Sidecar 仍是下一步最小补强项。
+
+## 2. 五样本真实验证
+
+样本选择和实际数据约束如下：
+
+| 样本 | split | 选择理由 | D Prompt |
+|---|---|---|---:|
+| 杨公桥 A 叉口人行通道 | fit | 简单/人行通道 | 5,429 |
+| 桂花新村大桥 | fit | 病害多、建议多 | 10,881 |
+| 梨子湾大桥 | fit | 病害多、建议多 | 10,236 |
+| 凤中主线桥 | fit | 主线桥复杂样本 | 7,635 |
+| 12-035 杨公桥立交 EC 匝道桥 | holdout | 长文本、病害多 | 10,558 |
+
+当前 86 份 Baseline 中没有非空的 `previous_overall_score/grade` 或可用历史对比字段，因此没有虚构“有历史对比”样本；凤中主线桥作为复杂主线桥替代样本，并保留这一限制。
+
+每个样本使用独立索引：公共部分为 1,211 条 fit Gold 标签范例 + 7 条专业知识卡，另加本样本 22–24 条当前报告证据。holdout 样本只检索 fit 标签，未使用 holdout Gold。
+
+五次运行均满足：
+
+```text
+status = succeeded             5/5
+retrieval.status = retrieved   5/5
+D hits = 6                     5/5
+来源配额 = 3/2/1               5/5
+fallback = false               5/5
+locked_fields_unchanged = true 5/5
+引用审计有效                   5/5
+```
+
+B 组由现有单样本 runner 一并产出，但本轮评分决策只使用 A/C/D；B 不进入五样本比较。
+
+### 2.1 本地确定性评分结果
+
+使用仓库现有 scorer，对每个样本的完整预测与 Gold 对齐。`text_30` 为四个目标文本字段的 30 分权重子集，不是在线比赛最终成绩。
+
+| 配置 | Macro total score | Macro text / 30 | 相对 A 的 text 增量 |
 |---|---:|---:|---:|
-| A | 0 | 0 | 0 |
-| B | 1,570 | 834 | 2,404 |
-| C | 3,644 | 1,151 | 4,795 |
-| D | 13,878 | 1,166 | 15,044 |
+| A 规则 Baseline | 31.980711 | 0.298329 | — |
+| C 当前报告证据 | 37.362213 | 5.679831 | +5.381502 |
+| D 完整 RAG | 39.056288 | 7.373906 | +7.075577 |
 
-旧运行的 C/D Prompt 分别为 10,432/21,311；本轮 C 降低约 65.1%，D 降低约 34.9%。
+D 相对 C 的 Macro text 增量为 `+1.694075`，5/5 样本的 D text score 均高于 A，且 5/5 高于 C。D 的四项 Macro text 分数如下：
 
-检索轨迹实际核验：
+| 配置 | detailed_conclusion / 15 | causes / 5 | treatments / 5 | safety_impact / 5 |
+|---|---:|---:|---:|---:|
+| A | 0.086706 | 0.000000 | 0.000000 | 0.211623 |
+| C | 2.731356 | 0.831558 | 1.348443 | 0.768474 |
+| D | 2.987103 | 1.218836 | 2.599405 | 0.568562 |
 
-```text
-4 个 task_queries，内容互不相同
-D hits = 6
-source_bucket = report_evidence × 3
-source_bucket = domain_knowledge × 2
-source_bucket = label_example × 1
-raw kind = report_evidence × 3, knowledge_card × 2, gold_label × 1
-```
+D 在详细结论、成因、处置建议上高于 C；安全影响低于 C，不能宣称四项均提升。当前小样本结论是“D 有整体文本提升信号”，不是全量比赛得分保证。
 
-D 组实际状态：
+## 3. 代码与审计修正
 
-```text
-available = true
-used_fallback = false
-evidence_id_valid = true
-locked_fields_unchanged = true
-locked_top_level_differences = []
-has_new_facts = true
-new_facts_count = 4
-```
-
-`has_new_facts=true` 是真实运行值，不再沿用旧报告的笼统 `false`。当前 4 条被标记内容主要是 D 组详细结论中的综合性改写；它们没有全部以原文词面或逐条证据 ID 形式出现，因此按当前确定性审计规则必须进入人工复核，不能写成“无新增事实”。
-
-## 4. 验证
+- 四类任务使用独立检索 Query。
+- RAG 采用 `report_evidence=3`、`domain_knowledge=2`、`label_example=1` 的最小来源配额。
+- Prompt 保留紧凑 Baseline、报告证据和 RAG 证据；K46 及五样本复杂报告的 D Prompt 均不超过 12,000 tokens，普通样本不超过 8,000 tokens。
+- `_text_values()` 和证据递归遍历支持任意嵌套 Mapping/Sequence，并防止循环引用。
+- 汇总审计同时接受报告事实的 `evidence_id` 与 RAG 条目的 `id`。这修正了知识卡合法引用被误报为无效的问题，不改变模型输出。
+- 现有测试和编译检查已通过：
 
 ```text
-python -m pytest -q
-通过
-
-python -m compileall -q inspection src scripts tests
-通过
+python -m pytest -q tests/experiment/test_runner.py  -> 11 passed
+python -m pytest -q tests/agent tests/experiment tests/rag -> 29 passed
+python -m compileall -q inspection src scripts tests  -> passed
+git diff --check -> passed
 ```
 
-当前会话重新执行真实命令时没有 IAIC_API_BASE、IAIC_API_KEY、IAIC_CHAT_MODEL，因此脚本安全返回 `configuration_error`；本报告引用的是此前带真实配置生成的 `real-run-p0-v2` 成功产物，不把配置错误当作成功运行。
-
-## 5. PR 范围说明
-
-RAG/LLM 校准线的范围是：
-
-- `src/rag/index.py`
-- `src/agent/narrative.py`
-- `scripts/run_narrative_enhancement.py`
-- `tests/rag/`
-- `tests/agent/`
-- `tests/experiment/`
-- 本报告
-
-这条线只消费稳定的 Prediction Schema，并增强四个叙事字段。它不等于 Word-first 结构化抽取线，也不包含模板文件。
-
-模板线单独位于：
+## 4. 交付产物
 
 ```text
-worktree: D:\研究生作业\竞赛研究\wt-template-rendering
-branch: feat/template-rendering
-commit: 012bdc9
+runs/narrative-k46-20260805/real-run-p0-v4/
+  baseline_prediction.json
+  enhanced_prediction.json
+  retrieval_trace.json
+  ab_results.json
+  experiment_summary.json
+
+runs/narrative-k46-20260805/calibration-5/
+  calibration_summary.json
+  selection.json
+  indexes/01..05/
+  results/01..05/
 ```
 
-模板线负责 `python-docx`/OOXML 模板、`template_fields.json`、SubmissionDocument 适配、批量模板渲染和 DOCX/DOC 样例。两条线最后才在 `main` 合并，不在同一 worktree 混写。
+当前最佳实验配置为 D，但只允许在这 5 个样本的校准范围内使用。尚未运行 92 份初赛测试集，也没有用 D 结果替换正式提交包。
 
-## 6. 冻结判断
+## 5. 尚未解决的问题与合并判断
 
-本轮代码合同和真实运行证据可以暂时冻结；但 `has_new_facts=true` 仍是待人工复核信号，不应表述为 D 已经证明官方分数提升，也不应直接覆盖全量提交结果。
+1. `detailed_conclusion` 仍没有公开合同中的逐段证据 ID；其 `has_new_facts` 旗标在 5/5 为 true，需要加实验 Sidecar 或人工复核后再批跑。
+2. 外部 Embedding 接口单次调用约 30 秒，偶发连续超时；K46 首次重跑曾出现 `safety_impact` 检索失败，随后重试成功。批量运行前仍需保留失败/回退统计。
+3. 五样本 D 的安全影响分数低于 C，说明完整 RAG 并非四项单调提升，需要继续优化提示或证据选择，但不应扩大为通用 Agent/RAG 平台。
+
+本轮已证明架构和 D 组来源配额真实生效，并出现可重复的小样本整体提升信号；由于 `has_new_facts` 仍需逐段证据化，建议继续保持“先校准、后全量”的门禁，不把当前结果直接作为 92 份最终提交。

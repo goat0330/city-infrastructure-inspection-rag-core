@@ -286,3 +286,18 @@ def test_group_record_accepts_paraphrase_with_valid_item_evidence() -> None:
     assert record["evidence_id_valid"] is True
     assert record["has_new_facts"] is True
     assert "裂缝与构件状态有关。" not in record["new_facts"]
+
+
+def test_group_record_accepts_retrieval_item_id_as_evidence_anchor() -> None:
+    baseline = {field: [] for field in runner.TARGET_FIELDS}
+    retrieval = [{"id": "knowledge:barrier", "kind": "knowledge_card", "text": "护栏防护"}]
+    fields = {
+        "detailed_conclusion": [],
+        "causes": [],
+        "treatments": [],
+        "safety_impact": [{"text": "护栏影响防护能力。", "evidence_ids": ["knowledge:barrier"]}],
+    }
+
+    record = runner._group_record("D", "rag", fields, baseline, [], retrieval, {})
+
+    assert record["evidence_id_valid"] is True

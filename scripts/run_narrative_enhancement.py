@@ -665,8 +665,12 @@ def _group_record(
     used_fallback: bool = False,
     error: str | None = None,
 ) -> dict[str, Any]:
-    available_ids = {str(item.get("evidence_id")) for item in facts if item.get("evidence_id")}
-    available_ids.update(str(item.get("evidence_id")) for item in retrieval if item.get("evidence_id"))
+    available_ids = {
+        str(item.get(key))
+        for item in list(facts) + list(retrieval)
+        for key in ("evidence_id", "id")
+        if isinstance(item, Mapping) and item.get(key)
+    }
     evidence_ids = _evidence_ids(fields)
     invalid = [identifier for identifier in evidence_ids if identifier not in available_ids]
     source_texts = {
