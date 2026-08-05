@@ -212,6 +212,22 @@ def _facility_subject(record: Mapping[str, Any], facility_context: object = None
             subject = _subject_text(record[key])
             if subject:
                 return subject
+    # Formal prediction JSON intentionally keeps the public schema free of
+    # internal FacilityContext metadata.  Recover the minimal narrative noun
+    # from the official bridge_name alias when rendering such JSONL records.
+    summary_name = _text(_mapping(record.get("summary")).get("bridge_name"))
+    for suffix, noun in (
+        ("人行地通道", "人行通道"),
+        ("人行地道", "人行通道"),
+        ("地下通道", "人行通道"),
+        ("人行通道", "人行通道"),
+        ("隧道", "隧道"),
+        ("涵洞", "涵洞"),
+        ("道路", "道路"),
+        ("桥", "桥梁"),
+    ):
+        if summary_name.endswith(suffix):
+            return _subject_text(noun)
     return "该设施"
 
 

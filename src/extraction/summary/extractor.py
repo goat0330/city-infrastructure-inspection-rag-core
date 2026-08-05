@@ -637,12 +637,21 @@ def extract_summary(
     if recommendation_count is None:
         recommendation_count = _recommendation_count_from_summary(collector)
 
-    summary = BridgeSummary(
-        **{
-            field: _selected_or_missing(field, collector.values[field])
-            for field in _SUMMARY_FIELDS
-        }
-    )
+    summary_values = {
+        field: _selected_or_missing(field, collector.values[field])
+        for field in _SUMMARY_FIELDS
+    }
+    # The official Gold contract uses “无” for the trend of first/no-history
+    # reports.  Score fields already use the same display value when no
+    # applicable score candidate exists; keep the trend consistent instead of
+    # leaking an empty string into the renderer.
+    if (
+        not summary_values["trend"]
+        and summary_values["previous_overall_score"] == "无"
+        and summary_values["previous_overall_grade"] == "无"
+    ):
+        summary_values["trend"] = "无"
+    summary = BridgeSummary(**summary_values)
     facility_name = summary.bridge_name
     facility_type_raw, facility_type, facility_noun = infer_facility_semantics(facility_name)
     inspection_date = _select_value("inspection_date", collector.values["inspection_date"])
@@ -677,6 +686,23 @@ def extract_summary(
         )
         for field, values in candidates.items()
     }
+    field_states = build_field_states(
+        {
+            **{
+                field: getattr(summary, field)
+                for field in _SUMMARY_FIELDS
+            },
+            **facility_context.to_dict(),
+        },
+        collector.values,
+        _CONTEXT_STATE_FIELDS,
+    )
+    if facility_type in {"pedestrian_underpass", "vehicle_underpass", "underpass"}:
+        for field in _SCORE_FIELDS:
+            if getattr(summary, field) == "无" and not collector.values[field]:
+                field_states[field] = "not_applicable"
+    if summary.trend == "无":
+        field_states["trend"] = "explicit_none"
     return SummaryExtraction(
         summary=summary,
         candidates=candidates,
@@ -684,17 +710,7 @@ def extract_summary(
         quality_flags=tuple(quality_flags),
         recommendation_count=recommendation_count,
         facility_context=facility_context,
-        field_states=build_field_states(
-            {
-                **{
-                    field: getattr(summary, field)
-                    for field in _SUMMARY_FIELDS
-                },
-                **facility_context.to_dict(),
-            },
-            collector.values,
-            _CONTEXT_STATE_FIELDS,
-        ),
+        field_states=field_states,
     )
 
 

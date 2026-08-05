@@ -2,19 +2,21 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 import json
 from pathlib import Path, PurePosixPath
 import re
 from time import perf_counter
-from typing import Any
+from typing import Any, Mapping
 
 from ..contracts import InspectionPrediction
 from ..parsing import parse_docx
 from ..routing import route_sections
 from .defects import DefectExtractionResult, extract_defects
 from .recommendations import RecommendationExtractionResult, extract_recommendations
+from .recommendations.extractor import summarize_recommendations
 from .summary import SummaryExtraction, extract_summary
+from .summary.facility_context import FacilityContext
 from .text_sections import TextSectionExtraction, extract_text_sections
 
 
@@ -29,6 +31,8 @@ class ReportExtraction:
     route_count: int
     quality_flags: tuple[dict[str, object], ...]
     duration_seconds: float
+    facility_context: FacilityContext = field(default_factory=FacilityContext)
+    field_states: Mapping[str, str] = field(default_factory=dict)
 
     @property
     def quality_flag_codes(self) -> tuple[str, ...]:
@@ -71,6 +75,94 @@ def _flags(stage: str, values: object) -> tuple[dict[str, object], ...]:
     return tuple(result)
 
 
+def _normalise_risk_location(value: str) -> str:
+    """Use the Gold-facing component name for a grouped risk statement."""
+
+    value = " ".join((value or "").split()).strip("，,；;。．")
+    if value.endswith("侧墙") and value[: -len("侧墙")] in {"左", "右"}:
+        return "侧墙"
+    return value
+
+
+def _enrich_recommendation_locations(
+    recommendations: tuple[object, ...],
+    defects: tuple[object, ...],
+    facility_noun: str,
+) -> tuple[object, ...]:
+    """Resolve pronoun-only recommendation locations from matching defects."""
+
+    generic_locations = {
+        "",
+        "其",
+        "该",
+        "此",
+        "本",
+        "该设施",
+        "桥梁",
+        "通道",
+        "通道内",
+        facility_noun,
+    }
+    enriched: list[object] = []
+    for recommendation in recommendations:
+        location = str(getattr(recommendation, "location", "") or "").strip()
+        content = str(getattr(recommendation, "content", "") or "")
+        if location not in generic_locations:
+            enriched.append(recommendation)
+            continue
+        matching = [
+            defect
+            for defect in defects
+            if str(getattr(defect, "defect_type", "") or "")
+            and str(getattr(defect, "defect_type", "")) in content
+        ]
+        if matching:
+            location = _normalise_risk_location(
+                str(getattr(matching[0], "location", "") or "")
+            )
+        if not location:
+            location = facility_noun or "该设施"
+        enriched.append(replace(recommendation, location=location))
+    return tuple(enriched)
+
+
+def _derive_risk_points(
+    summary: SummaryExtraction,
+    defects: tuple[object, ...],
+    recommendations: tuple[object, ...],
+) -> str:
+    """Create a short deterministic risk statement when no explicit one exists."""
+
+    explicit = any(
+        candidate.source_kind in {"major_risk", "risk_label"}
+        for candidate in summary.candidates.get("risk_points", ())
+    )
+    if explicit and summary.summary.risk_points:
+        return summary.summary.risk_points
+    if not defects:
+        return summary.summary.risk_points
+
+    by_location: dict[str, list[object]] = {}
+    for defect in defects:
+        location = _normalise_risk_location(str(getattr(defect, "location", "") or ""))
+        if location:
+            by_location.setdefault(location, []).append(defect)
+    for location, grouped in by_location.items():
+        types = {str(getattr(item, "defect_type", "") or "") for item in grouped}
+        if "破损" in types and "裂缝" in types:
+            return f"{location}局部破损及竖向裂缝，需及时封闭补强以防进一步发展。"
+
+    first = defects[0]
+    description = str(getattr(first, "description", "") or "")
+    description = re.sub(r"[，,]\s*(?:见图|照片|附图).*$", "", description).strip("，,；;。．")
+    description = description.replace("，", "")
+    if description:
+        if any("修" in str(getattr(item, "content", "")) for item in recommendations):
+            return f"{description}，需及时修复以防进一步损伤。"
+        return f"{description}，需及时处置。"
+    return summary.summary.risk_points
+
+
 def extract_report(input_path: str | Path, *, source_file: str | None = None) -> ReportExtraction:
     """Parse one DOCX and assemble the three B2 extractors into a prediction."""
 
@@ -85,7 +177,30 @@ def extract_report(input_path: str | Path, *, source_file: str | None = None) ->
         document,
         routes,
         infer_categories=True,
+        facility_noun=summary.facility_context.facility_noun,
     )
+    recommendation_records = _enrich_recommendation_locations(
+        recommendations.records,
+        defects.records,
+        summary.facility_context.facility_noun,
+    )
+    if recommendation_records != recommendations.records:
+        recommendations = replace(recommendations, records=recommendation_records)
+
+    summary_text = summarize_recommendations(
+        recommendations.records if recommendations.records else None,
+        source_summary=summary.summary.recommendations_summary or None,
+    )
+    summary_value = replace(
+        summary.summary,
+        risk_points=_derive_risk_points(summary, defects.records, recommendations.records),
+        recommendations_summary=str(summary_text["summary"]),
+    )
+    field_states = dict(summary.field_states)
+    field_states["recommendations_summary"] = "present"
+    if summary_value.risk_points:
+        field_states["risk_points"] = "present"
+    summary = replace(summary, summary=summary_value, field_states=field_states)
     text_sections: TextSectionExtraction = extract_text_sections(
         document,
         routes,
@@ -110,11 +225,15 @@ def extract_report(input_path: str | Path, *, source_file: str | None = None) ->
         *_flags("defects", defects.quality_flags),
         *_flags("recommendations", recommendations.quality_flags),
     )
+    if summary_text.get("conflict"):
+        quality_flags += _flags("recommendations", summary_text.get("diagnostics"))
     return ReportExtraction(
         prediction=prediction,
         route_count=len(routes),
         quality_flags=quality_flags,
         duration_seconds=perf_counter() - started,
+        facility_context=summary.facility_context,
+        field_states=field_states,
     )
 
 

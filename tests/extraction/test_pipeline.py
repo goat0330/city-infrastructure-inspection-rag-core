@@ -54,6 +54,9 @@ def test_extract_report_assembles_prediction_and_side_metadata(tmp_path: Path) -
     assert result.prediction.summary.bridge_name == "集成测试桥"
     assert len(result.prediction.defects) == 1
     assert len(result.prediction.recommendations) == 1
+    assert result.prediction.summary.trend == "无"
+    assert result.prediction.summary.recommendations_summary == "0条立即处置、1条尽快维修、0条预防性养护"
+    assert result.facility_context.facility_name == "集成测试桥"
     assert result.prediction.defects[0].evidence
     assert result.prediction.recommendations[0].evidence
     assert result.route_count > 0

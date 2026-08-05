@@ -1091,6 +1091,18 @@ def _infer_category(content: str) -> str | None:
         )
     ):
         return "立即处置"
+    # A report-level maintenance instruction is preventive care, even when
+    # the sentence contains the word “维修”.  Targeted repair sentences are
+    # handled below by the concrete-action rules.
+    if (
+        any(marker in compact for marker in ("相关养护维修", "日常养护维修", "常规养护维修"))
+        or (
+            "参照" in compact
+            and any(marker in compact for marker in ("养护规范", "养护技术规范"))
+            and not any(marker in compact for marker in ("裂缝", "破损", "刮痕", "渗水", "锈蚀"))
+        )
+    ):
+        return "预防性养护"
     if any(
         marker in compact
         for marker in (
@@ -1442,6 +1454,8 @@ def _clean_location_phrase(value: str) -> str:
     location = re.sub(r"(?:和|与|及(?!时))", "、", location)
     location = re.sub(r"均$", "", location)
     location = re.sub(_INFERRED_SUFFIX_RE, "", location)
+    if location in {"其", "该", "此", "本", "该设施"}:
+        return ""
     changed = True
     while changed and location:
         changed = False
