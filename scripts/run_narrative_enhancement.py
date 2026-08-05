@@ -540,6 +540,7 @@ def _retrieve_task(
     *,
     sample_id: str,
     split: str,
+    facility_type: str | None = None,
 ) -> Sequence[Mapping[str, Any]]:
     """Call either the quota-aware RAG API or the current pre-quota API."""
 
@@ -550,6 +551,8 @@ def _retrieve_task(
         "top_rerank": 8,
         "top_k": sum(_FINAL_RETRIEVAL_QUOTA.values()),
     }
+    if facility_type:
+        kwargs["facility_type"] = facility_type
     try:
         return index.retrieve(query, **kwargs, source_quota=dict(RETRIEVAL_SOURCE_QUOTA))
     except TypeError as error:
@@ -564,12 +567,19 @@ def _retrieve_task_hits(
     *,
     sample_id: str,
     split: str,
+    facility_type: str | None = None,
 ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, str]]:
     task_hits: dict[str, list[dict[str, Any]]] = {}
     errors: dict[str, str] = {}
     for task in TARGET_FIELDS:
         try:
-            results = _retrieve_task(index, task_queries[task], sample_id=sample_id, split=split)
+            results = _retrieve_task(
+                index,
+                task_queries[task],
+                sample_id=sample_id,
+                split=split,
+                facility_type=facility_type,
+            )
             task_hits[task] = [dict(item) for item in (results or []) if isinstance(item, Mapping)]
         except Exception as error:
             task_hits[task] = []
@@ -737,6 +747,11 @@ def run_experiment(
     facility_context = baseline.get("facility_context")
     field_states = baseline.get("field_states")
     locked_facts = baseline.get("locked_facts")
+    facility_type = None
+    if isinstance(facility_context, Mapping):
+        value = facility_context.get("facility_type")
+        if value:
+            facility_type = str(value)
     task_queries = _task_queries(baseline, facility_context, facts)
     output.mkdir(parents=True, exist_ok=True)
     baseline_path = output / "baseline_prediction.json"
@@ -843,6 +858,7 @@ def run_experiment(
                 task_queries,
                 sample_id=sample_id,
                 split=split,
+                facility_type=facility_type,
             )
             retrieval_hits = _merge_retrieval_hits(task_hits)
             if task_errors:
@@ -858,6 +874,7 @@ def run_experiment(
         "status": retrieval_status,
         "retrieval_available": index_dir is not None,
         "index_dir": str(index_dir) if index_dir is not None else None,
+        "facility_type": facility_type,
         "query": _query(baseline, facility_context, facts),
         "task_queries": task_queries,
         "task_hits": task_hits,

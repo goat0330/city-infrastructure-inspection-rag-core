@@ -172,6 +172,7 @@ def test_real_runner_records_task_queries_and_final_d_hits(tmp_path: Path, monke
         "sample_id": "sample-1",
         "source_file": "实验桥.docx",
         "summary": {"bridge_name": "示例桥", "overall_conclusion": "总体结论"},
+        "facility_context": {"facility_type": "bridge", "facility_noun": "桥梁"},
         "defects": [{"location": "桥面", "defect_type": "裂缝", "description": "裂缝"}],
         "recommendations": [{"index": "1", "content": "封闭裂缝", "location": "桥面"}],
         "detailed_conclusion": ["旧结论"],
@@ -233,6 +234,7 @@ def test_real_runner_records_task_queries_and_final_d_hits(tmp_path: Path, monke
         trace["task_queries"][field] for field in runner.TARGET_FIELDS
     ]
     assert all(call["source_quota"] == runner.RETRIEVAL_SOURCE_QUOTA for call in fake_index.calls)
+    assert all(call["facility_type"] == "bridge" for call in fake_index.calls)
     assert trace["hits"] == trace["retrieval_hits"]
     assert len(trace["hits"]) == 6
 
