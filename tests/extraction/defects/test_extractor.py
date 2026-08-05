@@ -621,4 +621,3 @@ def test_no_hard_defect_count_cap() -> None:
 
     assert len(result) == 40
     assert result[-1].description == "第40处桥面局部裂缝，L=40m"
-

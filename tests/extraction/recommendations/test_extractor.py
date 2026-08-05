@@ -706,4 +706,3 @@ def test_zero_filled_summary_reconciles_source_and_exposes_conflict() -> None:
         "预防性养护": 0,
     }
     assert without_source["conflict"] is False
-
