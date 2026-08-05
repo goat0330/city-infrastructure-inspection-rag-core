@@ -212,6 +212,16 @@ _REPAIR_ACTION_WORDS = (
     "恢复",
     "拆除",
     "重装",
+    "勾缝",
+    "抹灰",
+    "重新铺装",
+    "凿除重做",
+    "凿除",
+    "灌封",
+    "打磨后修补",
+    "冲洗后修补",
+    "恢复面层",
+    "重新安装",
     "处理",
     "处置",
     "处治",
@@ -220,6 +230,12 @@ _MONITORING_ACTION_WORDS = (
     "检查",
     "观测",
     "巡查",
+    "观察",
+    "监测",
+    "复查",
+    "保养",
+    "技术档案",
+    "维护管理",
     "日常养护",
     "日常维护",
     "定期养护",
@@ -393,11 +409,6 @@ _COMPOUND_LOCATION_RE = re.compile(
     r"(?=及时进行|建议及时|等情况)"
 )
 _GENERIC_LOCATION_MARKERS = (
-    ("做好桥梁的日常检查", "桥梁"),
-    ("加强桥梁的定期检查", "桥梁"),
-    ("建立该桥", "桥梁"),
-    ("连续性技术档案", "桥梁"),
-    ("加强桥梁的观测", "桥梁"),
     ("在桥上同步跑动", "桥上"),
     ("严禁行人在桥上", "桥上"),
     ("加强对天桥的观测", "天桥"),
@@ -1060,6 +1071,8 @@ def _resolve_category(
         return hint_categories[0], False
     if len(content_categories) == 1:
         return content_categories[0], False
+    if len(content_categories) > 1:
+        return "", True
     if infer_categories:
         inferred = _infer_category(content)
         if inferred:
@@ -1077,17 +1090,17 @@ def _infer_category(content: str) -> str | None:
     """
 
     compact = _compact(content)
-    if "立即维修" in compact or "立即修" in compact:
+    if re.search(r"立即(?:维修|修复|修|处置|处理|进行)", compact):
         return "立即处置"
     if any(
         marker in compact
         for marker in (
-            "立即处置",
-            "立即处理",
             "危及安全",
             "危及结构安全",
-            "恢复缺失",
-            "变形严重",
+            "危及通行安全",
+            "危及行人安全",
+            "存在安全隐患",
+            "存在安全风险",
         )
     ):
         return "立即处置"
@@ -1116,6 +1129,16 @@ def _infer_category(content: str) -> str | None:
             "加固处理",
             "更换止水带",
             "及时修复",
+            "勾缝",
+            "抹灰",
+            "重新铺装",
+            "凿除重做",
+            "凿除",
+            "灌封",
+            "打磨后修补",
+            "冲洗后修补",
+            "恢复面层",
+            "重新安装",
         )
     ):
         return "尽快维修"
@@ -1132,6 +1155,17 @@ def _infer_category(content: str) -> str | None:
             "巡查",
             "建立该桥",
             "连续性技术档案",
+            "技术档案",
+            "加强观察",
+            "定期观察",
+            "加强监测",
+            "定期监测",
+            "定期复查",
+            "日常复查",
+            "定期清理",
+            "日常清理",
+            "常规保养",
+            "维护管理",
             "严禁行人",
             "严禁超载",
             "严禁超速",
@@ -1355,10 +1389,6 @@ def _location_fields(text: str) -> tuple[str, str]:
     generic = _generic_location(text)
     if generic:
         return generic, text
-    if "桥梁" in text and any(
-        marker in text for marker in ("做好", "加强", "设置", "养护", "维护", "检查", "观测")
-    ):
-        return "桥梁", text
     return "", text
 
 
@@ -1418,8 +1448,6 @@ def _recommendation_location(text: str) -> str:
         return "、".join(dict.fromkeys(components))
     if "桥面系" in compact:
         return "桥面系"
-    if "桥梁" in compact or "大桥" in compact:
-        return "桥梁"
     return ""
 
 
@@ -1557,7 +1585,7 @@ def _finalise(
             infer_categories=infer_categories,
         )
         location = _clean_location(candidate.location)
-        if not location and candidate.preferred:
+        if not location:
             location = facility_noun
         evidence = _unique_anchors(candidate.anchors)
         record = Recommendation(
@@ -1651,7 +1679,8 @@ def _is_recommendation_item(text: str, *, allow_monitoring: bool) -> bool:
         return True
     if allow_monitoring and any(action in compact for action in _MONITORING_ACTION_WORDS):
         return any(marker in compact for marker in _DIRECTIVE_WORDS) or any(
-            marker in compact for marker in ("定期", "日常", "变形观测", "监测")
+            marker in compact
+            for marker in ("定期", "日常", "变形观测", "监测", "常规", "技术档案")
         )
     return any(marker in compact for marker in _DIRECTIVE_WORDS)
 

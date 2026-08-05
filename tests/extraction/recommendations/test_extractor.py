@@ -275,7 +275,7 @@ def test_infers_explicit_location_from_recommendation_sentence() -> None:
 
     result = extract_recommendations(model)
 
-    assert [item.location for item in result.records] == ["桥面", "栏杆", "桥梁"]
+    assert [item.location for item in result.records] == ["桥面", "栏杆", "该设施"]
 
 
 def test_category_inference_is_opt_in_and_gold_derived() -> None:
@@ -367,7 +367,7 @@ def test_infers_generic_preventive_maintenance_location() -> None:
 
     result = extract_recommendations(model)
 
-    assert [item.location for item in result.records] == ["桥梁", "桥上"]
+    assert [item.location for item in result.records] == ["该设施", "桥上"]
 
 
 def test_category_repair_action_overrides_monitoring_marker() -> None:
@@ -545,3 +545,165 @@ def test_recommendation_summary_has_all_gold_categories_and_reports_conflict() -
         item["code"] == "recommendation_summary_conflict"
         for item in conflict["diagnostics"]
     )
+
+
+def test_composite_container_heading_is_parent_not_direct_source() -> None:
+    result = extract_recommendations(
+        _model(
+            _paragraph(0, "5 结论与建议", heading_level=1),
+            _paragraph(1, "5.1 检测结论", heading_level=2),
+            _paragraph(2, "（1）建议立即修复桥面破损。"),
+            _paragraph(3, "5.4 处理建议", heading_level=2),
+            _paragraph(4, "（2）尽快维修：伸缩缝：更换止水带。"),
+        ),
+        infer_categories=True,
+    )
+
+    assert [
+        (item.index, item.category, item.location, item.content)
+        for item in result.records
+    ] == [
+        ("（2", "尽快维修", "伸缩缝", "更换止水带。"),
+    ]
+
+
+def test_infers_new_repair_actions_as_quick_repair() -> None:
+    actions = (
+        "对砖砌体勾缝。",
+        "对侧墙抹灰。",
+        "桥面重新铺装。",
+        "对破损面凿除重做。",
+        "对裂缝灌封胶。",
+        "对裂缝打磨后修补。",
+        "对墙面冲洗后修补。",
+        "恢复缺失的面层。",
+        "重新安装脱落的栏杆。",
+    )
+    model = _model(
+        _paragraph(0, "处理建议", heading_level=1),
+        *[
+            _paragraph(index + 1, f"（{index + 1}）{text}")
+            for index, text in enumerate(actions)
+        ],
+    )
+
+    result = extract_recommendations(model, infer_categories=True)
+
+    assert len(result.records) == len(actions)
+    assert [item.category for item in result.records] == [
+        "尽快维修"
+    ] * len(actions)
+
+
+def test_infers_preventive_actions_as_preventive_maintenance() -> None:
+    actions = (
+        "加强观察病害发展变化。",
+        "加强监测裂缝发展。",
+        "定期复查病害情况。",
+        "做好日常检查。",
+        "建立技术档案。",
+        "做好常规保养。",
+        "定期清理排水系统。",
+        "加强维护管理。",
+    )
+    model = _model(
+        _paragraph(0, "处理建议", heading_level=1),
+        *[
+            _paragraph(index + 1, f"（{index + 1}）{text}")
+            for index, text in enumerate(actions)
+        ],
+    )
+
+    result = extract_recommendations(model, infer_categories=True)
+
+    assert len(result.records) == len(actions)
+    assert [item.category for item in result.records] == [
+        "预防性养护"
+    ] * len(actions)
+
+
+def test_immediate_disposal_requires_explicit_urgent_evidence() -> None:
+    model = _model(
+        _paragraph(0, "处理建议", heading_level=1),
+        _paragraph(1, "（1）支座垫石变形严重，建议尽快处理。"),
+        _paragraph(2, "（2）建议恢复缺失的防撞栏杆。"),
+        _paragraph(3, "（3）梁体裂缝危及结构安全，立即处置。"),
+        _paragraph(4, "（4）建议立即修复桥面破损。"),
+    )
+
+    result = extract_recommendations(model, infer_categories=True)
+
+    assert [item.category for item in result.records] == [
+        "尽快维修",
+        "尽快维修",
+        "立即处置",
+        "立即处置",
+    ]
+
+
+def test_generic_sentence_uses_facility_noun_not_bridge_default() -> None:
+    model = _model(
+        _paragraph(0, "主要建议", heading_level=1),
+        _paragraph(1, "（1）建议严格按规范做好桥梁的日常检查和维护工作。"),
+        _paragraph(2, "（2）桥面：定期清理。"),
+    )
+
+    default_result = extract_recommendations(model, infer_categories=True)
+    underpass_result = extract_recommendations(
+        model,
+        infer_categories=True,
+        facility_noun="人行通道",
+    )
+
+    assert [item.location for item in default_result.records] == ["该设施", "桥面"]
+    assert [item.location for item in underpass_result.records] == [
+        "人行通道",
+        "桥面",
+    ]
+
+
+def test_ambiguous_category_stays_unresolved_without_invented_label() -> None:
+    model = _model(
+        _paragraph(0, "处理建议", heading_level=1),
+        _paragraph(1, "（1）尽快维修、预防性养护：桥面：修复裂缝。"),
+        _paragraph(2, "（2）立即处置或尽快维修：栏杆：更换栏杆。"),
+    )
+
+    result = extract_recommendations(model, infer_categories=True)
+
+    assert [item.category for item in result.records] == ["", ""]
+    assert result.quality_flag_codes == (
+        "recommendation_category_unresolved",
+        "recommendation_category_unresolved",
+    )
+    assert all(item["quality_flag"] == "recommendation_category_unresolved" for item in result.quality_flags)
+
+
+def test_zero_filled_summary_reconciles_source_and_exposes_conflict() -> None:
+    zero = summarize_recommendations(
+        [],
+        source_summary="3条尽快维修、1条预防性养护",
+    )
+
+    assert zero["counts"] == {"立即处置": 0, "尽快维修": 0, "预防性养护": 0}
+    assert zero["summary"] == "0条立即处置、0条尽快维修、0条预防性养护"
+    assert zero["formatted"] == zero["summary"]
+    assert zero["source_counts"] == {
+        "立即处置": 0,
+        "尽快维修": 3,
+        "预防性养护": 1,
+    }
+    assert zero["conflict"] is True
+    assert any(
+        item["code"] == "recommendation_summary_conflict"
+        for item in zero["diagnostics"]
+    )
+
+    without_source = summarize_recommendations([])
+    assert without_source["counts"] == {
+        "立即处置": 0,
+        "尽快维修": 0,
+        "预防性养护": 0,
+    }
+    assert without_source["conflict"] is False
+
