@@ -374,7 +374,8 @@ class LightRagIndex:
         query_split = _text(split).lower()
         candidates: list[int] = []
         for index, record in enumerate(self.metadata):
-            if facility_types is not None and _text(record.get("facility_type")).casefold() not in facility_types:
+            record_facility_type = _text(record.get("facility_type")).casefold()
+            if facility_types is not None and record_facility_type and record_facility_type not in facility_types:
                 continue
             if sample_id is not None and _same_sample(record, sample_id) and _is_label(record):
                 continue
