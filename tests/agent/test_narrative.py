@@ -50,6 +50,41 @@ class FakeRetriever:
         return [{"evidence_id": "rag-1", "text": "资料支持常规巡检。"}]
 
 
+class QuotaRetriever:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    def retrieve(
+        self,
+        query: str,
+        *,
+        sample_id: str,
+        split: str,
+        top_k: int,
+        source_quota: dict[str, int],
+    ) -> list[dict[str, str]]:
+        self.calls.append(
+            {
+                "query": query,
+                "sample_id": sample_id,
+                "split": split,
+                "top_k": top_k,
+                "source_quota": dict(source_quota),
+            }
+        )
+        task = next(task for task in narrative.RETRIEVAL_TASK_FIELDS if f"task={task};" in query)
+        return [
+            {"evidence_id": f"{task}-report-{index}", "kind": "report_evidence", "text": "报告证据"}
+            for index in range(4)
+        ] + [
+            {"evidence_id": f"{task}-knowledge-{index}", "kind": "domain_knowledge", "text": "专业解释"}
+            for index in range(3)
+        ] + [
+            {"evidence_id": f"{task}-label-{index}", "kind": "label_example", "text": "写法示例"}
+            for index in range(2)
+        ]
+
+
 def baseline() -> dict[str, Any]:
     return {
         "sample_id": "bridge-1",
@@ -128,6 +163,26 @@ def test_success_retrieves_context_and_enhances_only_four_fields() -> None:
     assert enhanced["causes"][0]["evidence_ids"] == ["fact-1"]
 
 
+def test_task_specific_retrieval_evidence_is_valid_without_public_merge() -> None:
+    sections = valid_sections()
+    sections["causes"][0]["evidence_ids"] = ["causes-knowledge-0"]
+    sections["treatments"][0]["evidence_ids"] = ["treatments-knowledge-0"]
+    client = FakeClient([sections])
+    retriever = QuotaRetriever()
+
+    result = run(client, retriever=retriever)
+
+    assert result["used_fallback"] is False
+    assert result["enhanced_prediction"]["causes"][0]["evidence_ids"] == ["causes-knowledge-0"]
+    assert len(retriever.calls) == len(narrative.RETRIEVAL_TASK_FIELDS)
+    causes = result["retrieval_by_task"]["causes"]
+    assert causes["source_counts"] == {
+        "report_evidence": 3,
+        "domain_knowledge": 2,
+        "label_example": 1,
+    }
+
+
 def test_one_validation_failure_is_sent_to_retry_and_then_succeeds() -> None:
     invalid = copy.deepcopy(valid_sections())
     invalid["causes"][0]["evidence_ids"] = ["missing-id"]
@@ -142,13 +197,13 @@ def test_one_validation_failure_is_sent_to_retry_and_then_succeeds() -> None:
     assert "unknown evidence_id" in client.prompts[1]
 
 
-def test_second_failure_returns_exact_baseline_fallback() -> None:
+def test_second_failure_falls_back_only_the_invalid_field() -> None:
     invalid = copy.deepcopy(valid_sections())
     invalid["safety_impact"][0]["evidence_ids"] = ["missing-id"]
     client = FakeClient([invalid, invalid])
     expected = baseline()
 
-    result = run(client)
+    result = run(client, retriever=FakeRetriever())
 
     assert result["used_fallback"] is True
     assert result["retry_count"] == 1
@@ -157,6 +212,12 @@ def test_second_failure_returns_exact_baseline_fallback() -> None:
     assert result["enhanced_prediction"]["causes"] != expected["causes"]
     assert result["field_results"]["safety_impact"] == "fallback"
     assert result["field_results"]["causes"] == "enhanced"
+    enhanced = result["enhanced_prediction"]
+    assert enhanced["safety_impact"] == expected["safety_impact"]
+    assert enhanced["detailed_conclusion"] == valid_sections()["detailed_conclusion"]
+    assert enhanced["causes"] == valid_sections()["causes"]
+    assert enhanced["treatments"] == valid_sections()["treatments"]
+    assert result["field_fallbacks"] == ["safety_impact"]
     assert result["validation_errors"]
 
 
@@ -196,11 +257,19 @@ def test_contract_violations_are_rejected(field: str, mutate: Any) -> None:
     mutate(invalid)
     client = FakeClient([invalid, invalid])
 
-    result = run(client)
+    result = run(client, retriever=FakeRetriever())
 
     assert result["used_fallback"] is True, field
     assert "fallback" in result["field_results"].values()
-    assert result["validation_errors"]
+    failed_field = {
+        "evidence": "causes",
+        "treatment-count": "treatments",
+        "paragraph-count": "detailed_conclusion",
+    }[field]
+    assert result["enhanced_prediction"][failed_field] == baseline()[failed_field]
+    for generated_field in set(narrative.ENHANCED_FIELDS) - {failed_field}:
+        assert result["enhanced_prediction"][generated_field] == valid_sections()[generated_field]
+    assert result["field_fallbacks"] == [failed_field]
     assert result["validation_errors"]
 
 
