@@ -45,6 +45,18 @@ def test_candidate_builder_only_selects_diagnostic_candidates() -> None:
     assert all(item.task_type == "recommendation_category" for item in code_candidates)
 
 
+def test_candidate_builder_skips_status_prose_as_recommendation() -> None:
+    baseline = _baseline()
+    baseline["recommendations"] = [
+        {"content": "人行通道长69m、宽3.8m，结构尺寸与竣工图基本相符", "category": "尽快维修"}
+    ]
+    candidates = build_semantic_candidates(
+        baseline,
+        {"quality_flags": [{"code": "recommendation_category_unresolved", "index": 0}]},
+    )
+    assert candidates == []
+
+
 def test_disabled_merge_is_exact_baseline() -> None:
     baseline = _baseline()
     original = deepcopy(baseline)

@@ -698,9 +698,13 @@ def extract_recommendations(
         previous_paragraph_preferred = in_preferred
 
     labelled_candidates = _labelled_recommendation_candidates(document)
-    if labelled_candidates and not candidates:
-        # A labelled key/value row such as “处理意见” is an explicit source.
-        # Prefer it over broad fallback paragraphs and table-of-contents text.
+    if labelled_candidates and (
+        not candidates
+        or (len(candidates) <= 1 and len(labelled_candidates) > len(candidates))
+    ):
+        # A labelled row is used when ordinary routing found nothing or only a
+        # single unsplit block.  Do not add it beside an already complete leaf
+        # section, which would duplicate the same recommendation list.
         for candidate in labelled_candidates:
             candidate.preferred = True
         candidates.extend(labelled_candidates)
@@ -716,6 +720,7 @@ def _labelled_recommendation_candidates(document: DocumentModel) -> list[_Candid
     labels = {
         "处理意见", "处理建议", "处置建议", "处治建议",
         "维修建议", "养护建议", "维护建议",
+        "建议措施", "处理措施", "处治措施", "病害处治",
     }
     result: list[_Candidate] = []
     for block in document.blocks:
@@ -1066,9 +1071,14 @@ def _split_text_items(text: str) -> tuple[_TextItem, ...]:
 
 
 def _numbered_items(text: str) -> tuple[_TextItem, ...]:
+    # Accept compact forms such as ``1.修复；2.清理`` while rejecting decimal
+    # measurements.  Existing circled/parenthesized forms remain supported.
     matches = []
     for match in _INDEX_RE.finditer(text):
-        if match.start() > 0 and text[match.start() - 1] not in " \t\r\n;；。！？.!?)]）】":
+        if match.start() > 0 and text[match.start() - 1] not in " \t\r\n;；。！？.!?:：)]）】":
+            continue
+        token = match.group(0)
+        if re.fullmatch(r"\d+\.\d+", token.strip("、.:：)）")):
             continue
         matches.append(match)
     if not matches:
@@ -1076,21 +1086,20 @@ def _numbered_items(text: str) -> tuple[_TextItem, ...]:
     result: list[_TextItem] = []
     if matches[0].start() > 0:
         prefix = _clean_text(text[: matches[0].start()])
-        if prefix:
+        if (
+            prefix
+            and _is_recommendation_item(prefix, allow_monitoring=True)
+            and not any(marker in _compact(prefix) for marker in (
+                "如下建议", "建议如下", "作出如下", "提出如下", "养护和维修作出如下建议"
+            ))
+        ):
             result.append(_TextItem(index="", text=prefix, numbered=False))
     for number, match in enumerate(matches):
         end = matches[number + 1].start() if number + 1 < len(matches) else len(text)
         body = _clean_text(text[match.end() : end])
         if body:
-            result.append(
-                _TextItem(
-                    index=_clean_index(match.group(0)),
-                    text=body,
-                    numbered=True,
-                )
-            )
+            result.append(_TextItem(index=_clean_index(match.group(0)), text=body, numbered=True))
     return tuple(result)
-
 
 def _category_fields(text: str) -> tuple[str, str]:
     categories = _categories_in(text)
@@ -1644,6 +1653,55 @@ def _merge_continuation(
     candidate.anchors = list(_unique_anchors((*candidate.anchors, anchor)))
 
 
+
+def _recommendation_dedupe_key(record: Recommendation) -> tuple[str, str]:
+    content = _compact(record.content)
+    content = _INDEX_RE.sub("", content, count=1)
+    content = re.sub(r"《[^》]+》", "", content)
+    content = re.sub(r"^(?:建议|应|需|须|及时|尽快|立即|对|对于|针对)", "", content)
+    content = re.sub(r"[，,。；;：:、（）()\s]", "", content)
+    location = _compact(record.location)
+    return content, location
+
+
+def _deduplicate_recommendations(records: Sequence[Recommendation]) -> tuple[Recommendation, ...]:
+    result: list[Recommendation] = []
+    for record in records:
+        key_content, key_location = _recommendation_dedupe_key(record)
+        duplicate_index = None
+        for index, existing in enumerate(result):
+            existing_content, existing_location = _recommendation_dedupe_key(existing)
+            same_content = key_content == existing_content or (
+                min(len(key_content), len(existing_content)) >= 8
+                and (key_content in existing_content or existing_content in key_content)
+            )
+            compatible_location = (
+                not key_location or not existing_location
+                or key_location == existing_location
+                or key_location in existing_location
+                or existing_location in key_location
+            )
+            if same_content and compatible_location:
+                duplicate_index = index
+                break
+        if duplicate_index is None:
+            result.append(record)
+            continue
+        existing = result[duplicate_index]
+        location = existing.location
+        if len(_compact(record.location)) > len(_compact(location)):
+            location = record.location
+        content = existing.content if len(existing.content) >= len(record.content) else record.content
+        category = existing.category or record.category
+        result[duplicate_index] = Recommendation(
+            index=existing.index or record.index,
+            category=category,
+            content=content,
+            location=location,
+            evidence=_unique_anchors((*existing.evidence, *record.evidence)),
+        )
+    return tuple(result)
+
 def _finalise(
     candidates: Iterable[_Candidate],
     *,
@@ -1712,6 +1770,7 @@ def _finalise(
                     "message": "Recommendation category was assigned by the opt-in Gold-derived lexical policy.",
                 }
             )
+    records = list(_deduplicate_recommendations(records))
     return RecommendationExtractionResult(
         records=tuple(records),
         quality_flags=tuple(flags),

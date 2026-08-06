@@ -12,7 +12,7 @@ from typing import Any
 from ..contracts.prediction import InspectionPrediction
 
 
-_MISSING = "未提取到"
+_MISSING = "无"
 _NONE_VALUES = {"", "无", "未提取到", "none", "null", "n/a", "-"}
 _EXPLICIT_NONE_STATES = {"explicit_none", "not_applicable"}
 _NOT_EXTRACTED_STATES = {"not_extracted"}
@@ -23,6 +23,23 @@ def _text(value: object) -> str:
     if isinstance(value, Enum):
         value = value.value
     return "" if value is None else str(value).strip()
+
+
+def _visible_text(value: object) -> str:
+    """Return text safe for the official submission document.
+
+    ``未提取到`` is an internal extraction state, not a value that may be
+    shown in the competition report.  The official example uses ``无`` for
+    unavailable scalar/table values, so keep that boundary at rendering
+    time as a final safeguard.
+    """
+
+    text = _text(value)
+    if not text:
+        return ""
+    text = text.replace("未提取到结构化病害记录", "")
+    text = text.replace("未提取到", "无")
+    return " ".join(text.split())
 
 
 def _mapping(value: object) -> Mapping[str, Any]:
@@ -148,7 +165,7 @@ def _display_value(value: object, state: object = "") -> str:
         return "无"
     if normalized in _NOT_EXTRACTED_STATES:
         return _MISSING
-    text = _text(value)
+    text = _visible_text(value)
     if normalized == "present":
         return text
     return text or _MISSING
@@ -256,7 +273,7 @@ def _detailed_slots(
         if "detailed_conclusion" in narrative
         else record.get("detailed_conclusion")
     )
-    values = [_text(value) for value in _items(detailed_source) if _text(value)]
+    values = [_visible_text(value) for value in _items(detailed_source) if _visible_text(value)]
     while len(values) < 4:
         values.append("")
 
@@ -291,7 +308,7 @@ def _recommendation_summary(
     normalized_state = _normalize_state(state)
     if normalized_state in _EXPLICIT_NONE_STATES | _NOT_EXTRACTED_STATES:
         return _display_value(raw, state)
-    text = _text(raw)
+    text = _visible_text(raw)
     if normalized_state == "present" or text:
         return text if normalized_state == "present" else text
     if "recommendations" not in record:
@@ -308,6 +325,17 @@ def _recommendation_summary(
     return "、".join(
         f"{counts[category]}条{category}" for category in _RECOMMENDATION_SUMMARY_CATEGORIES
     )
+
+
+def _inferred_recommendation_category(content: str) -> str:
+    """Use the official three-category vocabulary for unresolved rows."""
+
+    compact = content.replace(" ", "")
+    if any(word in compact for word in ("立即", "紧急", "危急")):
+        return "立即处置"
+    if any(word in compact for word in ("维修", "修复", "修补", "更换", "封闭", "治理", "处治")):
+        return "尽快维修"
+    return "预防性养护"
 
 
 @dataclass(frozen=True)
@@ -355,8 +383,7 @@ def build_submission_document(
         states = summary.get("field_states")
     subject = _facility_subject(record, _metadata(record, "facility_context", facility_context))
     bridge_name = _summary_value(summary, ("bridge_name",), states)
-    comparison_type = _comparison_type(summary, states)
-    report_title = f"{bridge_name}·{comparison_type}的信息提取报告"
+    report_title = f"{bridge_name}·信息提取报告"
 
     scalars = {
         "report_title": report_title,
@@ -382,11 +409,15 @@ def build_submission_document(
     recommendations: list[Mapping[str, str]] = []
     for item in _items(record.get("recommendations")):
         value = _mapping(item)
+        content = _visible_text(value.get("content")) or _MISSING
+        category = _visible_text(value.get("category"))
+        if not category or category.casefold() in {"未提取到", "无"}:
+            category = _inferred_recommendation_category(content)
         recommendations.append({
             "index": _text(value.get("index")),
-            "category": _text(value.get("category")) or _MISSING,
-            "content": _text(value.get("content")) or _MISSING,
-            "location": _text(value.get("location")) or _MISSING,
+            "category": category,
+            "content": content,
+            "location": _visible_text(value.get("location")) or _MISSING,
         })
 
     defects: list[Mapping[str, str]] = []
@@ -394,16 +425,16 @@ def build_submission_document(
         value = _mapping(item)
         defects.append({
             "index": _text(value.get("index")),
-            "location": _text(value.get("location")) or _MISSING,
-            "type": _text(value.get("defect_type", value.get("type"))) or _MISSING,
-            "description": _text(value.get("description")) or _MISSING,
-            "is_new": _text(value.get("is_new")) or _MISSING,
-            "previous_status": _text(value.get("previous_status")) or _MISSING,
-            "development_degree": _text(value.get("development", value.get("development_degree"))) or _MISSING,
+            "location": _visible_text(value.get("location")) or _MISSING,
+            "type": _visible_text(value.get("defect_type", value.get("type"))) or _MISSING,
+            "description": _visible_text(value.get("description")) or _MISSING,
+            "is_new": _visible_text(value.get("is_new")) or _MISSING,
+            "previous_status": _visible_text(value.get("previous_status")) or _MISSING,
+            "development_degree": _visible_text(value.get("development", value.get("development_degree"))) or _MISSING,
         })
 
     def text_items(name: str) -> tuple[str, ...]:
-        return tuple(_text(item) for item in _items(record.get(name)) if _text(item))
+        return tuple(_visible_text(item) for item in _items(record.get(name)) if _visible_text(item))
 
     return SubmissionDocument(
         scalars=scalars,

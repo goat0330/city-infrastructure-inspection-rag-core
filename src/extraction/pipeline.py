@@ -17,6 +17,7 @@ from .defects import DefectExtractionResult, extract_defects
 from .recommendations import RecommendationExtractionResult, extract_recommendations
 from .recommendations.extractor import summarize_recommendations
 from .output_normalizer import normalize_prediction_output, normalize_recommendations_summary
+from .official_answer_composer import compose_official_answers
 from .summary import SummaryExtraction, extract_summary
 from .summary.facility_context import FacilityContext
 from .semantic_candidates import build_semantic_candidates
@@ -140,6 +141,74 @@ def _apply_semantic_prediction(
         summary=summary,
         recommendations=tuple(recommendations),
     )
+
+
+def _text_values(value: object) -> tuple[str, ...]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
+        return ()
+    values: list[str] = []
+    for item in value:
+        text = item.get("text", "") if isinstance(item, Mapping) else item
+        text = " ".join(str(text or "").split()).strip()
+        if text:
+            values.append(text)
+    return tuple(values)
+
+
+def _apply_live_narrative(
+    prediction: InspectionPrediction,
+    result: Mapping[str, Any],
+) -> InspectionPrediction:
+    enhanced = result.get("enhanced_prediction")
+    field_results = result.get("field_results")
+    if not isinstance(enhanced, Mapping) or not isinstance(field_results, Mapping):
+        return prediction
+
+    updates: dict[str, tuple[str, ...]] = {}
+    for field in ("detailed_conclusion", "causes", "safety_impact"):
+        if field_results.get(field) != "enhanced":
+            continue
+        values = _text_values(enhanced.get(field))
+        if values:
+            updates[field] = values
+    return replace(prediction, **updates)
+
+
+def _run_live_narrative(
+    *,
+    baseline_prediction: Mapping[str, Any],
+    sample_id: str,
+    source_file: str,
+    report_facts: Sequence[Mapping[str, Any]],
+    client: Any,
+    index: Any,
+    split: str,
+    facility_context: FacilityContext,
+    field_states: Mapping[str, str],
+) -> dict[str, Any]:
+    """Run the existing LangGraph narrative path for the official live mode."""
+
+    from ..agent.narrative import run_narrative_enhancement
+
+    result = run_narrative_enhancement(
+        baseline_prediction,
+        sample_id,
+        source_file,
+        report_facts,
+        client,
+        retriever=index,
+        split=split,
+        facility_context=facility_context.to_dict(),
+        field_states=dict(field_states),
+    )
+    hits = result.get("retrieval_results", ())
+    hits = [dict(item) for item in hits if isinstance(item, Mapping)]
+    modes = {str(item.get("retrieval_mode", "")) for item in hits}
+    return {
+        **dict(result),
+        "embedding_reranker_used": "embedding_rerank" in modes,
+        "retrieval_count": len(hits),
+    }
 
 
 def _normalise_risk_location(value: str) -> str:
@@ -373,17 +442,37 @@ def extract_report(
         facility_context=summary.facility_context,
         field_states=summary.field_states,
     )
+    document_text = "\n".join(
+        str(getattr(block, "raw_text", "") or "")
+        for block in getattr(document, "blocks", ())
+    )
+    official = compose_official_answers(
+        summary=summary.summary,
+        defects=defects.records,
+        recommendations=recommendations.records,
+        facility_context=summary.facility_context,
+        source_causes=text_sections.causes,
+        document_text=document_text,
+    )
+    summary_value = replace(
+        summary.summary,
+        overall_conclusion=official.overall_conclusion,
+        risk_points=official.risk_points,
+    )
+    field_states["overall_conclusion"] = "present"
+    field_states["risk_points"] = "present"
+    summary = replace(summary, summary=summary_value, field_states=field_states)
 
     prediction = InspectionPrediction(
         sample_id=_sample_id(source_name),
         source_file=source_name,
         summary=summary.summary,
-        detailed_conclusion=text_sections.detailed_conclusion,
+        detailed_conclusion=official.detailed_conclusion,
         recommendations=recommendations.records,
         defects=defects.records,
-        causes=text_sections.causes,
-        treatments=text_sections.treatments,
-        safety_impact=text_sections.safety_impact,
+        causes=official.causes,
+        treatments=official.treatments,
+        safety_impact=official.safety_impact,
     )
     prediction = normalize_prediction_output(
         prediction,
@@ -399,6 +488,42 @@ def extract_report(
         quality_flags += _flags("recommendations", summary_text.get("diagnostics"))
     semantic_trace: dict[str, Any] = {}
     if semantic_enabled:
+        if semantic_client is not None and semantic_index is not None:
+            narrative = _run_live_narrative(
+                baseline_prediction=prediction.to_dict(),
+                sample_id=prediction.sample_id,
+                source_file=prediction.source_file,
+                report_facts=_report_facts(document),
+                client=semantic_client,
+                index=semantic_index,
+                split=semantic_split,
+                facility_context=summary.facility_context,
+                field_states=summary.field_states,
+            )
+            prediction = _apply_live_narrative(prediction, narrative)
+            narrative_hits = [
+                item
+                for item in narrative.get("retrieval_results", ())
+                if isinstance(item, Mapping)
+            ]
+            semantic_trace["narrative"] = {
+                "field_results": dict(narrative.get("field_results", {})),
+                "selection_reasons": dict(narrative.get("selection_reasons", {})),
+                "used_fallback": bool(narrative.get("used_fallback")),
+                "validation_errors": list(narrative.get("validation_errors", [])),
+                "field_fallbacks": list(narrative.get("field_fallbacks", [])),
+                "retrieval_count": int(narrative.get("retrieval_count", 0) or 0),
+                "embedding_reranker_used": bool(
+                    narrative.get("embedding_reranker_used")
+                    or any(
+                        str(item.get("retrieval_mode", "")) == "embedding_rerank"
+                        for item in narrative_hits
+                    )
+                ),
+                "retrieval_results": narrative_hits,
+                "retrieval_by_task": dict(narrative.get("retrieval_by_task", {})),
+                "call_metrics": dict(narrative.get("call_metrics", {})),
+            }
         candidate_baseline = prediction.to_dict()
         candidate_baseline["facility_context"] = summary.facility_context.to_dict()
         candidates = build_semantic_candidates(
@@ -406,7 +531,7 @@ def extract_report(
             {"quality_flags": quality_flags},
             _report_facts(document),
         )
-        merged, semantic_trace = merge_semantic_predictions(
+        merged, candidate_trace = merge_semantic_predictions(
             prediction.to_dict(),
             [candidate.to_dict() for candidate in candidates],
             semantic_decisions,
@@ -426,7 +551,14 @@ def extract_report(
         field_states.update(
             {
                 str(key): str(value)
-                for key, value in semantic_trace.get("field_states", {}).items()
+                for key, value in candidate_trace.get("field_states", {}).items()
+            }
+        )
+        semantic_trace.update(
+            {
+                key: value
+                for key, value in candidate_trace.items()
+                if key not in {"narrative"}
             }
         )
     return ReportExtraction(

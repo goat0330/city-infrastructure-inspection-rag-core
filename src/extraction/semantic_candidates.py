@@ -18,11 +18,42 @@ _RECOMMENDATION_FLAGS = {
     "recommendation_category_unresolved",
     "recommendation_category_inferred",
 }
+_RECOMMENDATION_ACTION_TERMS = (
+    "建议",
+    "维修",
+    "修复",
+    "养护",
+    "处置",
+    "处理",
+    "检查",
+    "维护",
+    "监测",
+    "加固",
+    "更换",
+    "清理",
+    "疏通",
+    "封闭",
+    "灌浆",
+    "补强",
+    "涂刷",
+    "设置",
+    "加强",
+    "做好",
+    "落实",
+    "恢复",
+    "整改",
+    "防护",
+)
 _SUMMARY_FLAGS = {"conflicting_candidates", "missing_value"}
 
 
 def _as_text(value: object) -> str:
     return " ".join(str(value or "").split()).strip()
+
+
+def _looks_like_recommendation(text: str) -> bool:
+    """Reject status/dimension prose before it reaches semantic classification."""
+    return any(term in text for term in _RECOMMENDATION_ACTION_TERMS)
 
 
 def _flag_items(value: object) -> list[Mapping[str, Any]]:
@@ -236,6 +267,8 @@ def build_semantic_candidates(
                 continue
             item = dict(recommendations[index])
             text = _as_text(item.get("content"))
+            if not _looks_like_recommendation(text):
+                continue
             add(
                 _candidate(
                     sample_id=sample_id,

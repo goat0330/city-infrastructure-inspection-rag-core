@@ -1152,6 +1152,7 @@ def _generate_narrative(state: NarrativeState, client: Any) -> dict[str, Any]:
         generated = _jsonable(payload)
         if not isinstance(generated, dict):
             raise ValueError("model response must be a JSON object")
+        generated = _normalise_official_none(generated)
     except (TypeError, ValueError, json.JSONDecodeError):
         return {
             "generation_attempts": attempts + 1,
@@ -1169,6 +1170,18 @@ def _generate_narrative(state: NarrativeState, client: Any) -> dict[str, Any]:
         "validation_errors": [],
         "call_metrics": metrics,
     }
+
+
+def _normalise_official_none(value: Any) -> Any:
+    """Keep the official output vocabulary when the model says a field is absent."""
+
+    if isinstance(value, str):
+        return value.replace("未提取到", "无")
+    if isinstance(value, list):
+        return [_normalise_official_none(item) for item in value]
+    if isinstance(value, Mapping):
+        return {key: _normalise_official_none(item) for key, item in value.items()}
+    return value
 
 
 def _collect_evidence_ids(value: Any, depth: int = 0) -> set[str]:
@@ -1549,7 +1562,7 @@ def _validate_output(state: NarrativeState) -> dict[str, Any]:
         for record in task_records.values():
             if isinstance(record, Mapping):
                 allowed_ids.update(_collect_evidence_ids(record.get("hits", [])))
-    for field in ("causes", "treatments", "safety_impact"):
+    for field in ("causes", "safety_impact"):
         values = candidate.get(field)
         if not isinstance(values, list):
             add(f"{field} must be an array", field)
@@ -1592,8 +1605,18 @@ def _validate_output(state: NarrativeState) -> dict[str, Any]:
     )
     for field in MODEL_GENERATED_FIELDS:
         for text in _candidate_field_texts(candidate, field):
-            if any(term in text for term in _OFFICIAL_FORBIDDEN_TERMS) or _OFFICIAL_INTERNAL_RE.search(text):
-                add("generated narrative contains forbidden internal extraction language", field)
+            blocked = [term for term in _OFFICIAL_FORBIDDEN_TERMS if term in text]
+            internal = _OFFICIAL_INTERNAL_RE.search(text)
+            if blocked or internal:
+                markers = blocked[:2]
+                if internal:
+                    markers.append(internal.group(0))
+                detail = "、".join(dict.fromkeys(markers))
+                add(
+                    "generated narrative contains forbidden internal extraction language"
+                    + (f": {detail}" if detail else ""),
+                    field,
+                )
             if _FIRST_DETECTION_RE.search(text) and not _FIRST_DETECTION_RE.search(report_text):
                 add("first-detection wording requires explicit report evidence", field)
             number_tokens = set(_NUMBER_RE.findall(text))

@@ -444,7 +444,19 @@ def _locate_tables(
     )
     if routed_tables:
         marked = tuple(table for table in routed_tables if _looks_like_defect_table(table))
-        return (marked or routed_tables), False
+        if marked:
+            return marked, False
+        # A broad heading can route an ordinary inspection table as defects.
+        # Fall back to the real defect-shaped table elsewhere in the document
+        # rather than extracting the misrouted table.
+        structural = tuple(
+            table
+            for table in document.blocks
+            if isinstance(table, TableBlock) and _looks_like_defect_table(table)
+        )
+        if structural:
+            return structural, True
+        return routed_tables, False
 
     structural = tuple(
         table

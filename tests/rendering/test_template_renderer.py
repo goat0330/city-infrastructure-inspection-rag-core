@@ -78,6 +78,10 @@ def test_renders_dynamic_rows_and_no_placeholders(tmp_path: Path) -> None:
     document = Document(output)
     text = _all_text(document)
     assert "{{" not in text
+    assert "未提取到" not in text
+    assert "1、简要信息（20分）" in text
+    assert "2、详细信息（80分）" in text
+    assert "病害成因（5分）：" in text
     assert document.tables[0].rows[1].cells[1].text == "测试桥"
     assert len(document.tables[1].rows) == 3
     assert [r.cells[0].text for r in document.tables[1].rows[1:]] == ["1", "2"]
@@ -86,6 +90,11 @@ def test_renders_dynamic_rows_and_no_placeholders(tmp_path: Path) -> None:
     assert document.tables[2].rows[3].cells[0].text == "2"
     assert "（1）材料老化。" in text
     assert "（2）加强巡检。" in text
+
+    heading = next(p for p in document.paragraphs if p.text == "1、简要信息（20分）")
+    assert str(heading.runs[0].font.color.rgb) == "E54C5E"
+    score = next(p for p in document.paragraphs if "评分段。" in p.text)
+    assert str(score.runs[0].font.color.rgb) == "1E2A36"
 
 
 def test_empty_dynamic_arrays_leave_headers_only(tmp_path: Path) -> None:
@@ -106,7 +115,7 @@ def test_submission_mapping_uses_existing_contract_names() -> None:
     submission = build_submission_document(_prediction())
     assert submission.scalars["deck_system_score"] == "80.00"
     assert submission.scalars["major_risks"] == "支座开裂影响耐久性。"
-    assert submission.scalars["report_title"] == "测试桥·无对比年度的信息提取报告"
+    assert submission.scalars["report_title"] == "测试桥·信息提取报告"
 
 
 def test_facility_context_replaces_bridge_fallback_in_generated_narrative() -> None:
@@ -157,7 +166,7 @@ def test_field_states_keep_none_distinct_from_not_extracted(tmp_path: Path) -> N
 
     scalars = build_submission_document(record).scalars
 
-    assert scalars["report_date"] == "未提取到"
+    assert scalars["report_date"] == "无"
     assert scalars["overall_score"] == "无"
     assert scalars["overall_grade"] == "无"
     assert scalars["previous_overall_score"] == "无"

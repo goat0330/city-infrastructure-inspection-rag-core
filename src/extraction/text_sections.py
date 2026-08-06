@@ -12,6 +12,7 @@ from ..contracts import (
     DocumentModel,
     ParagraphBlock,
     Recommendation,
+    TableBlock,
 )
 
 
@@ -334,10 +335,11 @@ def _structured_text_sections(
     impact_sources = _impact_sources(safety_units, heading_blocks)
     return TextSectionExtraction(
         detailed_conclusion=_structured_detailed_conclusion(
+            document,
             summary_value,
+            routes,
             defect_records,
             recommendation_records,
-            impact_sources,
             facility_context=facility_context,
             field_states=field_states,
         ),
@@ -530,31 +532,479 @@ def _record_matches_label(record: object, label: str) -> bool:
     return any(alias in text for alias in aliases)
 
 
-def _structured_detailed_conclusion(
-    summary: object,
-    defects: Sequence[object],
-    recommendations: Sequence[object],
-    impact_sources: Sequence[tuple[str | None, str]],
-    *,
-    facility_context: object | None = None,
-    field_states: Mapping[str, str] | None = None,
-) -> tuple[str, ...]:
-    """Build the four Gold-like paragraphs from report-backed facts."""
+_FORMAL_CONCLUSION_TITLES = (
+    "详细结论",
+    "检测结论",
+    "评估结论",
+    "检查结论",
+    "总体结论",
+    "综合结论",
+    "综合评定",
+)
+_OVERVIEW_CONCLUSION_TITLES = (
+    "检测结果汇总",
+    "检查结果汇总",
+    "外观检测结果及病害成因分析",
+    "外观检查结果及病害成因分析",
+)
+_DETAILED_STOP_TITLES = (
+    "病害成因分析",
+    "桥面线形",
+    "桥位环境调查",
+    "技术状况等级评定",
+    "桥梁技术状况等级评定",
+    "安全评估",
+    "安全性评估",
+    "处理建议",
+    "处置建议",
+    "维修建议",
+    "养护建议",
+)
+_DETAILED_EXCLUDED_MARKERS = (
+    "检测依据",
+    "评定依据",
+    "技术规范",
+    "评定标准",
+    "结构检算",
+    "荷载试验",
+    "静载试验",
+    "动载试验",
+    "自振频率",
+    "冲击系数",
+    "混凝土强度",
+    "保护层合格率",
+    "钢筋配置",
+    "桥梁博士",
+    "计算结果",
+    "试验车辆",
+)
+_DETAILED_DISEASE_WORDS = (
+    *_DISEASE_WORDS,
+    "磨光",
+    "露骨",
+    "蜂窝",
+    "麻面",
+    "跳车",
+    "错台",
+    "高差",
+    "涂层",
+    "螺钉缺失",
+    "孔盖缺失",
+    "剪切变形",
+    "无泄水孔",
+    "无排水设施",
+    "未设置",
+)
+_DETAIL_NUMBER_RE = re.compile(
+    r"^\s*(?:[（(]?[0-9一二三四五六七八九十百千万]+[）)\.、:：]?|[①-⑳⑴-⒇])\s*"
+)
+_DETAIL_SECTION_PREFIX_RE = re.compile(
+    r"^\s*\d+(?:\.\d+)+\s*(?:外观(?:检测|检查)?结果及病害成因分析|外观检查|检测结果汇总)?\s*"
+)
+_DETAIL_CAPTION_RE = re.compile(
+    r"(?:表|图|照片)\s*[0-9一二三四五六七八九十百千万]+(?:[.\-][0-9一二三四五六七八九十百千万]+)*"
+    r"[^；;。]*?(?=(?:[；;。]|$))"
+)
 
-    score = _structured_score_paragraph(summary, facility_context=facility_context)
-    facility_type = _context_value(facility_context, "facility_type", "bridge")
-    noun = _context_value(facility_context, "facility_noun", "桥梁")
-    subject = "该人行通道" if facility_type in {
-        "pedestrian_underpass", "vehicle_underpass", "underpass", "pedestrian_passage"
-    } else "该桥"
+_DETAIL_SUMMARY_STOP_RE = re.compile(
+    r"(?:\d+|[一二三四五六七八九十]+)[、.．]?\s*(?:"
+    r"专项检测(?:结果)?|技术状况(?:等级)?评定|桥梁技术状况指数|"
+    r"桥梁结构验算(?:结果)?|结构检算|静载试验(?:结果)?|动载试验(?:结果)?|"
+    r"病害成因分析|桥面线形|桥位环境调查|安全性?评估|处理建议|处置建议|维修建议|养护建议"
+    r")"
+)
+_NEGATED_DISEASE_RE = re.compile(
+    r"(?:无|未见|未发现|没有)[^，,；;。]{0,20}"
+    r"(?:明显)?(?:病害|缺陷|破损|裂缝|裂纹|沉降|变形|下挠|积水|冲刷|锈蚀|残缺|渗水|泛碱)"
+)
+_CONCRETE_DETAILED_DISEASE_WORDS = tuple(
+    word for word in _DETAILED_DISEASE_WORDS if word not in {"病害", "缺陷"}
+)
+_GOOD_STATE_MARKERS = (
+    "基本完好", "较为完好", "状况良好", "外观良好", "整体良好", "正常使用", "无明显异常"
+)
+_EXPLICIT_POSITIVE_DISEASE_WORDS = (
+    "存在", "局部破损", "开裂", "裂缝", "裂纹", "锈蚀", "渗水", "漏水", "积水",
+    "缺失", "损坏", "变形", "下挠", "露筋", "剥落", "脱落", "磨损", "坑槽",
+    "蜂窝", "麻面", "错台", "跳车", "冲刷", "泛碱", "松动", "断裂",
+)
 
-    conclusion = _summary_field(summary, "overall_conclusion")
-    conclusion = re.sub(
-        r"(?:具体病害情况见[^。；;]*|现场病害典型照片见[^。；;]*|见照片?[^。；;]*)[。；;]?",
+
+def _has_positive_detailed_disease(value: str) -> bool:
+    compact = _compact(value)
+    if any(marker in compact for marker in ("无泄水孔", "无排水设施", "未设置泄水", "缺少排水")):
+        return True
+    positive_text = _NEGATED_DISEASE_RE.sub("", compact)
+    if _has_any(positive_text, _GOOD_STATE_MARKERS) and not _has_any(
+        positive_text, _EXPLICIT_POSITIVE_DISEASE_WORDS
+    ):
+        return False
+    return _has_any(positive_text, _CONCRETE_DETAILED_DISEASE_WORDS)
+
+
+def _route_category_value(route: object) -> str:
+    value = getattr(getattr(route, "category", ""), "value", getattr(route, "category", ""))
+    return str(value)
+
+
+def _route_heading_title(route: object) -> str:
+    raw = str(getattr(getattr(route, "heading", None), "raw_text", "") or "")
+    compact = " ".join(raw.replace("\u00a0", " ").split()).strip()
+    compact = re.sub(r"^\s*(?:第?\d+(?:\.\d+)*|[一二三四五六七八九十]+)[、.．:：\s]*", "", compact)
+    return compact.strip("：:。.;；，,、 ")
+
+
+def _block_heading_title(block: object) -> str:
+    raw = str(getattr(block, "raw_text", "") or "")
+    compact = " ".join(raw.replace("\u00a0", " ").split()).strip()
+    compact = re.sub(r"^\s*\d+(?:\.\d+)*\s*", "", compact)
+    return compact.strip("：:。.;；，,、 ")
+
+
+def _is_detail_heading(text: str) -> bool:
+    compact = " ".join((text or "").split()).strip("：:。.;；，,、 ")
+    compact = re.sub(r"^\s*\d+(?:\.\d+)*\s*", "", compact)
+    return any(compact == title or compact.endswith(title) for title in (
+        *_FORMAL_CONCLUSION_TITLES,
+        *_OVERVIEW_CONCLUSION_TITLES,
+        *_DETAILED_STOP_TITLES,
+        "外观检查",
+        "外观检测",
+    ))
+
+
+def _is_raw_test_or_calculation(sentence: str) -> bool:
+    compact = _compact(sentence)
+    if any(marker in compact for marker in (
+        "检测依据", "评定依据", "技术规范", "评定标准", "结构建模",
+        "计算跨径", "计算模型", "弯矩包络", "剪力包络", "荷载效率",
+        "测试仪器", "测点布置", "加载程序", "试验工况", "理论计算",
+        "钢筋明细表", "截面号", "实测值", "理论值", "校验系数在",
+    )):
+        return True
+    # Raw numeric rows are not conclusions.  Keep short result sentences such
+    # as “承载能力满足要求” even when they mention a design load.
+    numeric_hits = len(re.findall(r"\d+(?:\.\d+)?(?:MPa|mm|m/s2|Hz|kN|kN·m|%|℃)", sentence))
+    has_result = _has_any(compact, (
+        "满足要求", "符合要求", "工作性能良好", "处于弹性工作状态",
+        "承载能力满足", "刚度满足", "强度满足", "动力特性满足",
+        "安全性评估等级", "技术状况等级",
+    ))
+    return numeric_hits >= 3 and not has_result
+
+
+def _clean_detailed_fact(value: str, *, formal: bool = False) -> str:
+    """Clean one conclusion paragraph without discarding valid assessment facts.
+
+    Formal conclusion routes may contain disease summaries, impact statements,
+    overall assessments and concise test conclusions.  Only captions, headings,
+    methods, standards and raw calculation data are removed.  Overview fallback
+    remains stricter and keeps disease statements only.
+    """
+
+    text = " ".join((value or "").replace("\u00a0", " ").split()).strip()
+    if not text or _is_detail_heading(text):
+        return ""
+    text = _DETAIL_SECTION_PREFIX_RE.sub("", text)
+    text = _DETAIL_NUMBER_RE.sub("", text)
+    text = _DETAIL_CAPTION_RE.sub("", text)
+    text = re.sub(
+        r"(?:具体病害情况见|现场病害典型照片见|病害照片见|具体情况见)[^。；;]*[。；;]?",
         "",
-        conclusion,
+        text,
     )
-    conclusion = _truncate_fact(conclusion, 1500) if conclusion else ""
+    text = re.sub(r"(?:表|图)\s*\d+(?:\.\d+)*(?:-\d+)?\s*[^。；;]*", "", text)
+
+    kept: list[str] = []
+    for raw in re.split(r"[。；;]+", text):
+        sentence = " ".join(raw.split()).strip(" ，,；;。． ")
+        compact = _compact(sentence)
+        if not compact or _is_detail_heading(sentence):
+            continue
+        if any(marker in compact for marker in (
+            "目录", "本页以下无正文", "照片", "示意图", "布置图",
+            "检查结果表", "病害分布表", "病害分布情况表",
+        )):
+            continue
+        if any(marker in compact for marker in _DETAILED_EXCLUDED_MARKERS) and not _has_any(
+            compact, ("满足要求", "符合要求", "安全性评估等级", "技术状况等级")
+        ):
+            continue
+        if _is_raw_test_or_calculation(sentence):
+            continue
+        if _is_action(sentence) and not _has_any(compact, _IMPACT_WORDS):
+            continue
+        if formal:
+            if not _has_any(compact, (
+                *_DETAILED_DISEASE_WORDS, *_IMPACT_WORDS,
+                "技术状况", "评定为", "良好状态", "合格状态",
+                "满足要求", "符合要求", "工作性能良好",
+                "弹性工作状态", "无开展", "未出现新裂缝",
+            )):
+                continue
+        elif not _has_positive_detailed_disease(sentence):
+            continue
+        kept.append(_truncate_fact(sentence, 420))
+    return "；".join(_unique(kept)[:8])
+
+def _clean_summary_overview(value: str) -> str:
+    """Keep the external-inspection disease facts from a noisy summary.
+
+    Some report summaries concatenate external inspection, dimensions,
+    special tests, structural calculations and load-test data into one value.
+    Stop before those later sections, split numbered sub-items, and retain only
+    concrete positive disease statements.  Measurements inside a retained
+    disease statement are preserved verbatim.
+    """
+
+    text = " ".join((value or "").replace("\u00a0", " ").split()).strip()
+    if not text:
+        return ""
+
+    stop_positions = [
+        match.start()
+        for match in _DETAIL_SUMMARY_STOP_RE.finditer(text)
+        if match.start() > 0
+    ]
+    for marker in _DETAILED_STOP_TITLES:
+        position = text.find(marker)
+        if position > 0:
+            stop_positions.append(position)
+    if stop_positions:
+        text = text[: min(stop_positions)]
+
+    text = re.sub(
+        r"^\s*(?:\d+|[一二三四五六七八九十]+)[、.．]?\s*"
+        r"(?:外观检查结果?|外观检测结果?|外观病害检查)\s*[:：]?",
+        "",
+        text,
+    )
+    text = re.sub(
+        r"(?:具体病害情况见|现场病害典型照片见|病害照片见|具体情况见)[^。；;]*[。；;]?",
+        "",
+        text,
+    )
+    text = _DETAIL_CAPTION_RE.sub("", text)
+    text = re.sub(r"(?:桥面系|上部结构|下部结构)检查结果表", " ", text)
+    text = re.sub(r"(?:表|图)\s*\d+(?:\.\d+)*(?:-\d+)?\s*[^。；;]*", " ", text)
+
+    numbered = re.split(r"(?=[（(]?\d+[）)])", text)
+    source_items = numbered if len(numbered) > 1 else re.split(r"[。]+", text)
+    facts: list[str] = []
+    for item in source_items:
+        item = re.sub(r"^\s*[（(]?\d+[）)]\s*", "", item)
+        fact = _clean_detailed_fact(item)
+        if fact:
+            facts.append(fact)
+    selected = _select_detailed_facts(facts)
+    return "；".join(selected)
+
+def _detail_fact_priority(value: str) -> int:
+    compact = _compact(value)
+    score = 0
+    if _has_any(compact, ("主要", "目前", "当前", "总体", "经检查", "经检测", "外观检查")):
+        score += 4
+    score += min(4, sum(1 for word in _DETAILED_DISEASE_WORDS if word in compact))
+    score += min(3, sum(1 for word in _COMPONENT_WORDS if word in compact))
+    if _has_any(compact, _IMPACT_WORDS):
+        score += 2
+    return score
+
+
+def _select_detailed_facts(values: Sequence[str]) -> tuple[str, ...]:
+    unique = list(_unique(values))
+    if not unique:
+        return ()
+    ranked = sorted(
+        enumerate(unique),
+        key=lambda item: (-_detail_fact_priority(item[1]), item[0]),
+    )
+    chosen_indexes = sorted(index for index, _ in ranked[:4])
+    chosen: list[str] = []
+    used = 0
+    for index in chosen_indexes:
+        value = unique[index]
+        remaining = 1080 - used
+        if remaining <= 40:
+            break
+        value = _truncate_fact(value, min(remaining, 420))
+        chosen.append(value)
+        used += len(value)
+    return tuple(chosen)
+
+
+def _labelled_table_conclusion_facts(document: DocumentModel) -> tuple[str, ...]:
+    """Read formal conclusion rows from flattened one-table reports."""
+
+    accepted = (
+        "详细结论", "检测结论", "评估结论", "检查结论",
+        "总体结论", "综合结论", "综合评定", "安全性评估",
+    )
+    facts: list[str] = []
+    for block in document.blocks:
+        if not isinstance(block, TableBlock):
+            continue
+        for row in block.rows:
+            cells = [" ".join(str(cell.raw_text or "").split()).strip() for cell in row.cells]
+            nonempty = [value for value in cells if value]
+            if len(nonempty) < 2:
+                continue
+            label = re.sub(r"^\s*\d+(?:\.\d+)*\s*", "", nonempty[0]).strip("：:。.;；，,、 ")
+            if not any(label == item or label.endswith(item) for item in accepted):
+                continue
+            for value in nonempty[1:]:
+                fact = _clean_detailed_fact(value, formal=True)
+                if fact:
+                    facts.append(fact)
+    return _unique(facts)
+
+
+def _route_detailed_facts(document: DocumentModel, routes: Sequence[object]) -> tuple[str, ...]:
+    strict: list[str] = []
+    overview: list[str] = []
+    seen_blocks: set[int] = set()
+    for route in routes:
+        if _route_category_value(route) != "inspection_conclusion":
+            continue
+        title = _route_heading_title(route)
+        is_strict = any(title == item or title.endswith(item) for item in _FORMAL_CONCLUSION_TITLES)
+        is_overview = any(title == item or title.endswith(item) for item in _OVERVIEW_CONCLUSION_TITLES)
+        if not (is_strict or is_overview):
+            continue
+        target = strict if is_strict else overview
+        for block in getattr(route, "blocks", ()):
+            block_index = int(getattr(block, "block_index", -1))
+            if block_index in seen_blocks:
+                continue
+            seen_blocks.add(block_index)
+            if isinstance(block, TableBlock):
+                # Whole-document tables are handled by row labels below.
+                continue
+            if not isinstance(block, ParagraphBlock):
+                continue
+            raw = str(getattr(block, "raw_text", "") or "")
+            block_title = _block_heading_title(block)
+            if any(block_title == marker or block_title.endswith(marker) for marker in _DETAILED_STOP_TITLES):
+                break
+            fact = _clean_detailed_fact(raw, formal=is_strict)
+            if fact:
+                target.append(fact)
+    labelled = list(_labelled_table_conclusion_facts(document))
+    values = [*strict, *labelled] if (strict or labelled) else overview
+    return _select_detailed_facts(values)
+
+
+def _route_detailed_overview(document: DocumentModel, routes: Sequence[object]) -> str:
+    return "；".join(_route_detailed_facts(document, routes))
+
+
+def _route_disease_overview(routes: Sequence[object]) -> str:
+    """Keep the high-precision disease overview used by the v4 baseline."""
+
+    strict: list[str] = []
+    overview: list[str] = []
+    seen_blocks: set[int] = set()
+    for route in routes:
+        if _route_category_value(route) != "inspection_conclusion":
+            continue
+        title = _route_heading_title(route)
+        is_strict = any(title == item or title.endswith(item) for item in _FORMAL_CONCLUSION_TITLES)
+        is_overview = any(title == item or title.endswith(item) for item in _OVERVIEW_CONCLUSION_TITLES)
+        if not (is_strict or is_overview):
+            continue
+        target = strict if is_strict else overview
+        for block in getattr(route, "blocks", ()):
+            if not isinstance(block, ParagraphBlock):
+                continue
+            block_index = int(getattr(block, "block_index", -1))
+            if block_index in seen_blocks:
+                continue
+            seen_blocks.add(block_index)
+            block_title = _block_heading_title(block)
+            if any(block_title == marker or block_title.endswith(marker) for marker in _DETAILED_STOP_TITLES):
+                break
+            fact = _clean_detailed_fact(str(getattr(block, "raw_text", "") or ""), formal=False)
+            if fact:
+                target.append(fact)
+    values = strict if strict else overview
+    return "；".join(_select_detailed_facts(values))
+
+
+def _concise_assessment_facts(values: Sequence[str], facility_name: str = "") -> str:
+    clauses: list[str] = []
+    name = _compact(facility_name)
+    for value in values:
+        for raw in re.split(r"[；;。]+", value):
+            clause = " ".join(raw.split()).strip(" ，,；;。 ")
+            compact = _compact(clause)
+            if not compact:
+                continue
+            if name:
+                clause = clause.replace(facility_name, "该设施")
+                compact = _compact(clause)
+            # Score/grade is already carried by paragraph one.  Keep it only
+            # when the same clause also contains a safety or load conclusion.
+            only_grade = _has_any(compact, ("技术状况指数", "技术状况等级", "评定为B级", "评定为A级", "评定为C级")) and not _has_any(
+                compact, ("安全", "承载", "耐久", "满足", "运营", "弹性", "无开展", "新裂缝")
+            )
+            if only_grade:
+                continue
+            if not _has_any(compact, (
+                "安全", "承载", "耐久", "使用功能", "满足要求", "满足设计",
+                "符合要求", "可安全运营", "弹性工作状态", "无开展",
+                "未出现新裂缝", "工作性能良好", "动力特性满足",
+            )):
+                continue
+            clause = re.sub(r"整体技术状况指数BCI\s*=\s*\d+(?:\.\d+)?[，,]?", "", clause, flags=re.I)
+            clause = re.sub(r"综合评定(?:桥梁|该设施)的整体技术状况等级为[ABCDEF]级[，,]?为[^，,；;。]+状态[，,；;]?", "", clause)
+            clause = clause.strip(" ，,；;。 ")
+            if clause:
+                clauses.append(_truncate_fact(clause, 150))
+    return "；".join(_unique(clauses)[:4])
+
+
+def _concise_recommendation_action(value: str, location: str = "") -> str:
+    text = " ".join((value or "").split()).strip(" ，,；;。 ")
+    compact = _compact(text)
+    loc = _compact(location)
+    if not compact:
+        return ""
+    if "排水" in compact and any(word in compact for word in ("布置", "增设", "设置", "疏通", "清理")):
+        return "增设或疏通排水设施"
+    if "栏杆" in compact or "护栏" in compact:
+        if "锈蚀" in compact:
+            return "修复栏杆并进行除锈防护"
+        return "修复栏杆或护栏"
+    if "裂缝" in compact and any(word in compact for word in ("封闭", "灌浆", "修补", "修复")):
+        prefix = loc if loc and loc not in {"桥梁", "该设施", "全桥"} else "结构"
+        return f"封闭或修补{prefix}裂缝"
+    if "露筋" in compact or "混凝土破损" in compact:
+        prefix = loc if loc and loc not in {"桥梁", "该设施", "全桥"} else "混凝土构件"
+        return f"修补{prefix}破损露筋部位"
+    if "锈蚀" in compact and any(word in compact for word in ("除锈", "涂装", "防锈")):
+        prefix = loc if loc and loc not in {"桥梁", "该设施", "全桥"} else "金属构件"
+        return f"对{prefix}除锈防护"
+    if "更换" in compact:
+        prefix = loc if loc and loc not in {"桥梁", "该设施", "全桥"} else "损坏构件"
+        return f"更换{prefix}"
+    if any(word in compact for word in ("定期检查", "日常检查", "巡查", "观测", "养护维修", "日常养护")):
+        return "加强日常检查、观测和养护"
+    if any(word in compact for word in ("严禁", "禁止", "车辆管理", "标识标牌")):
+        return "加强通行和超载管理"
+    if "桥面" in compact and any(word in compact for word in ("修复", "修补", "铺装")):
+        return "修复桥面铺装"
+    text = re.sub(r"《[^》]+》", "", text)
+    text = re.sub(r"^.*?(?=(?:对|针对|封闭|修复|修补|维修|更换|清理|增设|布置|加强|严禁))", "", text)
+    text = re.split(r"(?:以免|从而|保证|提高|防止|避免|该病害|若不|如不|同时也会)", text, maxsplit=1)[0]
+    return _truncate_fact(text.strip(" ，,；;。 "), 40)
+
+def _history_text(summary: object, noun: str) -> str:
+    """Return only explicit historical comparison facts.
+
+    Absence of previous values does not prove that this is the first periodic
+    inspection, so the deterministic layer must not invent that sentence.
+    """
+
     history = _summary_field(summary, "trend")
     previous_score = _summary_field(summary, "previous_overall_score")
     previous_grade = _summary_field(summary, "previous_overall_grade")
@@ -565,75 +1015,93 @@ def _structured_detailed_conclusion(
         history_parts.append(f"上一周期总体等级为{previous_grade}")
     if history and history != "无":
         history_parts.append(f"报告记录的发展趋势为{history}")
-    if history_parts:
-        history_text = "历史对比：" + "，".join(history_parts)
-    elif not history or history == "无":
-        history_text = (
-            f"本次为{noun}首次定期检测，无往年检测评分、病害对比数据，"
-            "不存在既有病害扩展情况"
-        )
-    else:
-        history_text = f"历史对比：本次定期检测记录的病害发展趋势为：{history}"
-    if conclusion:
-        paragraph2 = f"{history_text}，检测病害具体表现为：{conclusion}"
-    else:
-        examples: list[str] = []
-        for record in defects[:12]:
-            description = _field_value(record, "description")
-            if description and description not in examples:
-                examples.append(description)
-        paragraph2 = history_text + ("，检测病害具体表现为：" + "；".join(examples) if examples else "。")
+    return "历史对比：" + "，".join(history_parts) if history_parts else ""
 
-    if facility_type == "bridge":
-        component_labels = tuple(label for label, _ in _STRUCTURED_COMPONENTS)
-    else:
-        component_labels = _facility_component_labels(facility_type)
-    component_parts: list[str] = []
-    for label in component_labels:
-        grouped = (
-            tuple(record for record in defects if _record_component(record) == label)
-            if facility_type == "bridge"
-            else tuple(record for record in defects if _record_matches_label(record, label))
-        )
-        component_parts.append(
-            f"{label}：{_component_summary(label, grouped) if grouped else '未提取到结构化病害记录'}"
-        )
-    paragraph3 = "按结构部位归纳病害：" + "；".join(component_parts)
+def _structured_detailed_conclusion(
+    document: DocumentModel,
+    summary: object,
+    routes: Sequence[object],
+    defects: Sequence[object],
+    recommendations: Sequence[object],
+    *,
+    facility_context: object | None = None,
+    field_states: Mapping[str, str] | None = None,
+) -> tuple[str, ...]:
+    """Return up to four concise, report-backed conclusion paragraphs."""
 
-    risk = _summary_field(summary, "risk_points")
-    treatment_contents = _structured_treatments(recommendations)
-    final_parts: list[str] = []
-    if risk:
-        final_parts.append(risk)
-    if treatment_contents:
-        final_parts.append("建议" + "；".join(treatment_contents[:6]))
-    paragraph4 = "综上，" + ("；".join(final_parts) if final_parts else f"{subject}应按报告要求持续养护。")
+    score = _structured_score_paragraph(summary, facility_context=facility_context)
+    noun = _context_value(facility_context, "facility_noun", "桥梁")
+    route_facts = list(_route_detailed_facts(document, routes))
+
+    disease_overview = _route_disease_overview(routes)
+    if not disease_overview:
+        disease_overview = _clean_summary_overview(_summary_field(summary, "overall_conclusion"))
+    assessment_facts = [
+        fact for fact in route_facts
+        if _compact(fact) != _compact(disease_overview)
+        and not (disease_overview and _compact(fact) in _compact(disease_overview))
+    ]
+
+    paragraphs: list[str] = []
+    if _compact(score):
+        paragraphs.append(score)
+    if disease_overview:
+        history = _history_text(summary, noun)
+        if history:
+            prefix = f"{history}；"
+        else:
+            prefix = "本次为桥梁定期检测，无往年检测评分、病害对比数据，不存在既有病害扩展情况，"
+        paragraphs.append(f"{prefix}检测病害具体表现为：{disease_overview}")
+
+    # Keep formal assessment and concise result sentences as their own Gold-like
+    # paragraph instead of attaching them to the disease list.
+    assessment = _concise_assessment_facts(
+        assessment_facts,
+        _summary_field(summary, "bridge_name"),
+    )
+    if assessment:
+        paragraphs.append(assessment)
+
+    # A short synthesis may reuse the selected report conclusion and explicit
+    # recommendation actions, but never repeat the full defect/recommendation tables.
+    action_texts = []
+    for item in recommendations:
+        content = _concise_recommendation_action(
+            _field_value(item, "content"),
+            _field_value(item, "location"),
+        )
+        if content and content not in action_texts and len(action_texts) < 4:
+            action_texts.append(content)
+    if action_texts and len(paragraphs) < 4 and _labelled_table_conclusion_facts(document):
+        paragraphs.append("综上，报告建议" + "、".join(action_texts))
 
     return tuple(
-        _clean_text(value, strip_number=False).rstrip("；;") + ("" if value.rstrip().endswith("。") else "。")
-        for value in (score, paragraph2, paragraph3, paragraph4)
+        _clean_text(value, strip_number=False).rstrip("；;")
+        + ("" if value.rstrip().endswith("。") else "。")
+        for value in paragraphs[:4]
         if _compact(value)
     )
-
 
 def _structured_score_paragraph(summary: object, *, facility_context: object | None = None) -> str:
     score = _summary_field(summary, "overall_score")
     grade = _summary_field(summary, "overall_grade")
     facility_type = _context_value(facility_context, "facility_type", "bridge")
-    subject = "该人行通道" if facility_type in {
-        "pedestrian_underpass", "vehicle_underpass", "underpass", "pedestrian_passage"
-    } else "该桥"
-    if score and grade:
-        sentence = (
-            f"经综合评定，{subject}总体技术状况评分 {score} 分，"
-            f"总体技术状况等级为 {grade}。"
-        )
-    elif grade:
-        sentence = f"经综合评定，{subject}总体技术状况等级为 {grade}。"
-    elif score:
-        sentence = f"经综合评定，{subject}总体技术状况评分 {score} 分。"
-    else:
-        sentence = f"经综合评定，无统一全桥评分，报告未提供{subject}统一总体等级。"
+    facility_name = _summary_field(summary, "bridge_name")
+    subject = {
+        "pedestrian_underpass": "该人行通道",
+        "vehicle_underpass": "该车行下穿道",
+        "underpass": "该下穿道",
+        "pedestrian_passage": "该人行通道",
+        "pedestrian_overpass": "该人行天桥",
+        "tunnel": "该隧道",
+        "culvert": "该涵洞",
+        "road": "该道路",
+    }.get(facility_type, "该桥")
+    if "人行天桥" in facility_name:
+        subject = "该人行天桥"
+    elif "人行通道" in facility_name or "人行地通道" in facility_name:
+        subject = "该人行通道"
+
     components: list[str] = []
     for label, prefix in (
         ("上部结构", "superstructure"),
@@ -650,10 +1118,28 @@ def _structured_score_paragraph(summary: object, *, facility_context: object | N
         if component_grade:
             item += f"（{component_grade}）"
         components.append(item)
-    if components:
-        sentence += "其中，" + "，".join(components) + "。"
-    return sentence
 
+    sentence = ""
+    if score and grade:
+        sentence = (
+            f"经综合评定，{subject}总体技术状况评分 {score} 分，"
+            f"总体技术状况等级为 {grade}。"
+        )
+    elif grade:
+        sentence = f"经综合评定，{subject}总体技术状况等级为 {grade}。"
+    elif score:
+        sentence = f"经综合评定，{subject}总体技术状况评分 {score} 分。"
+    elif components:
+        sentence = "分项技术状况评定结果为："
+    else:
+        return ""
+
+    if components:
+        if sentence.endswith("："):
+            sentence += "，".join(components) + "。"
+        else:
+            sentence += "其中，" + "，".join(components) + "。"
+    return sentence
 
 def _safe_summary_fact(value: str) -> str:
     compact = _compact(value)

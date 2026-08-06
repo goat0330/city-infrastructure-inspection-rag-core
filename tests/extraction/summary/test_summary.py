@@ -161,7 +161,7 @@ def test_report_date_table_label_with_sampling_annotation_uses_adjacent_value(tm
         )
     )
 
-    assert result.summary.report_date == ""
+    assert result.summary.report_date == "2012年6月12日"
     assert result.facility_context.inspection_date == "2012年6月12日"
 
 

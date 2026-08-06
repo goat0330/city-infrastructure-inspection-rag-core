@@ -278,7 +278,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             {
                 "output": str(args.output),
                 "report": str(report_path),
-                "unimplemented_sections": ["causes", "treatments", "safety_impact"],
+                "semantic_live_requested": bool(args.semantic_live),
+                "unimplemented_sections": [],
             }
         )
         _write_json(status, report_path)
@@ -311,10 +312,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     if args.command == "render-batch":
-        from src.submission.batch import render_prediction_batch
+        from src.submission import render_prediction_batch_template
 
         try:
-            result = render_prediction_batch(args.input, args.manifest, args.output_dir)
+            result = render_prediction_batch_template(args.input, args.manifest, args.output_dir)
         except (FileNotFoundError, OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
             parser.error(str(exc))
         _write_json(result, args.report)

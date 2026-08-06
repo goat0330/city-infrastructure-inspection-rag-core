@@ -72,6 +72,7 @@ _TITLE_KEYWORDS: dict[SectionCategory, tuple[str, ...]] = {
         "主要建议",
         "维修建议",
         "养护建议",
+        "建议措施",
         "维护建议",
         "建议表",
         "建议",
@@ -82,6 +83,7 @@ _TITLE_KEYWORDS: dict[SectionCategory, tuple[str, ...]] = {
         "总体结论",
         "评估结论",
         "检查结论",
+        "综合评定",
         "检测结果",
         "结论",
     ),
@@ -97,6 +99,8 @@ _TITLE_KEYWORDS: dict[SectionCategory, tuple[str, ...]] = {
         "处理意见",
         "处置建议",
         "处治建议",
+        "病害处治",
+        "建议措施",
         "处理措施",
         "处置措施",
         "处治措施",
@@ -119,6 +123,8 @@ _RECOMMENDATION_LEAF_TITLES = (
     "处治建议",
     "维修建议",
     "养护建议",
+    "建议措施",
+    "病害处治",
     "维护建议",
     "主要建议",
     # Keep the legacy section headings that are already treated as explicit
@@ -151,6 +157,9 @@ _TABLE_SCORE_MARKERS = ("总体评分", "评分等级", "评分")
 _TABLE_RECOMMENDATION_MARKERS = (
     "建议类别",
     "建议内容",
+    "处理意见",
+    "建议措施",
+    "病害处治",
     "维修建议",
     "养护建议",
     "建议明细",
@@ -250,7 +259,7 @@ def _match_table(raw_text: str) -> SectionCategory | None:
         return SectionCategory.SCORING
     if any(marker in text for marker in _TABLE_RECOMMENDATION_MARKERS):
         return SectionCategory.RECOMMENDATIONS
-    if any(marker in text for marker in ("处理建议", "处理意见", "处置建议", "处治建议")):
+    if any(marker in text for marker in ("处理建议", "处理意见", "处置建议", "处治建议", "建议措施", "病害处治")):
         return SectionCategory.TREATMENT_RECOMMENDATIONS
     if "安全性评估" in text or "安全评估" in text:
         return SectionCategory.SAFETY_ASSESSMENT

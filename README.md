@@ -78,6 +78,8 @@ python -m inspection parse --input report.docx --output parsed.json
 python -m inspection route --input report.docx --output routes.json
 python -m inspection predict --input report.docx --output prediction.json
 python -m inspection predict-batch --input-dir converted-docx --output predictions.jsonl --report batch-report.json
+# 启用真实 Embedding + Reranker + Qwen narrative 增强（需提供 fit-only 索引）
+python -m inspection predict-batch --input-dir converted-docx --output predictions.jsonl --report batch-report.json --semantic-live --semantic-index-dir runs/rag-index --semantic-split holdout
 python -m inspection score --gold gold.json --predictions predictions.json
 python -m inspection render --input prediction.json --output result.docx
 python -m inspection render-batch --input prediction.jsonl --manifest submission-manifest.json --output-dir rendered-docx --report render-report.json
@@ -87,7 +89,7 @@ python -m inspection package --input-dir final-doc --code-dir submission-code --
 python -m inspection validate-package --input submission.tar.gz --manifest expected.csv
 ```
 
-`predict` 和 `predict-batch` 使用 Word 结构、章节路由和确定性规则生成 `prediction-v1`。单文件失败会显式写入 sidecar 报告；批量模式不会用伪记录掩盖失败。当前 `causes`、`treatments`、`safety_impact` 仍保持显式未实现并记录质量标记。
+`predict` 和 `predict-batch` 默认使用 Word 结构、章节路由、确定性抽取和 OfficialAnswerComposer 生成 `prediction-v1`。传入 `--semantic-live --semantic-index-dir` 后，会在不改写名称、日期、评分、等级、病害和建议明细的前提下，调用现有 Embedding → Reranker → Qwen narrative 路径增强详细结论、成因和安全影响；sidecar 会记录检索模式、来源配额、模型字段结果和回退原因。单文件失败会显式写入 sidecar 报告；批量模式不会用伪记录掩盖失败。
 
 ## 最终提交包约束
 

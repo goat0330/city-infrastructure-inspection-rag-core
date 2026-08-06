@@ -208,6 +208,17 @@ def test_official_narrative_rejects_internal_statistics_and_references() -> None
     assert any("forbidden internal extraction language" in error for error in result["validation_errors"])
 
 
+def test_model_absence_phrase_is_normalized_to_official_none() -> None:
+    sections = valid_sections()
+    sections["detailed_conclusion"][1] = "本次报告往年评分未提取到，无法开展跨期变化比较。"
+
+    result = run(FakeClient([sections]), retriever=FakeRetriever())
+
+    assert result["field_results"]["detailed_conclusion"] == "enhanced"
+    assert "未提取到" not in result["enhanced_prediction"]["detailed_conclusion"][1]
+    assert "无" in result["enhanced_prediction"]["detailed_conclusion"][1]
+
+
 def test_model_treatment_output_is_ignored_and_baseline_is_preserved() -> None:
     invalid = valid_sections()
     invalid["treatments"][0]["recommendation_index"] = "2"
@@ -215,6 +226,18 @@ def test_model_treatment_output_is_ignored_and_baseline_is_preserved() -> None:
     result = run(FakeClient([invalid]))
 
     assert result["field_results"]["treatments"] == "baseline"
+    assert result["enhanced_prediction"]["treatments"] == baseline()["treatments"]
+
+
+def test_deterministic_treatments_are_not_required_in_model_output() -> None:
+    sections = valid_sections()
+    sections.pop("treatments")
+
+    result = run(FakeClient([sections]), retriever=FakeRetriever())
+
+    assert "treatments must be an array" not in result["validation_errors"]
+    assert result["field_results"]["causes"] == "enhanced"
+    assert result["field_results"]["safety_impact"] == "enhanced"
     assert result["enhanced_prediction"]["treatments"] == baseline()["treatments"]
 
 

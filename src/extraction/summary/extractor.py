@@ -257,11 +257,12 @@ _SOURCE_PRIORITY = {
 _DATE_PRIORITY = {
     "cover": 300,
     "sign": 290,
+    "cover_range_end": 230,
     "detection_end": 220,
     "detection": 200,
     "range": 100,
 }
-_REPORT_DATE_KINDS = {"cover", "sign"}
+_REPORT_DATE_KINDS = {"cover", "sign", "cover_range_end"}
 _INSPECTION_DATE_KINDS = {"detection", "detection_end", "range"}
 _DATE_RE = re.compile(
     r"(?P<year>(?:19|20)\d{2})"
@@ -633,6 +634,7 @@ def extract_summary(
     _extract_route_text(selected_routes, collector)
     _extract_cover_names(blocks, first_heading, collector)
     _extract_cover_dates(blocks, first_heading, collector)
+    _extract_cover_table_date_fallback(blocks, collector)
     _extract_filename_bridge_name(document.source_file, collector)
     _extract_risk_fallback(blocks, collector)
     recommendation_count = _select_recommendation_count(collector)
@@ -1538,6 +1540,44 @@ def _extract_cover_dates(
             )
 
 
+
+def _extract_cover_table_date_fallback(
+    blocks: Sequence[object],
+    collector: _CandidateCollector,
+) -> None:
+    """Use the end of a labelled cover-table inspection range as report date.
+
+    Several pedestrian-overpass reports are flattened into one table and have
+    no separate cover paragraph.  Their Gold report date is the end date in the
+    labelled ``检验日期/检测日期`` row.  This remains lower priority than an
+    explicit report/sign date and is only added for a labelled range.
+    """
+
+    labels = ("检验日期", "检测日期", "检查日期", "samplingdate")
+    for block in blocks[:4]:
+        if not isinstance(block, TableBlock):
+            continue
+        for row in block.rows[:16]:
+            cells = list(row.cells)
+            for index, cell in enumerate(cells[:-1]):
+                label = _compact(cell.raw_text).casefold()
+                if not any(marker in label for marker in labels):
+                    continue
+                value_cell = cells[index + 1]
+                value = _clean(value_cell.raw_text)
+                if not _is_date_range(value):
+                    continue
+                _add_field(
+                    collector,
+                    "report_date",
+                    value,
+                    "cover",
+                    value_cell.source or cell.source or block.source,
+                    label=cell.raw_text,
+                    date_kind="cover_range_end",
+                )
+                return
+
 def _add_field(
     collector: _CandidateCollector,
     field: str,
@@ -1554,7 +1594,7 @@ def _add_field(
             return
         if field == "inspection_date" and date_kind not in _INSPECTION_DATE_KINDS:
             return
-        if date_kind not in {"cover", "sign", "detection_end"} and _is_date_range(value):
+        if date_kind not in {"cover", "sign", "cover_range_end", "detection_end"} and _is_date_range(value):
             date_kind = "range"
         original = _clean(value)
         value = _date_value(original)
@@ -1703,6 +1743,12 @@ def _normalise_bridge_name(value: str) -> str:
     cleaned = re.sub(r"互通式(?=立交)", "", cleaned)
     cleaned = re.sub(r"桥异形梁桥$", "异形桥", cleaned)
     cleaned = re.sub(r"(?<!立交)(\d+)#(?=人行天桥)", r"\1号", cleaned)
+    roman_map = {"I": "Ⅰ", "II": "Ⅱ", "III": "Ⅲ", "IV": "Ⅳ", "V": "Ⅴ", "VI": "Ⅵ"}
+    cleaned = re.sub(
+        r"(?i)(?<=主线)(VI|IV|V|III|II|I)(?=号桥)",
+        lambda match: roman_map[match.group(1).upper()],
+        cleaned,
+    )
     cleaned = _strip_project_road_prefix(cleaned)
     cleaned = cleaned.strip("：:=，,；;。． ")
     return "" if _is_generic_bridge_name(cleaned) else cleaned
@@ -1819,13 +1865,14 @@ def _normalise_field_value(field: str, value: str) -> str:
     return cleaned
 
 
-def _bridge_name_quality(value: str) -> tuple[int, int]:
+def _bridge_name_quality(value: str) -> tuple[int, int, int]:
     compact = _compact(value)
+    terminal_penalty = 1 if compact.endswith("匝道") and not compact.endswith("匝道桥") else 0
     penalty = sum(1 for marker in (
         "检测项目", "检测类别", "委托检测", "外观检查",
         "专项检测", "结构验算", "荷载试验",
     ) if marker in compact)
-    return penalty, len(compact)
+    return terminal_penalty, penalty, len(compact)
 
 
 def _conclusion_quality(value: str) -> tuple[int, int, int, int]:
@@ -1871,7 +1918,7 @@ def _select_value(field: str, values: Sequence[SummaryCandidate]) -> str:
             # Explicit facility-name fields must beat incidental body mentions;
             # quality only breaks ties at the same source priority.
             -candidate.priority if field == "bridge_name" else 0,
-            *(_bridge_name_quality(candidate.value) if field == "bridge_name" else (0, 0)),
+            *(_bridge_name_quality(candidate.value) if field == "bridge_name" else (0, 0, 0)),
             *(_conclusion_quality(candidate.value) if field == "overall_conclusion" else (0, 0, 0, 0)),
             -(_DATE_PRIORITY.get(candidate.date_kind or "", 0) if field in {"report_date", "inspection_date"} else _selection_priority(field, candidate)),
             -candidate.priority,

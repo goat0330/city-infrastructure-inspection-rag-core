@@ -13,6 +13,7 @@ from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
+from docx.shared import RGBColor
 from docx.table import _Row
 from docx.text.paragraph import Paragraph
 
@@ -31,6 +32,21 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_TEMPLATE_PATH = _REPO_ROOT / "assets" / "templates" / "information_extraction_v1.docx"
 DEFAULT_FIELDS_PATH = _REPO_ROOT / "assets" / "templates" / "template_fields.json"
 _PLACEHOLDER_RE = re.compile(r"\{\{[^{}]+\}\}")
+_REFERENCE_RED = RGBColor(0xE5, 0x4C, 0x5E)
+_OUTPUT_INK = RGBColor(0x1E, 0x2A, 0x36)
+_REFERENCE_DISPLAY_TEXT = {
+    "1、简要信息": "1、简要信息（20分）",
+    "从报告中提取桥梁定检的概要结论与关键指标，输出内容包括：": "从定检报告中提取概要结论与关键指标，输出内容包括：",
+    "2、详细信息": "2、详细信息（80分）",
+    "在简要信息基础上，进一步提取以下结构化明细：": "在简要信息基础上，进一步提取以下结构化明细：",
+    "（1）详细结论": "（1）详细结论（15分）",
+    "（2）建议明细": "（2）建议明细（20分）",
+    "病害列表": "病害列表（30分）",
+    "病害成因": "病害成因（5分）：",
+    "处置建议": "处置建议（5分）：",
+    "安全影响": "安全影响（5分）：",
+}
+_REFERENCE_PARAGRAPHS = set(_REFERENCE_DISPLAY_TEXT.values())
 
 
 def _load_contract(path: str | Path | None) -> Mapping[str, Any]:
@@ -49,7 +65,12 @@ def _remove_run(run: Any) -> None:
         parent.remove(run._element)
 
 
-def _set_paragraph_text(paragraph: Paragraph, value: object) -> None:
+def _set_paragraph_text(
+    paragraph: Paragraph,
+    value: object,
+    *,
+    color: RGBColor | None = None,
+) -> None:
     """Replace the whole slot text while preserving the first run formatting."""
 
     text = "" if value is None else str(value)
@@ -60,14 +81,28 @@ def _set_paragraph_text(paragraph: Paragraph, value: object) -> None:
             _remove_run(run)
     else:
         paragraph.add_run(text)
+    if color is not None:
+        for run in paragraph.runs:
+            run.font.color.rgb = color
 
 
-def _set_cell_text(cell: Any, value: object, *, align: int | None = None) -> None:
+def _color_paragraph(paragraph: Paragraph, color: RGBColor) -> None:
+    for run in paragraph.runs:
+        run.font.color.rgb = color
+
+
+def _set_cell_text(
+    cell: Any,
+    value: object,
+    *,
+    align: int | None = None,
+    color: RGBColor | None = _OUTPUT_INK,
+) -> None:
     while len(cell.paragraphs) > 1:
         paragraph = cell.paragraphs[-1]._element
         paragraph.getparent().remove(paragraph)
     paragraph = cell.paragraphs[0]
-    _set_paragraph_text(paragraph, value)
+    _set_paragraph_text(paragraph, value, color=color)
     paragraph.paragraph_format.space_after = 0
     if align is not None:
         paragraph.alignment = align
@@ -81,7 +116,13 @@ def _find_paragraph(document: Document, text: str) -> Paragraph:
     return matches[0]
 
 
-def _replace_exact_placeholder(document: Document, placeholder: str, value: object) -> None:
+def _replace_exact_placeholder(
+    document: Document,
+    placeholder: str,
+    value: object,
+    *,
+    color: RGBColor | None = _OUTPUT_INK,
+) -> None:
     matches: list[Paragraph] = []
     for paragraph in document.paragraphs:
         if paragraph.text.strip() == placeholder:
@@ -94,7 +135,7 @@ def _replace_exact_placeholder(document: Document, placeholder: str, value: obje
                         matches.append(paragraph)
     if len(matches) != 1:
         raise ValueError(f"placeholder {placeholder!r} expected once, found {len(matches)}")
-    _set_paragraph_text(matches[0], value)
+    _set_paragraph_text(matches[0], value, color=color)
 
 
 def _remove_row(table: Any, row: _Row) -> None:
@@ -192,6 +233,59 @@ def _delete_paragraph(paragraph: Paragraph) -> None:
         parent.remove(element)
 
 
+def _copy_run_properties(source: Any, target: Any) -> None:
+    source_properties = deepcopy(source._r.rPr)
+    existing = target._r.rPr
+    if existing is not None:
+        target._r.remove(existing)
+    if source_properties is not None:
+        target._r.insert(0, source_properties)
+
+
+def _color_text_fragments(paragraph: Paragraph, patterns: Sequence[str]) -> None:
+    """Color only fixed cue phrases while leaving extracted facts dark."""
+
+    text = paragraph.text
+    if not text or not paragraph.runs:
+        return
+    matches: list[tuple[int, int]] = []
+    for pattern in patterns:
+        matches.extend((match.start(), match.end()) for match in re.finditer(pattern, text))
+    if not matches:
+        return
+    matches.sort()
+    selected: list[tuple[int, int]] = []
+    for start, end in matches:
+        if selected and start < selected[-1][1]:
+            selected[-1] = (selected[-1][0], max(selected[-1][1], end))
+        else:
+            selected.append((start, end))
+    segments: list[tuple[str, bool]] = []
+    cursor = 0
+    for start, end in selected:
+        if start > cursor:
+            segments.append((text[cursor:start], False))
+        segments.append((text[start:end], True))
+        cursor = end
+    if cursor < len(text):
+        segments.append((text[cursor:], False))
+
+    base = paragraph.runs[0]
+    base_properties = deepcopy(base._r.rPr)
+    for run in paragraph.runs[1:]:
+        _remove_run(run)
+    base.text = segments[0][0]
+    if segments[0][1]:
+        base.font.color.rgb = _REFERENCE_RED
+    else:
+        base.font.color.rgb = _OUTPUT_INK
+    for segment, is_reference in segments[1:]:
+        run = paragraph.add_run(segment)
+        if base_properties is not None:
+            _copy_run_properties(base, run)
+        run.font.color.rgb = _REFERENCE_RED if is_reference else _OUTPUT_INK
+
+
 def _clone_paragraph_before(prototype: Paragraph) -> Paragraph:
     element = deepcopy(prototype._p)
     prototype._p.addprevious(element)
@@ -218,8 +312,37 @@ def _render_paragraph_repeater(
     for number, value in enumerate(values, int(numbering.get("start", 1))):
         paragraph = _clone_paragraph_before(prototype)
         prefix = fmt.format(n=number) if mode == "renderer_prefix" else ""
-        _set_paragraph_text(paragraph, f"{prefix}{value}")
+        _set_paragraph_text(paragraph, f"{prefix}{value}", color=_OUTPUT_INK)
     _delete_paragraph(prototype)
+
+
+def _apply_official_reference_colors(document: Document) -> None:
+    """Match the official example: fixed cues red, extracted text dark."""
+
+    for paragraph in document.paragraphs:
+        stored_text = paragraph.text.strip()
+        display_text = _REFERENCE_DISPLAY_TEXT.get(stored_text)
+        if display_text is not None:
+            _set_paragraph_text(paragraph, display_text, color=_REFERENCE_RED)
+        elif stored_text in _REFERENCE_PARAGRAPHS:
+            _color_paragraph(paragraph, _REFERENCE_RED)
+            continue
+        if paragraph.text.startswith("经综合评定"):
+            _color_text_fragments(
+                paragraph,
+                (
+                    r"经综合评定",
+                    r"(?:该|本)[^，。；]{0,20}总体技术状况评分",
+                    r"总体技术状况等级为",
+                    r"上部结构评分",
+                    r"下部结构评分",
+                    r"桥面系评分",
+                ),
+            )
+        elif paragraph.text.startswith("目前，"):
+            _color_text_fragments(paragraph, (r"目前，", r"上部结构", r"下部结构", r"桥面系"))
+        elif paragraph.text.startswith("综上，"):
+            _color_text_fragments(paragraph, (r"综上，", r"(?<=；)建议"))
 
 
 def _all_text(document: Document) -> str:
@@ -288,6 +411,7 @@ def render_template_report(
     _render_paragraph_repeater(document, contract, "causes", submission.causes)
     _render_paragraph_repeater(document, contract, "treatments", submission.treatments)
     _render_paragraph_repeater(document, contract, "safety_impacts", submission.safety_impacts)
+    _apply_official_reference_colors(document)
     _validate_rendered(document)
 
     output = Path(output_path)

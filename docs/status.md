@@ -8,11 +8,12 @@
 - 标签解析：86 成功、8 个明确失败；Gold 自评分 100。
 - 原生 Word 结构模型：段落、标题、表格、合并单元格、图片关系、证据锚点。
 - 六类章节路由：评分、病害表、建议、检测结论、安全评估、处置建议。
-- P1 全量章节路由审计：161/161 DOCX 解析成功；Gold 交集 86/86；审计基线见 `docs/gate0/route-audit-baseline.md`。
+- P1 全量章节路由审计：161/161 DOCX 解析成功；Gold 交集 86/86；历史审计基线见 `archive/legacy-20260806/docs/gate0/route-audit-baseline.md`。
 - 本地100分加权评分器及 Gate 0 聚合错题本。
 - 最小 DOCX 渲染器和单文档结构校验器。
 - 本轮补齐：Gold/Prediction Schema 分离、route/render/validate CLI、tar.gz 打包与包结构校验。
-- B2 高权重抽取主链：概要/评分、病害、建议三个确定性抽取器已接入 `predict` / `predict-batch`。
+- B2 高权重抽取主链：概要/评分、病害、建议三个确定性抽取器已接入 `predict` / `predict-batch`；官方表达由 `OfficialAnswerComposer` 组织。
+- RAG + LLM live 路径已接入 `predict` / `predict-batch` 的显式 `--semantic-live` 模式，使用 fit-only `LightRagIndex` 的 Embedding → Reranker 检索和 Qwen narrative 增强详细结论、成因、安全影响，锁定结构化事实不被模型改写。
 - 病害抽取支持病害表识别、跨页/重复表头、合并单元格继承、多位置观察和 Gold 模板默认状态值，并保留质量标记。
 - 建议抽取支持表格与处理建议章节双路证据；类别推断仅在批量预测主链显式开启，并记录 `recommendation_category_inferred`。
 - B2 真实 Word 验证已完成：`predict-batch` 对 161/161 份 DOCX 成功，manifest 的 `source_docx` 将预测自动对齐到 86/86 份 Gold。
@@ -20,7 +21,7 @@
 ## 尚未完成
 
 - 8 个 Gold 失败样例与 4 个模糊配对的人工映射仍需单独处理。
-- `causes`、`treatments`、`safety_impact` 尚未实现；当前不生成猜测值。
+- 默认模式保留确定性 `causes`、`treatments`、`safety_impact`；live 模式仅对详细结论、成因和安全影响启用证据约束生成，处置字段继续使用确定性建议。
 - DOCX → 最终 `.doc` 导出、测试集最终交付包和包级全量验收仍待 B3 完成。
 - 跨年度病害对齐和证据约束长文本生成。
 

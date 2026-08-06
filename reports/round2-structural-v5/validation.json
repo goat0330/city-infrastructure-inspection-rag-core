@@ -1,0 +1,99 @@
+{
+  "baseline_commit": "9559f5698a9d2a8246f4898b71b86a739979c548",
+  "scope": "cumulative overlay over baseline plus v4 fixes",
+  "tests": {
+    "targeted_passed": 69,
+    "compileall": "passed"
+  },
+  "real_source_validation": {
+    "physical_docx_files": 8,
+    "unique_gold_samples": 7,
+    "extraction_failures": 0,
+    "v4_micro_total": 78.896885,
+    "v5_micro_total": 79.2004,
+    "v4_macro_total": 77.848058,
+    "v5_macro_total": 78.044618,
+    "sections": {
+      "summary": {
+        "v4_score": 17.31092,
+        "v5_score": 17.479,
+        "v4_precision": 0.865546,
+        "v5_precision": 0.87395,
+        "v4_recall": 0.865546,
+        "v5_recall": 0.87395,
+        "v4_f1": 0.865546,
+        "v5_f1": 0.87395
+      },
+      "detailed_conclusion": {
+        "v4_score": 6.439695,
+        "v5_score": 6.57513,
+        "v4_precision": 0.905109,
+        "v5_precision": 0.64464,
+        "v4_recall": 0.281392,
+        "v5_recall": 0.332073,
+        "v4_f1": 0.429313,
+        "v5_f1": 0.438342
+      },
+      "recommendations": {
+        "v4_score": 16.5,
+        "v5_score": 16.5,
+        "v4_precision": 0.825,
+        "v5_precision": 0.825,
+        "v4_recall": 0.825,
+        "v5_recall": 0.825,
+        "v4_f1": 0.825,
+        "v5_f1": 0.825
+      },
+      "defects": {
+        "v4_score": 29.15766,
+        "v5_score": 29.15766,
+        "v4_precision": 0.971922,
+        "v5_precision": 0.971922,
+        "v4_recall": 0.971922,
+        "v5_recall": 0.971922,
+        "v4_f1": 0.971922,
+        "v5_f1": 0.971922
+      },
+      "causes": {
+        "v4_score": 3.119895,
+        "v5_score": 3.119895,
+        "v4_precision": 0.630208,
+        "v5_precision": 0.630208,
+        "v4_recall": 0.617872,
+        "v5_recall": 0.617872,
+        "v4_f1": 0.623979,
+        "v5_f1": 0.623979
+      },
+      "treatments": {
+        "v4_score": 4.92658,
+        "v5_score": 4.92658,
+        "v4_precision": 1.0,
+        "v5_precision": 1.0,
+        "v4_recall": 0.971056,
+        "v5_recall": 0.971056,
+        "v4_f1": 0.985316,
+        "v5_f1": 0.985316
+      },
+      "safety_impact": {
+        "v4_score": 1.442135,
+        "v5_score": 1.442135,
+        "v4_precision": 0.233972,
+        "v5_precision": 0.233972,
+        "v4_recall": 0.37592,
+        "v5_recall": 0.37592,
+        "v4_f1": 0.288427,
+        "v5_f1": 0.288427
+      }
+    },
+    "notes": [
+      "This is the available 7-sample real-source subset, not the full 86-Gold rerun.",
+      "Recommendations, defects, causes, treatments and safety impact did not regress on this subset."
+    ]
+  },
+  "verified_cases": {
+    "pedestrian_overpass_report_date": "2012年6月12日",
+    "compact_numbered_recommendations": "split into three items",
+    "misrouted_defect_table": "falls back to the real defect-shaped table",
+    "mainline_roman_name": "主线III号桥 -> 主线Ⅲ号桥"
+  }
+}

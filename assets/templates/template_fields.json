@@ -26,8 +26,9 @@
   },
   "missing_value_policy": {
     "explicit_none": "无",
-    "not_extracted": "未提取到",
-    "zero_recommendation_category": "汇总文本中保留该类别并显示0条",
+    "not_extracted": "无",
+    "visible_fallback": "无",
+    "zero_recommendation_category": "汇总文本中保留三类并显示0条",
     "recommendation_categories": ["立即处置", "尽快维修", "预防性养护"]
   },
   "scalars": {
@@ -37,7 +38,7 @@
         "paragraph_index": 0
       },
       "required": true,
-      "example": "上界路 K46+500 上跨车行桥·无对比年度的信息提取报告"
+      "example": "上界路 K46+500 上跨车行桥·信息提取报告"
     },
     "bridge_name": {
       "placeholder": "{{bridge_name}}",
