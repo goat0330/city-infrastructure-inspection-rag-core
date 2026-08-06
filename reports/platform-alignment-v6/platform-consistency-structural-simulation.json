@@ -1,0 +1,2940 @@
+{
+  "input": "/tmp/prediction-structural-sim.jsonl",
+  "record_count": 92,
+  "valid": false,
+  "issue_record_count": 91,
+  "warning_record_count": 92,
+  "issue_counts": {
+    "missing_value_sentence_splice": 91
+  },
+  "warning_counts": {
+    "generic_composer_marker": 92
+  },
+  "records_with_issues": [
+    {
+      "sample_id": "一处-太平水库大桥报告（原B级，现B级）",
+      "source_file": "一处-太平水库大桥报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "一处-官方院子桥式通道报告(原B级，现A级）",
+      "source_file": "一处-官方院子桥式通道报告(原B级，现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "一处-小四沟人行天桥报告（原A级，现A级）",
+      "source_file": "一处-小四沟人行天桥报告（原A级，现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "混凝土保护层破损、施工密实性不足及长期环境侵蚀"
+        }
+      ]
+    },
+    {
+      "sample_id": "一处-尹家湾大桥报告（原B级，现B级）",
+      "source_file": "一处-尹家湾大桥报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态"
+        }
+      ]
+    },
+    {
+      "sample_id": "一处-尹家湾桥式通道报告（原B级，现B级）",
+      "source_file": "一处-尹家湾桥式通道报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 若不及时处理，会影响使用功能并降低构件耐久性"
+        }
+      ]
+    },
+    {
+      "sample_id": "一处-新房子桥式通道报告（原B级，现B级）",
+      "source_file": "一处-新房子桥式通道报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 若不及时处理，会影响使用功能并降低构件耐久性"
+        }
+      ]
+    },
+    {
+      "sample_id": "一处-白房子中桥报告（原B类，现B类）",
+      "source_file": "一处-白房子中桥报告（原B类，现B类）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "一处-皂角林桥式通道报告（原B级，现B级）",
+      "source_file": "一处-皂角林桥式通道报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "一处-石子山中桥报告（原B级，现B级）",
+      "source_file": "一处-石子山中桥报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "影响传力状态 | 若不及时处理，会影响使用功能并降低构件耐久性"
+        }
+      ]
+    },
+    {
+      "sample_id": "一处-祝家湾桥式通道报告（原B级，现B级）",
+      "source_file": "一处-祝家湾桥式通道报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "一处-芭蕉湾桥式通道报告（原B级，现B级）",
+      "source_file": "一处-芭蕉湾桥式通道报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "影响传力状态"
+        }
+      ]
+    },
+    {
+      "sample_id": "一处-还建人行天桥报告（原A级，现A级）",
+      "source_file": "一处-还建人行天桥报告（原A级，现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响"
+        }
+      ]
+    },
+    {
+      "sample_id": "一处-鄢家院子桥式通道报告（原B级，现B级）",
+      "source_file": "一处-鄢家院子桥式通道报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "影响传力状态 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "一处-青龙嘴桥式通道报告（原A级，现B级）",
+      "source_file": "一处-青龙嘴桥式通道报告（原A级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "三处-K38+220中桥报告（原B级，现B级）",
+      "source_file": "三处-K38+220中桥报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "三处-K38+814中桥报告（原B级，现B级）",
+      "source_file": "三处-K38+814中桥报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "三处-华陶跨线桥报告（K42+350）（原A级，现B级）",
+      "source_file": "三处-华陶跨线桥报告（K42+350）（原A级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "影响传力状态"
+        }
+      ]
+    },
+    {
+      "sample_id": "三处-大渡口立交B匝道桥报告（现A级）",
+      "source_file": "三处-大渡口立交B匝道桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 若不及时处理，会影响使用功能并降低构件耐久性"
+        }
+      ]
+    },
+    {
+      "sample_id": "三处-大渡口立交D匝道报告（现A级）",
+      "source_file": "三处-大渡口立交D匝道报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响"
+        }
+      ]
+    },
+    {
+      "sample_id": "三处-大渡口立交G匝道桥报告（现A级）",
+      "source_file": "三处-大渡口立交G匝道桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 若不及时处理，会影响使用功能并降低构件耐久性"
+        }
+      ]
+    },
+    {
+      "sample_id": "三处-大渡口立交主线桥报告（现A级）",
+      "source_file": "三处-大渡口立交主线桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "三处-无名桥(K45+735)报告(原B级，现B级）",
+      "source_file": "三处-无名桥(K45+735)报告(原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "三处-无名桥(K48+572)报告（原B级，现B级）",
+      "source_file": "三处-无名桥(K48+572)报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "三处-无名桥(K51+300)报告(原C级，现B级）",
+      "source_file": "三处-无名桥(K51+300)报告(原C级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "三处-无名桥K42+517报告（原B级，现B级）",
+      "source_file": "三处-无名桥K42+517报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态"
+        }
+      ]
+    },
+    {
+      "sample_id": "三处-无名桥K47+704报告（原B级，现B级）",
+      "source_file": "三处-无名桥K47+704报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "车辆荷载长期作用、温度变化及材料老化共同影响"
+        }
+      ]
+    },
+    {
+      "sample_id": "三处-无名桥（K52+104）报告（原B级，现B级）",
+      "source_file": "三处-无名桥（K52+104）报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "影响传力状态"
+        }
+      ]
+    },
+    {
+      "sample_id": "二处-人行天桥 k29+700报告（原A级，现A级）",
+      "source_file": "二处-人行天桥 k29+700报告（原A级，现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "影响传力状态 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "二处-人行天桥K25+304报告（原B级，现A级）",
+      "source_file": "二处-人行天桥K25+304报告（原B级，现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "若不及时处理，会影响使用功能并降低构件耐久性"
+        }
+      ]
+    },
+    {
+      "sample_id": "二处-人行天桥K26+100报告（原B级，现B级）",
+      "source_file": "二处-人行天桥K26+100报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "若不及时处理，会影响使用功能并降低构件耐久性"
+        }
+      ]
+    },
+    {
+      "sample_id": "二处-人行天桥K27+100报告（原B级，现B级）",
+      "source_file": "二处-人行天桥K27+100报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响"
+        }
+      ]
+    },
+    {
+      "sample_id": "二处-人行天桥K29+000报告（原A级，现A级）",
+      "source_file": "二处-人行天桥K29+000报告（原A级，现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响"
+        }
+      ]
+    },
+    {
+      "sample_id": "二处-人行天桥K31报告（原A级，现A级）",
+      "source_file": "二处-人行天桥K31报告（原A级，现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "二处-大山村互通Ⅰ号报告（K38）（原B级，现B级）",
+      "source_file": "二处-大山村互通Ⅰ号报告（K38）（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 若不及时处理，会影响使用功能并降低构件耐久性"
+        }
+      ]
+    },
+    {
+      "sample_id": "二处-大山村互通Ⅱ号桥报告（K38）（原B级，现B级）",
+      "source_file": "二处-大山村互通Ⅱ号桥报告（K38）（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "二处-界石立交主线III号桥报告（原B级，现B级）",
+      "source_file": "二处-界石立交主线III号桥报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "二处-界石立交主线II号桥报告(原B级，现B级)",
+      "source_file": "二处-界石立交主线II号桥报告(原B级，现B级).docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态"
+        }
+      ]
+    },
+    {
+      "sample_id": "二处-界石立交主线IV号桥报告（原A级，现B级）",
+      "source_file": "二处-界石立交主线IV号桥报告（原A级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "二处-界石立交主线I号桥报告(原B级，现B级)",
+      "source_file": "二处-界石立交主线I号桥报告(原B级，现B级).docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态"
+        }
+      ]
+    },
+    {
+      "sample_id": "二处-界石立交主线Ⅵ号桥报告(原B级，现B级）",
+      "source_file": "二处-界石立交主线Ⅵ号桥报告(原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "四处-五童立交旱桥报告（原B级，现B级）",
+      "source_file": "四处-五童立交旱桥报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 若不及时处理，会影响使用功能并降低构件耐久性"
+        }
+      ]
+    },
+    {
+      "sample_id": "四处-人和立交1号桥报告（原A级，现A级）",
+      "source_file": "四处-人和立交1号桥报告（原A级，现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响"
+        }
+      ]
+    },
+    {
+      "sample_id": "四处-人和立交2号桥报告（原B级，现B级）",
+      "source_file": "四处-人和立交2号桥报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "四处-人和立交3号桥报告（原B级，现B级）",
+      "source_file": "四处-人和立交3号桥报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态"
+        }
+      ]
+    },
+    {
+      "sample_id": "四处-人和立交4号桥报告（原B级，现B级）",
+      "source_file": "四处-人和立交4号桥报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "四处-后溪沟大桥报告(原A级，现B级）",
+      "source_file": "四处-后溪沟大桥报告(原A级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "四处-白莲湾中桥报告（原B级，现B级）",
+      "source_file": "四处-白莲湾中桥报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态"
+        }
+      ]
+    },
+    {
+      "sample_id": "四处-童家院子1号立交桥报告（原B级，现B级）",
+      "source_file": "四处-童家院子1号立交桥报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 若不及时处理，会影响使用功能并降低构件耐久性"
+        }
+      ]
+    },
+    {
+      "sample_id": "四处-童家院子2号立交桥报告（原B级，现B级）",
+      "source_file": "四处-童家院子2号立交桥报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "四处-童家院子3号立交桥报告（原B级，现B级）",
+      "source_file": "四处-童家院子3号立交桥报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "若不及时处理，会影响使用功能并降低构件耐久性"
+        }
+      ]
+    },
+    {
+      "sample_id": "大桥处-嘉悦大桥报告",
+      "source_file": "大桥处-嘉悦大桥报告.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "影响传力状态"
+        }
+      ]
+    },
+    {
+      "sample_id": "大桥处-大佛寺长江大桥报告",
+      "source_file": "大桥处-大佛寺长江大桥报告 .docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "大桥处-马桑溪长江大桥报告",
+      "source_file": "大桥处-马桑溪长江大桥报告.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "影响传力状态 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快一处-人行天桥K0+125报告(现A级)",
+      "source_file": "快一处-人行天桥K0+125报告(现A级).docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快一处-双凤桥立交1号人行天桥报告（现A级）",
+      "source_file": "快一处-双凤桥立交1号人行天桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响"
+        }
+      ]
+    },
+    {
+      "sample_id": "快一处-双凤桥立交2号人行天桥报告（现A级）",
+      "source_file": "快一处-双凤桥立交2号人行天桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀"
+        }
+      ]
+    },
+    {
+      "sample_id": "快一处-跑马坪立交跨渝长路人行天桥报告（现A级）",
+      "source_file": "快一处-跑马坪立交跨渝长路人行天桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-一天门大桥拼宽桥报告（现B级）",
+      "source_file": "快二处-一天门大桥拼宽桥报告（现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-丁家院大桥右侧拼宽桥报告 （现A级）",
+      "source_file": "快二处-丁家院大桥右侧拼宽桥报告 （现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 若不及时处理，会影响使用功能并降低构件耐久性"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-丁家院大桥左侧拼宽桥报告（现B级）",
+      "source_file": "快二处-丁家院大桥左侧拼宽桥报告（现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-东水门大桥南立交C匝道桥报告（现A级）",
+      "source_file": "快二处-东水门大桥南立交C匝道桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-东水门大桥南立交E匝道桥报告（现A级）",
+      "source_file": "快二处-东水门大桥南立交E匝道桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-东水门大桥南立交F匝道桥报告（现A级）",
+      "source_file": "快二处-东水门大桥南立交F匝道桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-东水门大桥南立交G匝道1号桥报告（现B级）",
+      "source_file": "快二处-东水门大桥南立交G匝道1号桥报告（现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-东水门大桥南立交G匝道2号桥报告（现A级）",
+      "source_file": "快二处-东水门大桥南立交G匝道2号桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 若不及时处理，会影响使用功能并降低构件耐久性"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-向家坡Ⅱ匝道桥（K0+211）",
+      "source_file": "快二处-向家坡Ⅱ匝道桥（K0+211）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-向家坡主线上跨桥（K13+230）报告(原A级，现A级）",
+      "source_file": "快二处-向家坡主线上跨桥（K13+230）报告(原A级，现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-向家坡异形桥报告（原B级现B级）",
+      "source_file": "快二处-向家坡异形桥报告（原B级现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-向家坡立交Ⅲ号匝道桥（K0+590.43）报告（原B级 现B级）",
+      "source_file": "快二处-向家坡立交Ⅲ号匝道桥（K0+590.43）报告（原B级 现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-向家坡立交Ⅳ号匝道桥（K0+412.124）报告（原B级 现B级）",
+      "source_file": "快二处-向家坡立交Ⅳ号匝道桥（K0+412.124）报告（原B级 现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-向家坡立交改线桥（K0+412.214）报告（原B级 现B级）",
+      "source_file": "快二处-向家坡立交改线桥（K0+412.214）报告（原B级 现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-四公里连接线桥报告（原B类，现B类）",
+      "source_file": "快二处-四公里连接线桥报告（原B类，现B类）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-柏杨湾大桥报告（K11+561.8）",
+      "source_file": "快二处-柏杨湾大桥报告（K11+561.8）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-桂花新村大桥（K11+126.7）报告（原B级，现B级）",
+      "source_file": "快二处-桂花新村大桥（K11+126.7）报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-百步梯大桥报告（K18+100）（原B，现B）",
+      "source_file": "快二处-百步梯大桥报告（K18+100）（原B，现B）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "影响传力状态"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-茶园立交主线桥(K18+706)报告（原B级，现B级）",
+      "source_file": "快二处-茶园立交主线桥(K18+706)报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 若不及时处理，会影响使用功能并降低构件耐久性"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-黄桷湾立交A匝道桥报告（现A级）",
+      "source_file": "快二处-黄桷湾立交A匝道桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-黄桷湾立交B匝道桥报告（现A级）",
+      "source_file": "快二处-黄桷湾立交B匝道桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-黄桷湾立交C匝道桥报告（现A级）",
+      "source_file": "快二处-黄桷湾立交C匝道桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-黄桷湾立交E匝道桥报告（现A级）",
+      "source_file": "快二处-黄桷湾立交E匝道桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-黄桷湾立交F匝道桥报告（现A级）",
+      "source_file": "快二处-黄桷湾立交F匝道桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-黄桷湾立交G匝道桥报告（现A级）",
+      "source_file": "快二处-黄桷湾立交G匝道桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-黄桷湾立交H匝道桥报告（现A级）",
+      "source_file": "快二处-黄桷湾立交H匝道桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-黄桷湾立交I匝道桥报告（现A级）",
+      "source_file": "快二处-黄桷湾立交I匝道桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-黄桷湾立交J匝道桥报告（现A级）",
+      "source_file": "快二处-黄桷湾立交J匝道桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-黄桷湾立交K匝道桥报告（现A级）",
+      "source_file": "快二处-黄桷湾立交K匝道桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-黄桷湾立交M匝道桥报告（现A级）",
+      "source_file": "快二处-黄桷湾立交M匝道桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 若不及时处理，会影响使用功能并降低构件耐久性"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-黄桷湾立交N匝道桥报告（现A级）",
+      "source_file": "快二处-黄桷湾立交N匝道桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-黄桷湾立交O匝道桥报告(现A级)",
+      "source_file": "快二处-黄桷湾立交O匝道桥报告(现A级).docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-黄桷湾立交跨线桥报告（现A）",
+      "source_file": "快二处-黄桷湾立交跨线桥报告（现A）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-龙黄路分离式立交桥报告(原A级，现B级)",
+      "source_file": "快二处-龙黄路分离式立交桥报告(原A级，现B级).docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态"
+        }
+      ]
+    }
+  ],
+  "records_with_warnings": [
+    {
+      "sample_id": "一处-太平水库大桥报告（原B级，现B级）",
+      "source_file": "一处-太平水库大桥报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "一处-官方院子桥式通道报告(原B级，现A级）",
+      "source_file": "一处-官方院子桥式通道报告(原B级，现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "一处-小四沟人行天桥报告（原A级，现A级）",
+      "source_file": "一处-小四沟人行天桥报告（原A级，现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "混凝土保护层破损、施工密实性不足及长期环境侵蚀"
+        }
+      ]
+    },
+    {
+      "sample_id": "一处-尹家湾大桥报告（原B级，现B级）",
+      "source_file": "一处-尹家湾大桥报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态"
+        }
+      ]
+    },
+    {
+      "sample_id": "一处-尹家湾桥式通道报告（原B级，现B级）",
+      "source_file": "一处-尹家湾桥式通道报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 若不及时处理，会影响使用功能并降低构件耐久性"
+        }
+      ]
+    },
+    {
+      "sample_id": "一处-新房子桥式通道报告（原B级，现B级）",
+      "source_file": "一处-新房子桥式通道报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 若不及时处理，会影响使用功能并降低构件耐久性"
+        }
+      ]
+    },
+    {
+      "sample_id": "一处-白房子中桥报告（原B类，现B类）",
+      "source_file": "一处-白房子中桥报告（原B类，现B类）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "一处-皂角林桥式通道报告（原B级，现B级）",
+      "source_file": "一处-皂角林桥式通道报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "一处-石子山中桥报告（原B级，现B级）",
+      "source_file": "一处-石子山中桥报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "影响传力状态 | 若不及时处理，会影响使用功能并降低构件耐久性"
+        }
+      ]
+    },
+    {
+      "sample_id": "一处-祝家湾桥式通道报告（原B级，现B级）",
+      "source_file": "一处-祝家湾桥式通道报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "一处-芭蕉湾桥式通道报告（原B级，现B级）",
+      "source_file": "一处-芭蕉湾桥式通道报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "影响传力状态"
+        }
+      ]
+    },
+    {
+      "sample_id": "一处-还建人行天桥报告（原A级，现A级）",
+      "source_file": "一处-还建人行天桥报告（原A级，现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响"
+        }
+      ]
+    },
+    {
+      "sample_id": "一处-鄢家院子桥式通道报告（原B级，现B级）",
+      "source_file": "一处-鄢家院子桥式通道报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "影响传力状态 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "一处-青龙嘴桥式通道报告（原A级，现B级）",
+      "source_file": "一处-青龙嘴桥式通道报告（原A级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "三处-K38+220中桥报告（原B级，现B级）",
+      "source_file": "三处-K38+220中桥报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "三处-K38+814中桥报告（原B级，现B级）",
+      "source_file": "三处-K38+814中桥报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "三处-华陶跨线桥报告（K42+350）（原A级，现B级）",
+      "source_file": "三处-华陶跨线桥报告（K42+350）（原A级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "影响传力状态"
+        }
+      ]
+    },
+    {
+      "sample_id": "三处-大渡口立交B匝道桥报告（现A级）",
+      "source_file": "三处-大渡口立交B匝道桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 若不及时处理，会影响使用功能并降低构件耐久性"
+        }
+      ]
+    },
+    {
+      "sample_id": "三处-大渡口立交D匝道报告（现A级）",
+      "source_file": "三处-大渡口立交D匝道报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响"
+        }
+      ]
+    },
+    {
+      "sample_id": "三处-大渡口立交G匝道桥报告（现A级）",
+      "source_file": "三处-大渡口立交G匝道桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 若不及时处理，会影响使用功能并降低构件耐久性"
+        }
+      ]
+    },
+    {
+      "sample_id": "三处-大渡口立交主线桥报告（现A级）",
+      "source_file": "三处-大渡口立交主线桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "三处-无名桥(K45+735)报告(原B级，现B级）",
+      "source_file": "三处-无名桥(K45+735)报告(原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "三处-无名桥(K48+572)报告（原B级，现B级）",
+      "source_file": "三处-无名桥(K48+572)报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "三处-无名桥(K51+300)报告(原C级，现B级）",
+      "source_file": "三处-无名桥(K51+300)报告(原C级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "三处-无名桥K42+517报告（原B级，现B级）",
+      "source_file": "三处-无名桥K42+517报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态"
+        }
+      ]
+    },
+    {
+      "sample_id": "三处-无名桥K47+704报告（原B级，现B级）",
+      "source_file": "三处-无名桥K47+704报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "车辆荷载长期作用、温度变化及材料老化共同影响"
+        }
+      ]
+    },
+    {
+      "sample_id": "三处-无名桥（K52+104）报告（原B级，现B级）",
+      "source_file": "三处-无名桥（K52+104）报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "影响传力状态"
+        }
+      ]
+    },
+    {
+      "sample_id": "二处-人行天桥 k29+700报告（原A级，现A级）",
+      "source_file": "二处-人行天桥 k29+700报告（原A级，现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "影响传力状态 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "二处-人行天桥K25+304报告（原B级，现A级）",
+      "source_file": "二处-人行天桥K25+304报告（原B级，现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "若不及时处理，会影响使用功能并降低构件耐久性"
+        }
+      ]
+    },
+    {
+      "sample_id": "二处-人行天桥K26+100报告（原B级，现B级）",
+      "source_file": "二处-人行天桥K26+100报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "若不及时处理，会影响使用功能并降低构件耐久性"
+        }
+      ]
+    },
+    {
+      "sample_id": "二处-人行天桥K27+100报告（原B级，现B级）",
+      "source_file": "二处-人行天桥K27+100报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响"
+        }
+      ]
+    },
+    {
+      "sample_id": "二处-人行天桥K29+000报告（原A级，现A级）",
+      "source_file": "二处-人行天桥K29+000报告（原A级，现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响"
+        }
+      ]
+    },
+    {
+      "sample_id": "二处-人行天桥K31报告（原A级，现A级）",
+      "source_file": "二处-人行天桥K31报告（原A级，现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "二处-大山村互通Ⅰ号报告（K38）（原B级，现B级）",
+      "source_file": "二处-大山村互通Ⅰ号报告（K38）（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 若不及时处理，会影响使用功能并降低构件耐久性"
+        }
+      ]
+    },
+    {
+      "sample_id": "二处-大山村互通Ⅱ号桥报告（K38）（原B级，现B级）",
+      "source_file": "二处-大山村互通Ⅱ号桥报告（K38）（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "二处-界石立交主线III号桥报告（原B级，现B级）",
+      "source_file": "二处-界石立交主线III号桥报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "二处-界石立交主线II号桥报告(原B级，现B级)",
+      "source_file": "二处-界石立交主线II号桥报告(原B级，现B级).docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态"
+        }
+      ]
+    },
+    {
+      "sample_id": "二处-界石立交主线IV号桥报告（原A级，现B级）",
+      "source_file": "二处-界石立交主线IV号桥报告（原A级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "二处-界石立交主线I号桥报告(原B级，现B级)",
+      "source_file": "二处-界石立交主线I号桥报告(原B级，现B级).docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态"
+        }
+      ]
+    },
+    {
+      "sample_id": "二处-界石立交主线Ⅵ号桥报告(原B级，现B级）",
+      "source_file": "二处-界石立交主线Ⅵ号桥报告(原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "四处-五童立交旱桥报告（原B级，现B级）",
+      "source_file": "四处-五童立交旱桥报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 若不及时处理，会影响使用功能并降低构件耐久性"
+        }
+      ]
+    },
+    {
+      "sample_id": "四处-人和立交1号桥报告（原A级，现A级）",
+      "source_file": "四处-人和立交1号桥报告（原A级，现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响"
+        }
+      ]
+    },
+    {
+      "sample_id": "四处-人和立交2号桥报告（原B级，现B级）",
+      "source_file": "四处-人和立交2号桥报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "四处-人和立交3号桥报告（原B级，现B级）",
+      "source_file": "四处-人和立交3号桥报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态"
+        }
+      ]
+    },
+    {
+      "sample_id": "四处-人和立交4号桥报告（原B级，现B级）",
+      "source_file": "四处-人和立交4号桥报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "四处-后溪沟大桥报告(原A级，现B级）",
+      "source_file": "四处-后溪沟大桥报告(原A级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "四处-白莲湾中桥报告（原B级，现B级）",
+      "source_file": "四处-白莲湾中桥报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态"
+        }
+      ]
+    },
+    {
+      "sample_id": "四处-童家院子1号立交桥报告（原B级，现B级）",
+      "source_file": "四处-童家院子1号立交桥报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 若不及时处理，会影响使用功能并降低构件耐久性"
+        }
+      ]
+    },
+    {
+      "sample_id": "四处-童家院子2号立交桥报告（原B级，现B级）",
+      "source_file": "四处-童家院子2号立交桥报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "四处-童家院子3号立交桥报告（原B级，现B级）",
+      "source_file": "四处-童家院子3号立交桥报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "若不及时处理，会影响使用功能并降低构件耐久性"
+        }
+      ]
+    },
+    {
+      "sample_id": "大桥处-嘉悦大桥报告",
+      "source_file": "大桥处-嘉悦大桥报告.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "影响传力状态"
+        }
+      ]
+    },
+    {
+      "sample_id": "大桥处-大佛寺长江大桥报告",
+      "source_file": "大桥处-大佛寺长江大桥报告 .docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "大桥处-马桑溪长江大桥报告",
+      "source_file": "大桥处-马桑溪长江大桥报告.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "影响传力状态 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "大桥处-高家花园大桥报告",
+      "source_file": "大桥处-高家花园大桥报告.docx",
+      "issues": [],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态"
+        }
+      ]
+    },
+    {
+      "sample_id": "快一处-人行天桥K0+125报告(现A级)",
+      "source_file": "快一处-人行天桥K0+125报告(现A级).docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快一处-双凤桥立交1号人行天桥报告（现A级）",
+      "source_file": "快一处-双凤桥立交1号人行天桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响"
+        }
+      ]
+    },
+    {
+      "sample_id": "快一处-双凤桥立交2号人行天桥报告（现A级）",
+      "source_file": "快一处-双凤桥立交2号人行天桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀"
+        }
+      ]
+    },
+    {
+      "sample_id": "快一处-跑马坪立交跨渝长路人行天桥报告（现A级）",
+      "source_file": "快一处-跑马坪立交跨渝长路人行天桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-一天门大桥拼宽桥报告（现B级）",
+      "source_file": "快二处-一天门大桥拼宽桥报告（现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-丁家院大桥右侧拼宽桥报告 （现A级）",
+      "source_file": "快二处-丁家院大桥右侧拼宽桥报告 （现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 若不及时处理，会影响使用功能并降低构件耐久性"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-丁家院大桥左侧拼宽桥报告（现B级）",
+      "source_file": "快二处-丁家院大桥左侧拼宽桥报告（现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-东水门大桥南立交C匝道桥报告（现A级）",
+      "source_file": "快二处-东水门大桥南立交C匝道桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-东水门大桥南立交E匝道桥报告（现A级）",
+      "source_file": "快二处-东水门大桥南立交E匝道桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-东水门大桥南立交F匝道桥报告（现A级）",
+      "source_file": "快二处-东水门大桥南立交F匝道桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-东水门大桥南立交G匝道1号桥报告（现B级）",
+      "source_file": "快二处-东水门大桥南立交G匝道1号桥报告（现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-东水门大桥南立交G匝道2号桥报告（现A级）",
+      "source_file": "快二处-东水门大桥南立交G匝道2号桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 若不及时处理，会影响使用功能并降低构件耐久性"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-向家坡Ⅱ匝道桥（K0+211）",
+      "source_file": "快二处-向家坡Ⅱ匝道桥（K0+211）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-向家坡主线上跨桥（K13+230）报告(原A级，现A级）",
+      "source_file": "快二处-向家坡主线上跨桥（K13+230）报告(原A级，现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-向家坡异形桥报告（原B级现B级）",
+      "source_file": "快二处-向家坡异形桥报告（原B级现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-向家坡立交Ⅲ号匝道桥（K0+590.43）报告（原B级 现B级）",
+      "source_file": "快二处-向家坡立交Ⅲ号匝道桥（K0+590.43）报告（原B级 现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-向家坡立交Ⅳ号匝道桥（K0+412.124）报告（原B级 现B级）",
+      "source_file": "快二处-向家坡立交Ⅳ号匝道桥（K0+412.124）报告（原B级 现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-向家坡立交改线桥（K0+412.214）报告（原B级 现B级）",
+      "source_file": "快二处-向家坡立交改线桥（K0+412.214）报告（原B级 现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-四公里连接线桥报告（原B类，现B类）",
+      "source_file": "快二处-四公里连接线桥报告（原B类，现B类）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-柏杨湾大桥报告（K11+561.8）",
+      "source_file": "快二处-柏杨湾大桥报告（K11+561.8）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-桂花新村大桥（K11+126.7）报告（原B级，现B级）",
+      "source_file": "快二处-桂花新村大桥（K11+126.7）报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-百步梯大桥报告（K18+100）（原B，现B）",
+      "source_file": "快二处-百步梯大桥报告（K18+100）（原B，现B）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "影响传力状态"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-茶园立交主线桥(K18+706)报告（原B级，现B级）",
+      "source_file": "快二处-茶园立交主线桥(K18+706)报告（原B级，现B级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 若不及时处理，会影响使用功能并降低构件耐久性"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-黄桷湾立交A匝道桥报告（现A级）",
+      "source_file": "快二处-黄桷湾立交A匝道桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-黄桷湾立交B匝道桥报告（现A级）",
+      "source_file": "快二处-黄桷湾立交B匝道桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-黄桷湾立交C匝道桥报告（现A级）",
+      "source_file": "快二处-黄桷湾立交C匝道桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-黄桷湾立交E匝道桥报告（现A级）",
+      "source_file": "快二处-黄桷湾立交E匝道桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-黄桷湾立交F匝道桥报告（现A级）",
+      "source_file": "快二处-黄桷湾立交F匝道桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-黄桷湾立交G匝道桥报告（现A级）",
+      "source_file": "快二处-黄桷湾立交G匝道桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-黄桷湾立交H匝道桥报告（现A级）",
+      "source_file": "快二处-黄桷湾立交H匝道桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-黄桷湾立交I匝道桥报告（现A级）",
+      "source_file": "快二处-黄桷湾立交I匝道桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-黄桷湾立交J匝道桥报告（现A级）",
+      "source_file": "快二处-黄桷湾立交J匝道桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-黄桷湾立交K匝道桥报告（现A级）",
+      "source_file": "快二处-黄桷湾立交K匝道桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-黄桷湾立交M匝道桥报告（现A级）",
+      "source_file": "快二处-黄桷湾立交M匝道桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 若不及时处理，会影响使用功能并降低构件耐久性"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-黄桷湾立交N匝道桥报告（现A级）",
+      "source_file": "快二处-黄桷湾立交N匝道桥报告（现A级）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 若不及时处理，会影响使用功能并降低构件耐久性 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-黄桷湾立交O匝道桥报告(现A级)",
+      "source_file": "快二处-黄桷湾立交O匝道桥报告(现A级).docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-黄桷湾立交跨线桥报告（现A）",
+      "source_file": "快二处-黄桷湾立交跨线桥报告（现A）.docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态 | 混凝土保护层破损、施工密实性不足及长期环境侵蚀 | 车辆荷载长期作用、温度变化及材料老化共同影响 | 防排水不畅、接缝密封老化或雨水长期下渗"
+        }
+      ]
+    },
+    {
+      "sample_id": "快二处-龙黄路分离式立交桥报告(原A级，现B级)",
+      "source_file": "快二处-龙黄路分离式立交桥报告(原A级，现B级).docx",
+      "issues": [
+        {
+          "code": "missing_value_sentence_splice",
+          "detail": "contains the submitted composer splice '无。本次检测'"
+        }
+      ],
+      "warnings": [
+        {
+          "code": "generic_composer_marker",
+          "detail": "可能削弱结构整体性 | 影响传力状态"
+        }
+      ]
+    }
+  ]
+}

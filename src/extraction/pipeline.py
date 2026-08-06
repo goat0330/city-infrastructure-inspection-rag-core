@@ -21,7 +21,6 @@ from .official_answer_composer import compose_official_answers
 from .summary import SummaryExtraction, extract_summary
 from .summary.facility_context import FacilityContext
 from .semantic_candidates import build_semantic_candidates
-from .semantic_merge import merge_semantic_predictions
 from .text_sections import TextSectionExtraction, extract_text_sections
 
 
@@ -304,16 +303,6 @@ def _derive_risk_points(
     if not defects:
         return current
 
-    by_location: dict[str, list[object]] = {}
-    for defect in defects:
-        location = _normalise_risk_location(str(getattr(defect, "location", "") or ""))
-        if location:
-            by_location.setdefault(location, []).append(defect)
-    for location, grouped in by_location.items():
-        types = {str(getattr(item, "defect_type", "") or "") for item in grouped}
-        if location.endswith("侧墙") and "破损" in types and "裂缝" in types:
-            return f"{location}局部破损及竖向裂缝，需及时封闭补强以防进一步发展。"
-
     # Use paragraph-level report evidence only.  Whole-table raw text can be an
     # entire compact report and previously polluted the field with contents,
     # inspection purpose and recommendation sections.
@@ -356,14 +345,8 @@ def _derive_risk_points(
                 break
         return "；".join(selected) + "。"
 
-    first = defects[0]
-    description = str(getattr(first, "description", "") or "")
-    description = re.sub(r"[，,]\s*(?:见图|照片|附图).*$", "", description).strip("，,；;。．")
-    description = description.replace("，", "")
-    if description:
-        if any("修" in str(getattr(item, "content", "")) for item in recommendations):
-            return f"{description}，需及时修复以防进一步损伤。"
-        return f"{description}，需及时处置。"
+    # Do not manufacture a defect-to-consequence statement from the first
+    # defect row when the report has no explicit risk evidence.
     return current
 
 
@@ -378,6 +361,7 @@ def extract_report(
     semantic_decider: Callable[..., Any] | None = None,
     semantic_decisions: Sequence[Mapping[str, Any]] = (),
     semantic_split: str = "holdout",
+    official_composer_enabled: bool = False,
 ) -> ReportExtraction:
     """Parse one DOCX and assemble the three B2 extractors into a prediction."""
 
@@ -446,33 +430,53 @@ def extract_report(
         str(getattr(block, "raw_text", "") or "")
         for block in getattr(document, "blocks", ())
     )
-    official = compose_official_answers(
-        summary=summary.summary,
-        defects=defects.records,
-        recommendations=recommendations.records,
-        facility_context=summary.facility_context,
-        source_causes=text_sections.causes,
-        document_text=document_text,
+    # Source-grounded extraction is the production default. The composer is
+    # retained only for explicit A/B experiments and cannot silently replace
+    # report evidence in the final submission path.
+    if official_composer_enabled:
+        official = compose_official_answers(
+            summary=summary.summary,
+            defects=defects.records,
+            recommendations=recommendations.records,
+            facility_context=summary.facility_context,
+            source_causes=text_sections.causes,
+            document_text=document_text,
+        )
+        summary_value = replace(
+            summary.summary,
+            overall_conclusion=official.overall_conclusion,
+            risk_points=official.risk_points,
+        )
+        detailed_conclusion = official.detailed_conclusion
+        causes = official.causes
+        treatments = official.treatments
+        safety_impact = official.safety_impact
+    else:
+        summary_value = summary.summary
+        detailed_conclusion = text_sections.detailed_conclusion
+        causes = text_sections.causes
+        treatments = text_sections.treatments
+        safety_impact = text_sections.safety_impact
+    field_states["overall_conclusion"] = (
+        "present" if summary_value.overall_conclusion
+        else field_states.get("overall_conclusion", "not_extracted")
     )
-    summary_value = replace(
-        summary.summary,
-        overall_conclusion=official.overall_conclusion,
-        risk_points=official.risk_points,
+    field_states["risk_points"] = (
+        "present" if summary_value.risk_points
+        else field_states.get("risk_points", "not_extracted")
     )
-    field_states["overall_conclusion"] = "present"
-    field_states["risk_points"] = "present"
     summary = replace(summary, summary=summary_value, field_states=field_states)
 
     prediction = InspectionPrediction(
         sample_id=_sample_id(source_name),
         source_file=source_name,
         summary=summary.summary,
-        detailed_conclusion=official.detailed_conclusion,
+        detailed_conclusion=detailed_conclusion,
         recommendations=recommendations.records,
         defects=defects.records,
-        causes=official.causes,
-        treatments=official.treatments,
-        safety_impact=official.safety_impact,
+        causes=causes,
+        treatments=treatments,
+        safety_impact=safety_impact,
     )
     prediction = normalize_prediction_output(
         prediction,
@@ -488,6 +492,10 @@ def extract_report(
         quality_flags += _flags("recommendations", summary_text.get("diagnostics"))
     semantic_trace: dict[str, Any] = {}
     if semantic_enabled:
+        # Import the candidate graph lazily so deterministic extraction does
+        # not require the optional semantic dependencies.
+        from .semantic_merge import merge_semantic_predictions
+
         if semantic_client is not None and semantic_index is not None:
             narrative = _run_live_narrative(
                 baseline_prediction=prediction.to_dict(),
@@ -524,43 +532,44 @@ def extract_report(
                 "retrieval_by_task": dict(narrative.get("retrieval_by_task", {})),
                 "call_metrics": dict(narrative.get("call_metrics", {})),
             }
-        candidate_baseline = prediction.to_dict()
-        candidate_baseline["facility_context"] = summary.facility_context.to_dict()
-        candidates = build_semantic_candidates(
-            candidate_baseline,
-            {"quality_flags": quality_flags},
-            _report_facts(document),
+        # The legacy candidate graph remains available for injected A/B tests.
+        # The official live path has its own narrative graph and should not
+        # also run unresolved summary candidates that only add noisy fallbacks.
+        legacy_semantic_requested = bool(
+            semantic_decisions or semantic_retriever is not None or semantic_decider is not None
         )
-        merged, candidate_trace = merge_semantic_predictions(
-            prediction.to_dict(),
-            [candidate.to_dict() for candidate in candidates],
-            semantic_decisions,
-            semantic_enabled=True,
-            retriever=semantic_retriever,
-            decider=semantic_decider,
-            index=semantic_index,
-            client=semantic_client,
-            split=semantic_split,
-        )
-        prediction = _apply_semantic_prediction(prediction, merged)
-        prediction = normalize_prediction_output(
-            prediction,
-            facility_context=summary.facility_context,
-            source_recommendations_summary=source_recommendations_summary,
-        )
-        field_states.update(
-            {
-                str(key): str(value)
-                for key, value in candidate_trace.get("field_states", {}).items()
-            }
-        )
-        semantic_trace.update(
-            {
-                key: value
-                for key, value in candidate_trace.items()
-                if key not in {"narrative"}
-            }
-        )
+        if legacy_semantic_requested:
+            candidate_baseline = prediction.to_dict()
+            candidate_baseline["facility_context"] = summary.facility_context.to_dict()
+            candidates = build_semantic_candidates(
+                candidate_baseline,
+                {"quality_flags": quality_flags},
+                _report_facts(document),
+            )
+            merged, candidate_trace = merge_semantic_predictions(
+                prediction.to_dict(),
+                [candidate.to_dict() for candidate in candidates],
+                semantic_decisions,
+                semantic_enabled=True,
+                retriever=semantic_retriever,
+                decider=semantic_decider,
+                index=semantic_index,
+                client=semantic_client,
+                split=semantic_split,
+            )
+            prediction = _apply_semantic_prediction(prediction, merged)
+            prediction = normalize_prediction_output(
+                prediction,
+                facility_context=summary.facility_context,
+                source_recommendations_summary=source_recommendations_summary,
+            )
+            field_states.update(
+                {
+                    str(key): str(value)
+                    for key, value in candidate_trace.get("field_states", {}).items()
+                }
+            )
+            semantic_trace.update(candidate_trace)
     return ReportExtraction(
         prediction=prediction,
         route_count=len(routes),

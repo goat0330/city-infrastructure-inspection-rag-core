@@ -222,7 +222,7 @@ def test_recommendation_summary_has_three_categories_and_preserves_source() -> N
             "defects": [],
         }
     )
-    assert source.scalars["recommendations_summary"] == "9条立即处置、0条尽快维修、0条预防性养护"
+    assert source.scalars["recommendations_summary"] == "0条立即处置、1条尽快维修、0条预防性养护"
 
 
 def test_facility_render_has_no_unresolved_placeholders(tmp_path: Path) -> None:

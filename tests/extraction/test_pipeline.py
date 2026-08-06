@@ -79,8 +79,9 @@ def test_extract_report_assembles_prediction_and_side_metadata(tmp_path: Path) -
     assert result.prediction.defects[0].evidence
     assert result.prediction.recommendations[0].evidence
     assert result.route_count > 0
-    assert result.prediction.causes
-    assert "裂缝" in result.prediction.causes[0]
+    # The fixture has no explicit cause evidence; production must not invent
+    # a generic engineering cause.
+    assert result.prediction.causes == ()
 
 
 def test_extract_report_semantic_off_keeps_baseline_without_client_calls(tmp_path: Path) -> None:

@@ -79,6 +79,27 @@ def normalize_recommendation_text(value: object) -> str:
     return _LEADING_ITEM_RE.sub("", text).strip()
 
 
+def resolve_recommendation_category(category: object, content: object) -> str:
+    """Resolve every visible recommendation row to the official vocabulary."""
+
+    raw = _display(category)
+    if raw == "立即维修":
+        return "立即处置"
+    if raw in _RECOMMENDATION_CATEGORIES:
+        return raw
+    text = _display(content)
+    compact = re.sub(r"\s+", "", text)
+    if any(word in compact for word in ("立即", "紧急", "危急", "封闭交通", "临时隔离")):
+        return "立即处置"
+    if any(word in compact for word in (
+        "维修", "修复", "修补", "更换", "处治", "处置", "加固", "封闭",
+        "灌浆", "灌缝", "堵漏", "补强", "除锈", "涂刷", "铺装", "勾缝",
+        "抹灰", "恢复", "安装", "疏通", "清理堵塞",
+    )):
+        return "尽快维修"
+    return "预防性养护"
+
+
 def recommendation_counts(recommendations: Sequence[object]) -> dict[str, int]:
     counts = {category: 0 for category in _RECOMMENDATION_CATEGORIES}
     for recommendation in recommendations:
@@ -98,26 +119,12 @@ def normalize_recommendations_summary(
     *,
     source_summary: object = "",
 ) -> str:
-    """Rebuild counts while retaining the report's Gold-facing display style.
-
-    When the source contains a parseable summary, its category omission and
-    optional trailing ``建议`` are presentation evidence.  Counts always come
-    from the final structured recommendations so the display cannot drift from
-    the detail table.  Without source style evidence, all three categories are
-    emitted.
-    """
+    """Rebuild the visible summary from the final resolved detail rows."""
 
     counts = recommendation_counts(recommendations)
-    source = _display(source_summary)
-    source_categories: list[str] = []
-    for match in _COUNT_RE.finditer(source):
-        category = match.group("category")
-        category = "立即处置" if category == "立即维修" else category
-        if category not in source_categories:
-            source_categories.append(category)
-    categories = source_categories or list(_RECOMMENDATION_CATEGORIES)
-    suffix = "建议" if source.endswith("建议") else ""
-    return "、".join(f"{counts[category]}条{category}" for category in categories) + suffix
+    return "、".join(
+        f"{counts[category]}条{category}" for category in _RECOMMENDATION_CATEGORIES
+    )
 
 
 def _facility_type(facility_context: object, prediction: InspectionPrediction) -> str:
@@ -163,6 +170,9 @@ def normalize_prediction_output(
     recommendations = tuple(
         replace(
             recommendation,
+            category=resolve_recommendation_category(
+                recommendation.category, recommendation.content
+            ),
             content=normalize_recommendation_text(recommendation.content),
             location=_display(recommendation.location),
         )

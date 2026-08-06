@@ -1,0 +1,109 @@
+{
+  "metrics": {
+    "filename_previous_grade_facts": 56,
+    "previous_grade_conflicts_before": 56,
+    "previous_grade_missing_before": 56,
+    "filename_current_grade_facts": 86,
+    "trend_missing_before": 56,
+    "records": 92,
+    "blank_category_documents_before": 34,
+    "blank_category_rows_before": 51,
+    "summary_detail_mismatch_documents_before": 34,
+    "current_grade_conflicts_before": 5,
+    "name_changes": 12,
+    "blank_category_rows_after": 0,
+    "summary_detail_mismatch_documents_after": 0,
+    "previous_grade_missing_after": 0,
+    "current_grade_conflicts_after": 0,
+    "trend_missing_after": 0
+  },
+  "current_grade_fixes": [
+    {
+      "sample_id": "一处-官方院子桥式通道报告(原B级，现A级）",
+      "before": "B级",
+      "after": "A级"
+    },
+    {
+      "sample_id": "一处-青龙嘴桥式通道报告（原A级，现B级）",
+      "before": "A级",
+      "after": "B级"
+    },
+    {
+      "sample_id": "二处-大山村互通Ⅱ号桥报告（K38）（原B级，现B级）",
+      "before": "A级",
+      "after": "B级"
+    },
+    {
+      "sample_id": "二处-界石立交主线III号桥报告（原B级，现B级）",
+      "before": "A级",
+      "after": "B级"
+    },
+    {
+      "sample_id": "二处-界石立交主线IV号桥报告（原A级，现B级）",
+      "before": "A级",
+      "after": "B级"
+    }
+  ],
+  "name_changes": [
+    {
+      "sample_id": "三处-K38+220中桥报告（原B级，现B级）",
+      "before": "无名桥(K38+220)",
+      "after": "K38+220中桥"
+    },
+    {
+      "sample_id": "三处-K38+814中桥报告（原B级，现B级）",
+      "before": "无名桥(K38+814)",
+      "after": "K38+814中桥"
+    },
+    {
+      "sample_id": "三处-华陶跨线桥报告（K42+350）（原A级，现B级）",
+      "before": "华陶跨线桥(K42+350)",
+      "after": "华陶跨线桥"
+    },
+    {
+      "sample_id": "二处-大山村互通Ⅱ号桥报告（K38）（原B级，现B级）",
+      "before": "大山村互通II号桥(K38)",
+      "after": "大山村互通Ⅱ号桥"
+    },
+    {
+      "sample_id": "二处-界石立交主线III号桥报告（原B级，现B级）",
+      "before": "界石立交主线Ⅲ号桥",
+      "after": "界石立交主线III号桥"
+    },
+    {
+      "sample_id": "二处-界石立交主线II号桥报告(原B级，现B级)",
+      "before": "界石立交主线Ⅱ号桥",
+      "after": "界石立交主线II号桥"
+    },
+    {
+      "sample_id": "二处-界石立交主线IV号桥报告（原A级，现B级）",
+      "before": "界石立交主线Ⅳ号桥",
+      "after": "界石立交主线IV号桥"
+    },
+    {
+      "sample_id": "二处-界石立交主线I号桥报告(原B级，现B级)",
+      "before": "界石立交主线Ⅰ号桥",
+      "after": "界石立交主线I号桥"
+    },
+    {
+      "sample_id": "快一处-双凤桥立交1号人行天桥报告（现A级）",
+      "before": "双凤桥立交1号天桥",
+      "after": "双凤桥立交1号人行天桥"
+    },
+    {
+      "sample_id": "快二处-柏杨湾大桥报告（K11+561.8）",
+      "before": "柏杨湾大桥(K11+561.8)",
+      "after": "柏杨湾大桥"
+    },
+    {
+      "sample_id": "快二处-百步梯大桥报告（K18+100）（原B，现B）",
+      "before": "百步梯大桥(K18+100)",
+      "after": "百步梯大桥"
+    },
+    {
+      "sample_id": "快二处-龙黄路分离式立交桥报告(原A级，现B级)",
+      "before": "龙黄路分离式立交桥(K10+586.09)",
+      "after": "龙黄路分离式立交桥"
+    }
+  ]
+}

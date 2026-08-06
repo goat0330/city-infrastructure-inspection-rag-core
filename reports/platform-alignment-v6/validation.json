@@ -1,0 +1,64 @@
+{
+  "package": "round2-platform-alignment-v6-overlay",
+  "basis": {
+    "github_visible_base": "9559f5698a9d2a8246f4898b71b86a739979c548",
+    "review_package": "round2-v5-review-core-package.zip",
+    "old_platform_score": 31.21,
+    "new_platform_score": null
+  },
+  "tests": {
+    "focused_pytest": {
+      "status": "passed",
+      "passed": 70
+    },
+    "compileall": {
+      "status": "passed",
+      "targets": [
+        "src",
+        "scripts",
+        "inspection"
+      ]
+    },
+    "docx_render_review": {
+      "status": "passed",
+      "file": "design/AI智能体设计方案.docx",
+      "pages": 5
+    },
+    "full_review_zip_suite": {
+      "status": "not_claimed",
+      "reason": "review package lacks installed langgraph and places legacy path-sensitive tests outside the normal repository layout"
+    }
+  },
+  "measured_on_submitted_92_predictions": {
+    "filename_previous_grade_facts": 56,
+    "previous_grade_missing_before": 56,
+    "previous_grade_missing_after_rerun_expected": 0,
+    "filename_current_grade_facts": 86,
+    "current_grade_conflicts_before": 5,
+    "current_grade_conflicts_after_rerun_expected": 0,
+    "blank_recommendation_category_rows_before": 51,
+    "blank_recommendation_category_rows_after_rerun_expected": 0,
+    "documents_with_summary_detail_mismatch_before": 34,
+    "documents_with_summary_detail_mismatch_after_rerun_expected": 0,
+    "filename_name_changes": 12
+  },
+  "old_prediction_release_gate": {
+    "issue_records": 92,
+    "issues": {
+      "filename_previous_grade_missing_or_conflicting": 56,
+      "filename_current_grade_conflict": 5,
+      "blank_recommendation_category": 34,
+      "recommendation_summary_mismatch": 34,
+      "missing_value_sentence_splice": 91
+    },
+    "generic_composer_marker_warnings": 92
+  },
+  "structural_simulation_after_facts_and_categories": {
+    "remaining_hard_issue": "91 old submitted records still contain composer splice because old predictions cannot be reconstructed without rerunning source reports",
+    "remaining_warning": "old submitted text still contains generic composer output"
+  },
+  "not_changed_without_evidence": [
+    "report dates concentrated on 2019-11-20/2019-10-30",
+    "previous_overall_score when no explicit score exists"
+  ]
+}

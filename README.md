@@ -6,13 +6,13 @@
 原始定检报告 → DOCX → Word 结构化预测 → 固定 Word 信息提取报告 → tar.gz
 ```
 
-在线 RAG、向量库和知识图谱属于后续展示和问答能力，不是当前 benchmark 的输入或提分主线。
+默认预测仍以 Word 证据为事实来源；显式传入 `--semantic-live` 时，RAG 的 Embedding → Reranker → Qwen 路径增强允许的叙事字段，不改写结构化事实。
 
 ## 交付边界与当前基线
 
 Word-first 是硬边界：`.doc` 先经 LibreOffice 转换为 `.docx`，再以 `python-docx/OOXML` 读取段落、标题、表格和合并单元格。Word 结构是当前预测链的事实来源；PDF/OCR/RAG 不会在本 benchmark 路径中替代 Word 输入。
 
-当前主线基线为 `0000961`：
+当前主线为 `33dc366`：
 
 - 94 个标签、161 份报告完成审计；161/161 份 DOCX 转换成功且可用。
 - `predict-batch` 对 161 份 DOCX 成功产出 161 条预测；评测 manifest 通过 `source_docx` 自动对齐到 86 条 Gold 记录。
@@ -21,7 +21,7 @@ Word-first 是硬边界：`.doc` 先经 LibreOffice 转换为 `.docx`，再以 `
 
 当前仍有明确的后续提分项：`recommendations` 的误召回及部位/内容边界，以及嵌套在长文本中的病害识别与拆分。
 
-详见：[当前状态](docs/status.md)｜[路线图](docs/roadmap.md)｜[范围边界](docs/current_scope.md)｜[LLM + RAG 单样本增强报告](docs/reports/llm-rag-narrative-enhancement-k46-20260804.md)。
+详见：[当前状态](docs/status.md)｜[路线图](docs/roadmap.md)｜[范围边界](docs/current_scope.md)｜[平台一致性修复证据](reports/platform-alignment-v6)。
 
 ## 核心合同
 
@@ -89,7 +89,7 @@ python -m inspection package --input-dir final-doc --code-dir submission-code --
 python -m inspection validate-package --input submission.tar.gz --manifest expected.csv
 ```
 
-`predict` 和 `predict-batch` 默认使用 Word 结构、章节路由、确定性抽取和 OfficialAnswerComposer 生成 `prediction-v1`。传入 `--semantic-live --semantic-index-dir` 后，会在不改写名称、日期、评分、等级、病害和建议明细的前提下，调用现有 Embedding → Reranker → Qwen narrative 路径增强详细结论、成因和安全影响；sidecar 会记录检索模式、来源配额、模型字段结果和回退原因。单文件失败会显式写入 sidecar 报告；批量模式不会用伪记录掩盖失败。
+`predict` 和 `predict-batch` 默认使用 Word 结构、章节路由和确定性抽取；`OfficialAnswerComposer` 仅在显式 A/B 参数中启用。传入 `--semantic-live --semantic-index-dir` 后，会在不改写名称、日期、评分、等级、病害和建议明细的前提下，调用现有 Embedding → Reranker → Qwen narrative 路径增强详细结论、成因和安全影响；sidecar 会记录检索模式、来源配额、模型字段结果和回退原因。单文件失败会显式写入 sidecar 报告；批量模式不会用伪记录掩盖失败。
 
 ## 最终提交包约束
 

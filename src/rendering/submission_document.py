@@ -299,41 +299,47 @@ def _recommendation_summary(
     summary: Mapping[str, Any],
     field_states: object,
 ) -> str:
+    """Count the same resolved categories that are shown in the detail table."""
+
+    if "recommendations" in record:
+        counts = dict.fromkeys(_RECOMMENDATION_SUMMARY_CATEGORIES, 0)
+        for item in _items(record.get("recommendations")):
+            value = _mapping(item)
+            content = _visible_text(value.get("content"))
+            category = _visible_text(value.get("category"))
+            if not category or category.casefold() in {"未提取到", "无"}:
+                category = _inferred_recommendation_category(content)
+            if "立即" in category:
+                counts["立即处置"] += 1
+            elif "尽快" in category:
+                counts["尽快维修"] += 1
+            else:
+                counts["预防性养护"] += 1
+        return "、".join(
+            f"{counts[category]}条{category}"
+            for category in _RECOMMENDATION_SUMMARY_CATEGORIES
+        )
+
     raw, found = _lookup(summary, ("recommendations_summary",))
     if not found and "recommendations_summary" in record:
         raw = record["recommendations_summary"]
         found = True
     raw, embedded_state = _value_and_embedded_state(raw)
     state = _field_state(field_states, ("recommendations_summary",)) or embedded_state
-    normalized_state = _normalize_state(state)
-    if normalized_state in _EXPLICIT_NONE_STATES | _NOT_EXTRACTED_STATES:
-        return _display_value(raw, state)
-    text = _visible_text(raw)
-    if normalized_state == "present" or text:
-        return text if normalized_state == "present" else text
-    if "recommendations" not in record:
-        return _MISSING
-    counts = dict.fromkeys(_RECOMMENDATION_SUMMARY_CATEGORIES, 0)
-    for item in _items(record.get("recommendations")):
-        category = _text(_mapping(item).get("category"))
-        if "立即" in category:
-            counts["立即处置"] += 1
-        elif "尽快" in category:
-            counts["尽快维修"] += 1
-        elif "预防" in category:
-            counts["预防性养护"] += 1
-    return "、".join(
-        f"{counts[category]}条{category}" for category in _RECOMMENDATION_SUMMARY_CATEGORIES
-    )
+    return _display_value(raw, state) if found else _MISSING
 
 
 def _inferred_recommendation_category(content: str) -> str:
     """Use the official three-category vocabulary for unresolved rows."""
 
     compact = content.replace(" ", "")
-    if any(word in compact for word in ("立即", "紧急", "危急")):
+    if any(word in compact for word in ("立即", "紧急", "危急", "封闭交通", "临时隔离")):
         return "立即处置"
-    if any(word in compact for word in ("维修", "修复", "修补", "更换", "封闭", "治理", "处治")):
+    if any(word in compact for word in (
+        "维修", "修复", "修补", "更换", "处治", "处置", "加固", "封闭",
+        "灌浆", "灌缝", "堵漏", "补强", "除锈", "涂刷", "铺装", "勾缝",
+        "抹灰", "恢复", "安装", "疏通", "清理堵塞",
+    )):
         return "尽快维修"
     return "预防性养护"
 

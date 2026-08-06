@@ -25,7 +25,7 @@ def test_recommendation_summary_keeps_source_display_style():
     assert normalize_recommendations_summary(
         recommendations,
         source_summary="2条尽快维修、1条预防性养护建议",
-    ) == "2条尽快维修、1条预防性养护建议"
+    ) == "0条立即处置、2条尽快维修、1条预防性养护"
 
 
 def test_prediction_normalization_changes_only_display_noise():
@@ -41,7 +41,7 @@ def test_prediction_normalization_changes_only_display_noise():
         source_recommendations_summary="0条立即处置、1条尽快维修、0条预防性养护建议",
     )
     assert result.summary.report_date == "2012年6月2日"
-    assert result.summary.recommendations_summary.endswith("建议")
+    assert result.summary.recommendations_summary == "0条立即处置、1条尽快维修、0条预防性养护"
     assert result.recommendations[0].content == "修补裂缝"
     assert result.defects[0].defect_type == "裂缝,渗水"
     assert result.defects[0].description == "裂缝宽0.2mm"

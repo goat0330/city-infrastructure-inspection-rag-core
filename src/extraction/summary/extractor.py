@@ -252,6 +252,9 @@ _SOURCE_PRIORITY = {
     "underpass_conclusion": 520,
     "project_name": 80,
     "filename": 40,
+    "filename_facility": 680,
+    "filename_grade": 680,
+    "filename_history": 660,
 }
 
 _DATE_PRIORITY = {
@@ -568,9 +571,14 @@ class _CandidateCollector:
     ) -> None:
         if field not in self.values:
             return
+        normalized_value = (
+            _clean(value)
+            if field == "bridge_name" and source_kind == "filename_facility"
+            else _normalise_field_value(field, value)
+        )
         candidate = SummaryCandidate(
             field=field,
-            value=_normalise_field_value(field, value),
+            value=normalized_value,
             source_kind=source_kind,
             source=source,
             priority=_SOURCE_PRIORITY.get(source_kind, 0),
@@ -635,7 +643,7 @@ def extract_summary(
     _extract_cover_names(blocks, first_heading, collector)
     _extract_cover_dates(blocks, first_heading, collector)
     _extract_cover_table_date_fallback(blocks, collector)
-    _extract_filename_bridge_name(document.source_file, collector)
+    _extract_filename_facts(document.source_file, collector)
     _extract_risk_fallback(blocks, collector)
     recommendation_count = _select_recommendation_count(collector)
     if recommendation_count is None:
@@ -1808,36 +1816,105 @@ def _extract_cover_names(
         _extract_plain_bridge_name(block.raw_text, "cover_name", block.source, collector)
 
 
-def _extract_filename_bridge_name(
+_FILENAME_GRADE_RE = re.compile(
+    r"(?P<label>原|现)\s*(?P<grade>[A-Ea-e]|[一二三四五六])\s*(?P<suffix>级|类)?"
+)
+_FILENAME_FACILITY_SUFFIXES = (
+    "人行地通道", "地下通道", "人行通道", "车行下穿道", "下穿道",
+    "人行天桥", "桥式通道", "匝道桥", "立交桥", "跨线桥",
+    "分离式立交桥", "大桥", "中桥", "小桥", "旱桥", "天桥",
+    "隧道", "涵洞", "桥", "通道",
+)
+
+
+def _filename_grade(value: str, suffix: str = "") -> str:
+    grade = (value or "").upper()
+    if grade in {"A", "B", "C", "D", "E"}:
+        return f"{grade}级"
+    if grade in "一二三四五六":
+        return f"{grade}类"
+    return grade + suffix
+
+
+def _filename_identity(stem: str) -> str:
+    """Return the facility-name portion of an official input filename."""
+
+    value = (stem or "").strip()
+    value = re.sub(r"^[^-—_]{1,12}[-—_]", "", value, count=1)
+    value = re.sub(
+        r"[（(][^（）()]*(?:原|现)\s*[A-Ea-e一二三四五六][^（）()]*[）)]",
+        "",
+        value,
+    )
+    value = re.split(r"(?:定期)?(?:检测|检查|评估)?报告", value, maxsplit=1)[0]
+    value = re.sub(r"\s+", "", value).strip("-—_（）()，,；;")
+    value = re.sub(r"k(?=\d)", "K", value, flags=re.I)
+    if not value or not value.endswith(_FILENAME_FACILITY_SUFFIXES):
+        return ""
+    return value
+
+
+def _filename_trend(previous_grade: str, current_grade: str) -> str:
+    if not previous_grade or not current_grade:
+        return ""
+    if previous_grade == current_grade:
+        return f"与上一次定检相比，总体技术状况等级保持{current_grade}。"
+    return f"与上一次定检相比，总体技术状况等级由{previous_grade}变为{current_grade}。"
+
+
+def _extract_filename_facts(
     source_file: str,
     collector: _CandidateCollector,
 ) -> None:
+    """Use explicit facts encoded by the official input filename."""
+
     if not source_file:
         return
-    stem = re.split(r"[\\/]", source_file)[-1]
-    stem = re.sub(r"\.(?:docx?|DOCX?)$", "", stem)
-    parts = re.split(r"[-_—（）()]+", stem)
-    for part in reversed(parts):
-        part = re.sub(r"^\d+", "", part)
-        name = _normalise_bridge_name(part)
-        if _is_specific_facility_name(name):
-            collector.add(
-                "bridge_name",
-                name,
-                "filename",
-                SourceAnchor(source_file, -1, source_file),
-                label="文件名",
-            )
-            return
-    name = _bridge_name_from_text(stem)
-    if name:
+    raw_name = re.split(r"[\\/]", source_file)[-1]
+    stem = re.sub(r"\.(?:docx?|DOCX?)$", "", raw_name)
+    anchor = SourceAnchor(source_file, -1, source_file)
+
+    identity = _filename_identity(stem)
+    if identity and _is_specific_facility_name(_normalise_bridge_name(identity)):
         collector.add(
-            "bridge_name",
-            name,
-            "filename",
-            SourceAnchor(source_file, -1, source_file),
-            label="文件名",
+            "bridge_name", identity, "filename_facility", anchor, label="文件名设施名称"
         )
+    else:
+        parts = re.split(r"[-_—（）()]+", stem)
+        for part in reversed(parts):
+            part = re.sub(r"^\d+", "", part)
+            name = _normalise_bridge_name(part)
+            if _is_specific_facility_name(name):
+                collector.add(
+                    "bridge_name", name, "filename", anchor, label="文件名"
+                )
+                break
+        else:
+            name = _bridge_name_from_text(stem)
+            if name:
+                collector.add("bridge_name", name, "filename", anchor, label="文件名")
+
+    previous_grade = ""
+    current_grade = ""
+    for match in _FILENAME_GRADE_RE.finditer(stem):
+        value = _filename_grade(match.group("grade"), match.group("suffix") or "")
+        if match.group("label") == "原":
+            previous_grade = value
+        else:
+            current_grade = value
+    if previous_grade:
+        collector.add(
+            "previous_overall_grade", previous_grade, "filename_history", anchor,
+            label="文件名原等级",
+        )
+    if current_grade:
+        collector.add(
+            "overall_grade", current_grade, "filename_grade", anchor,
+            label="文件名现等级",
+        )
+    trend = _filename_trend(previous_grade, current_grade)
+    if trend:
+        collector.add("trend", trend, "filename_history", anchor, label="文件名等级变化")
 
 
 def _normalise_field_value(field: str, value: str) -> str:
@@ -2002,6 +2079,8 @@ def _selection_priority(field: str, candidate: SummaryCandidate) -> int:
         "section_score": 280,
         "summary_page": 200,
         "underpass_conclusion": 520,
+        "filename_grade": 680,
+        "filename_history": 660,
         "conclusion": 100,
     }.get(candidate.source_kind, 80)
 

@@ -10,7 +10,10 @@ from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
-from openai import OpenAI
+try:
+    from openai import OpenAI
+except ModuleNotFoundError:  # injected clients keep offline tests importable
+    OpenAI = None  # type: ignore[assignment]
 
 
 _MISSING = object()
@@ -94,6 +97,8 @@ class OpenAIModelClient:
 
         if not self._api_key:
             raise ValueError("IAIC_API_KEY is required")
+        if OpenAI is None:
+            raise ImportError("OpenAIModelClient requires the optional 'openai' dependency")
 
         options: dict[str, Any] = {
             "api_key": self._api_key,

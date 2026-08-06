@@ -1,4 +1,4 @@
-# 当前状态（B2 Word-first 工作基线，commit 0000961）
+# 当前状态（B2 Word-first 工作基线，commit 33dc366）
 
 ## 已完成
 
@@ -12,7 +12,8 @@
 - 本地100分加权评分器及 Gate 0 聚合错题本。
 - 最小 DOCX 渲染器和单文档结构校验器。
 - 本轮补齐：Gold/Prediction Schema 分离、route/render/validate CLI、tar.gz 打包与包结构校验。
-- B2 高权重抽取主链：概要/评分、病害、建议三个确定性抽取器已接入 `predict` / `predict-batch`；官方表达由 `OfficialAnswerComposer` 组织。
+- B2 高权重抽取主链：概要/评分、病害、建议三个确定性抽取器已接入 `predict` / `predict-batch`；生产默认使用报告证据，`OfficialAnswerComposer` 仅用于显式 A/B 实验。
+- 平台一致性修复：文件名中的“原X级/现X级”恢复历史等级、当前等级和趋势；建议类别在 Prediction 层统一并与渲染表格重算摘要；无证据时不生成通用风险、成因和安全影响模板。
 - RAG + LLM live 路径已接入 `predict` / `predict-batch` 的显式 `--semantic-live` 模式，使用 fit-only `LightRagIndex` 的 Embedding → Reranker 检索和 Qwen narrative 增强详细结论、成因、安全影响，锁定结构化事实不被模型改写。
 - 病害抽取支持病害表识别、跨页/重复表头、合并单元格继承、多位置观察和 Gold 模板默认状态值，并保留质量标记。
 - 建议抽取支持表格与处理建议章节双路证据；类别推断仅在批量预测主链显式开启，并记录 `recommendation_category_inferred`。
@@ -21,7 +22,7 @@
 ## 尚未完成
 
 - 8 个 Gold 失败样例与 4 个模糊配对的人工映射仍需单独处理。
-- 默认模式保留确定性 `causes`、`treatments`、`safety_impact`；live 模式仅对详细结论、成因和安全影响启用证据约束生成，处置字段继续使用确定性建议。
+- 默认模式保留 Word 源证据；live 模式仅对详细结论、成因和安全影响启用 Embedding → Reranker → Qwen 证据约束生成，处置字段继续使用确定性建议。
 - DOCX → 最终 `.doc` 导出、测试集最终交付包和包级全量验收仍待 B3 完成。
 - 跨年度病害对齐和证据约束长文本生成。
 
