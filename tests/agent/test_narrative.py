@@ -110,7 +110,12 @@ def baseline() -> dict[str, Any]:
 
 def valid_sections() -> dict[str, Any]:
     return {
-        "detailed_conclusion": ["报告事实表明桥梁当前病害需要关注。"],
+        "detailed_conclusion": [
+            "经综合评定，报告事实表明桥梁当前技术状况需要关注。",
+            "本次报告未提供往年检测评分及病害对比数据，无法开展跨期变化比较。",
+            "目前桥面存在裂缝，相关构件状态应结合报告证据进行关注。",
+            "综上，桥梁当前状态需要关注，建议按既有建议完成后续处置。",
+        ],
         "causes": [{"text": "病害与既有构件状态有关。", "evidence_ids": ["fact-1"]}],
         "treatments": [
             {
@@ -181,6 +186,36 @@ def test_task_specific_retrieval_evidence_is_valid_without_public_merge() -> Non
         "domain_knowledge": 2,
         "label_example": 1,
     }
+
+
+def test_official_four_paragraphs_require_first_detection_evidence() -> None:
+    invalid = valid_sections()
+    invalid["detailed_conclusion"][1] = "本次报告为示例桥首次定期检测。"
+
+    result = run(FakeClient([invalid, invalid]))
+
+    assert result["field_results"]["detailed_conclusion"] == "fallback"
+    assert any("first-detection" in error for error in result["validation_errors"])
+
+
+def test_official_narrative_rejects_internal_statistics_and_references() -> None:
+    invalid = valid_sections()
+    invalid["detailed_conclusion"][2] = "目前表3列示记录3条病害。"
+
+    result = run(FakeClient([invalid, invalid]))
+
+    assert result["field_results"]["detailed_conclusion"] == "fallback"
+    assert any("forbidden internal extraction language" in error for error in result["validation_errors"])
+
+
+def test_treatment_cannot_reference_a_new_recommendation() -> None:
+    invalid = valid_sections()
+    invalid["treatments"][0]["recommendation_index"] = "2"
+
+    result = run(FakeClient([invalid, invalid]))
+
+    assert result["field_results"]["treatments"] == "fallback"
+    assert any("non-existing recommendation" in error for error in result["validation_errors"])
 
 
 def test_one_validation_failure_is_sent_to_retry_and_then_succeeds() -> None:
@@ -441,7 +476,12 @@ def test_pedestrian_underpass_fixture_keeps_facility_terms_and_safety_priority(
         {"evidence_id": "fact-treatment", "section": "treatment_recommendations", "text": "建议修复侧墙并完善排水设施。"},
     ]
     sections = {
-        "detailed_conclusion": [f"{facility_name}当前病害需关注。"],
+        "detailed_conclusion": [
+            f"经综合评定，{facility_name}当前技术状况需要关注。",
+            "本次报告未提供往年检测评分及病害对比数据，无法开展跨期变化比较。",
+            f"目前{facility_name}顶板、侧墙及排水设施存在报告所述病害。",
+            f"综上，{facility_name}当前状态需要关注，建议按既有建议完成处置。",
+        ],
         "causes": [{"text": "侧墙局部破损与构件状态有关。", "evidence_ids": ["fact-defect"]}],
         "treatments": [{"recommendation_index": "1", "text": "按建议修复侧墙并完善排水设施。", "evidence_ids": ["fact-treatment", "fact-defect"]}],
         "safety_impact": [{"text": "当前病害对通行安全影响较小。", "evidence_ids": ["fact-safety"]}],

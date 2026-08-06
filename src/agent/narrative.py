@@ -151,6 +151,29 @@ _ALL_COMPONENT_TERMS = frozenset(term for values in FACILITY_COMPONENT_VOCABULAR
 _SEVERE_SAFETY_TERMS = ("严重承载风险", "承载能力不足", "重大安全隐患", "严重影响", "高风险", "失稳", "坍塌", "危及生命")
 _LOW_IMPACT_RE = re.compile(r"影响较小|影响不大|影响有限|不影响(?:整体)?(?:使用|安全|承载)|未见明显(?:安全)?风险|满足.*(?:标准|要求)|良好状态")
 _NEGATION_PREFIXES = ("不", "未", "无", "暂无", "不会", "并非", "没有", "未见")
+_OFFICIAL_FORBIDDEN_TERMS = (
+    "未提取到",
+    "结构化病害记录",
+    "典型部位为",
+    "按结构部位归纳病害",
+    "检测结果见表",
+)
+_OFFICIAL_PARAGRAPH_PREFIXES = (
+    "经综合评定",
+    ("本次为", "本次报告"),
+    "目前",
+    "综上",
+)
+_OFFICIAL_INTERNAL_RE = re.compile(
+    r"(?:记录\s*(?:[0-9一二三四五六七八九十百千万]+|[Nn])\s*条|"
+    r"第\s*[0-9一二三四五六七八九十百千万]+\s*章|"
+    r"章节号|章节\s*[0-9一二三四五六七八九十百千万]+|表号|图号|"
+    r"第\s*[0-9一二三四五六七八九十百千万]+\s*[表图]|"
+    r"[表图]\s*[0-9一二三四五六七八九十百千万]+|"
+    r"[0-9一二三四五六七八九十百千万]+\s*[表图]|"
+    r"见\s*[表图])"
+)
+_FIRST_DETECTION_RE = re.compile(r"首次(?:定期)?检测|首次检测|第一次(?:定期)?检测")
 
 
 class NarrativeState(TypedDict, total=False):
@@ -179,7 +202,6 @@ class NarrativeState(TypedDict, total=False):
     generation_attempts: int
     generation_errors: list[str]
     validation_passed: bool
-    field_validation_errors: dict[str, list[str]]
     global_validation_errors: list[str]
     field_fallbacks: list[str]
     context: dict[str, Any]
@@ -1403,14 +1425,30 @@ def _validate_output(state: NarrativeState) -> dict[str, Any]:
         if field not in candidate:
             add(f"missing generated field: {field}", field)
 
+    report_text = _json_dump(state.get("report_facts", []))
     detailed = candidate.get("detailed_conclusion")
     if not isinstance(detailed, list):
         add("detailed_conclusion must be an array", "detailed_conclusion")
     else:
-        if len(detailed) > 4:
-            add("detailed_conclusion must contain at most four paragraphs", "detailed_conclusion")
+        if len(detailed) != 4:
+            add("detailed_conclusion must contain exactly four official paragraphs", "detailed_conclusion")
         if any(not isinstance(item, str) for item in detailed):
             add("detailed_conclusion items must be strings", "detailed_conclusion")
+        elif len(detailed) == 4:
+            for index, (paragraph, expected) in enumerate(
+                zip(detailed, _OFFICIAL_PARAGRAPH_PREFIXES)
+            ):
+                allowed = expected if isinstance(expected, tuple) else (expected,)
+                if not paragraph.strip().startswith(allowed):
+                    add(
+                        f"detailed_conclusion[{index}] does not follow official paragraph structure",
+                        "detailed_conclusion",
+                    )
+            if any(_FIRST_DETECTION_RE.search(paragraph) for paragraph in detailed) and not _FIRST_DETECTION_RE.search(report_text):
+                add(
+                    "first-detection wording requires explicit report evidence",
+                    "detailed_conclusion",
+                )
 
     allowed_ids = _collect_evidence_ids(state.get("report_facts", []))
     allowed_ids.update(_collect_evidence_ids(state.get("retrieval_results", [])))
@@ -1439,6 +1477,22 @@ def _validate_output(state: NarrativeState) -> dict[str, Any]:
                 add(f"{field}[{index}].text must be a string", field)
             if field == "treatments" and not isinstance(item.get("recommendation_index"), (str, int)):
                 add(f"{field}[{index}].recommendation_index must be a string or integer", field)
+            if field == "treatments" and isinstance(item.get("recommendation_index"), (str, int)):
+                recommendation_indices: set[str] = set()
+                recommendations = baseline.get("recommendations", [])
+                if isinstance(recommendations, Sequence) and not isinstance(recommendations, (str, bytes, bytearray)):
+                    for position, recommendation in enumerate(recommendations):
+                        values = [str(position + 1)]
+                        if isinstance(recommendation, Mapping):
+                            values.append(str(recommendation.get("index", "")))
+                        for value in values:
+                            if value:
+                                recommendation_indices.add(value)
+                                match = re.search(r"[0-9]+", value)
+                                if match:
+                                    recommendation_indices.add(match.group(0))
+                if str(item["recommendation_index"]) not in recommendation_indices:
+                    add(f"{field}[{index}] references a non-existing recommendation", field)
             evidence_ids = item.get("evidence_ids")
             if not isinstance(evidence_ids, list) or any(
                 not isinstance(identifier, (str, int)) or isinstance(identifier, bool) for identifier in evidence_ids
@@ -1468,6 +1522,10 @@ def _validate_output(state: NarrativeState) -> dict[str, Any]:
     )
     for field in ENHANCED_FIELDS:
         for text in _candidate_field_texts(candidate, field):
+            if any(term in text for term in _OFFICIAL_FORBIDDEN_TERMS) or _OFFICIAL_INTERNAL_RE.search(text):
+                add("generated narrative contains forbidden internal extraction language", field)
+            if _FIRST_DETECTION_RE.search(text) and not _FIRST_DETECTION_RE.search(report_text):
+                add("first-detection wording requires explicit report evidence", field)
             number_tokens = set(_NUMBER_RE.findall(text))
             number_tokens.update(_DATE_RE.findall(text))
             number_tokens.update(_QUANTITY_RE.findall(text))

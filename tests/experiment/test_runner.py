@@ -129,8 +129,8 @@ def test_task_queries_are_independent_and_retrieval_hits_use_global_source_quota
     }
     queries = runner._task_queries(baseline)
 
-    assert tuple(queries) == runner.TARGET_FIELDS
-    assert len(set(queries.values())) == len(runner.TARGET_FIELDS)
+    assert tuple(queries) == narrative.RETRIEVAL_TASK_FIELDS
+    assert len(set(queries.values())) == len(queries)
     assert "封闭裂缝" in queries["treatments"]
     assert "裂缝描述" in queries["causes"]
 
@@ -208,7 +208,12 @@ def test_real_runner_records_task_queries_and_final_d_hits(tmp_path: Path, monke
         def chat_json(self, *_args, **_kwargs):
             return runner.ModelCallResult(
                 value={
-                    "detailed_conclusion": ["事实表明需要关注。"],
+                    "detailed_conclusion": [
+                        "经综合评定，桥梁当前技术状况需要关注。",
+                        "本次报告未提供往年检测评分及病害对比数据，无法开展跨期变化比较。",
+                        "目前桥面存在裂缝。",
+                        "综上，桥梁当前状态需要关注，建议按既有建议完成处置。",
+                    ],
                     "causes": [{"text": "与构件状态有关。", "evidence_ids": ["fact-1"]}],
                     "treatments": [],
                     "safety_impact": [{"text": "可能影响通行安全。", "evidence_ids": ["fact-1"]}],
@@ -251,7 +256,7 @@ def test_real_runner_records_task_queries_and_final_d_hits(tmp_path: Path, monke
 
     assert summary["status"] == "succeeded"
     trace = json.loads((output / "retrieval_trace.json").read_text(encoding="utf-8"))
-    assert set(trace["task_queries"]) == set(runner.TARGET_FIELDS)
+    assert set(runner.TARGET_FIELDS).issubset(trace["task_queries"])
     assert [call["query"] for call in fake_index.calls] == [
         trace["task_queries"][field] for field in runner.TARGET_FIELDS
     ]
