@@ -20,6 +20,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from src.evaluation.scorer import score_dataset
+
 TARGET_FIELDS = ("detailed_conclusion", "causes", "treatments", "safety_impact")
 REQUIRED_ENV = (
     "IAIC_API_BASE",
@@ -44,6 +46,16 @@ def _load_records(path: Path) -> list[dict[str, Any]]:
 def _write(path: Path, value: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _canonical_sample_id(value: object) -> str:
+    """Align extraction IDs with the hyphenated evaluation manifest form."""
+    text = str(value or "")
+    if "/" in text:
+        year, name = text.split("/", 1)
+        if year.endswith("年") and name:
+            return f"{year}-{name}"
+    return text
 
 
 def _index_dir(root: Path, sample_id: str) -> Path:
@@ -90,6 +102,50 @@ def _preflight(samples: list[dict[str, Any]], reports_root: Path, indexes_root: 
     }
 
 
+def _prediction_for_score(prediction: Mapping[str, Any]) -> dict[str, Any]:
+    """Project evidence-bearing narrative objects to the scorer's text contract."""
+    projected = deepcopy(dict(prediction))
+    for field in ("causes", "treatments", "safety_impact"):
+        value = projected.get(field)
+        if isinstance(value, list):
+            projected[field] = [
+                item.get("text", "") if isinstance(item, Mapping) else item
+                for item in value
+            ]
+    return projected
+
+
+def _score_result(
+    *,
+    sample_id: str,
+    group: Any,
+    status: str,
+    used_fallback: bool,
+    locked: list[str],
+    gold: Mapping[str, Any],
+    baseline: Mapping[str, Any],
+    enhanced: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    baseline_for_score = _prediction_for_score(baseline)
+    enhanced_for_score = _prediction_for_score(enhanced)
+    a_score = score_dataset([gold], [baseline_for_score])
+    d_score = score_dataset([gold], [enhanced_for_score])
+    text_fields = ("detailed_conclusion", "causes", "safety_impact")
+    result = {
+        "sample_id": sample_id,
+        "group": group,
+        "status": status,
+        "used_fallback": used_fallback,
+        "locked_differences": locked,
+        "a_total": a_score["micro_total_score"],
+        "d_total": d_score["micro_total_score"],
+        "delta": round(d_score["micro_total_score"] - a_score["micro_total_score"], 6),
+        "a_text_25": round(sum(a_score["sections"][field]["score"] for field in text_fields), 6),
+        "d_text_25": round(sum(d_score["sections"][field]["score"] for field in text_fields), 6),
+    }
+    return result, baseline_for_score, enhanced_for_score
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--samples", type=Path, required=True)
@@ -98,6 +154,7 @@ def main() -> int:
     parser.add_argument("--gold", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--baseline-jsonl", type=Path)
+    parser.add_argument("--timeout", type=float, default=120.0, help="per model request timeout in seconds")
     parser.add_argument("--preflight-only", action="store_true")
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
@@ -120,18 +177,22 @@ def main() -> int:
         _task_queries,
     )
     from src.agent.narrative import run_narrative_enhancement  # noqa: E402
-    from src.evaluation.scorer import score_dataset  # noqa: E402
     from src.extraction import extract_report  # noqa: E402
     from src.llm.client import OpenAIModelClient  # noqa: E402
     from src.rag import LightRagIndex  # noqa: E402
 
-    gold_by_id = {record["sample_id"]: record for record in _load_records(args.gold)}
+    gold_by_id = {
+        _canonical_sample_id(record["sample_id"]): record for record in _load_records(args.gold)
+    }
     baseline_by_id = (
-        {record["sample_id"]: record for record in _load_records(args.baseline_jsonl)}
+        {
+            _canonical_sample_id(record["sample_id"]): record
+            for record in _load_records(args.baseline_jsonl)
+        }
         if args.baseline_jsonl
         else {}
     )
-    client = TrackingClient(OpenAIModelClient(timeout=120, retry_delay=0.2))
+    client = TrackingClient(OpenAIModelClient(timeout=args.timeout, retry_delay=0.2))
     a_predictions: list[dict[str, Any]] = []
     d_predictions: list[dict[str, Any]] = []
     gold_records: list[dict[str, Any]] = []
@@ -143,12 +204,34 @@ def main() -> int:
         status_path = sample_dir / "run_status.json"
         if args.resume and status_path.is_file():
             old = json.loads(status_path.read_text(encoding="utf-8"))
-            if old.get("status") in {"success", "fallback"}:
+            baseline_path = sample_dir / "baseline_prediction.json"
+            enhanced_path = sample_dir / "enhanced_prediction.json"
+            if old.get("status") in {"success", "fallback"} and baseline_path.is_file() and enhanced_path.is_file():
+                baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+                enhanced = json.loads(enhanced_path.read_text(encoding="utf-8"))
+                gold = gold_by_id[sample_id]
+                field_results_path = sample_dir / "field_results.json"
+                field_results = json.loads(field_results_path.read_text(encoding="utf-8")) if field_results_path.is_file() else {}
+                locked = list(field_results.get("locked_differences", _locked_differences(enhanced, baseline)))
+                result, baseline_for_score, enhanced_for_score = _score_result(
+                    sample_id=sample_id,
+                    group=item.get("group"),
+                    status=str(old["status"]),
+                    used_fallback=str(old["status"]) == "fallback",
+                    locked=locked,
+                    gold=gold,
+                    baseline=baseline,
+                    enhanced=enhanced,
+                )
+                results.append(result)
+                a_predictions.append(baseline_for_score)
+                d_predictions.append(enhanced_for_score)
+                gold_records.append(gold)
                 continue
         docx = args.reports_root / str(item["converted_docx_relative_path"])
         try:
-            if sample_id in baseline_by_id:
-                baseline = deepcopy(baseline_by_id[sample_id])
+            if _canonical_sample_id(sample_id) in baseline_by_id:
+                baseline = deepcopy(baseline_by_id[_canonical_sample_id(sample_id)])
                 extraction = extract_report(docx, source_file=str(item["converted_docx_relative_path"]))
                 baseline["facility_context"] = extraction.facility_context.to_dict()
                 baseline["field_states"] = dict(extraction.field_states)
@@ -157,6 +240,10 @@ def main() -> int:
                 baseline = extraction.prediction.to_dict()
                 baseline["facility_context"] = extraction.facility_context.to_dict()
                 baseline["field_states"] = dict(extraction.field_states)
+            # The evaluation manifest is the canonical output identity.  The
+            # extractor may retain the source path form (year/name), which
+            # would otherwise make the scorer treat this record as unmatched.
+            baseline["sample_id"] = sample_id
 
             facts = _report_facts(docx, str(baseline.get("source_file") or docx.name))
             context_facts = _select_context_facts(facts, baseline)
@@ -164,6 +251,7 @@ def main() -> int:
             facility_type = facility_context.get("facility_type") if isinstance(facility_context, Mapping) else None
             task_queries = _task_queries(baseline, facility_context, facts)
             index = LightRagIndex.load(_index_dir(args.indexes_root, sample_id), client=client)
+            retrieval_call_start = len(client.calls)
             task_hits, task_errors = _retrieve_task_hits(
                 index,
                 task_queries,
@@ -172,13 +260,14 @@ def main() -> int:
                 facility_type=str(facility_type or ""),
             )
             retrieval_hits = _merge_retrieval_hits(task_hits)
+            retrieval_calls = client.calls[retrieval_call_start:]
             narrative = run_narrative_enhancement(
                 baseline,
                 sample_id,
                 str(baseline.get("source_file") or docx.name),
                 context_facts,
                 client,
-                retriever=StaticRetriever(retrieval_hits),
+                retriever=StaticRetriever(task_hits),
                 split=_split(item.get("split")),
                 facility_context=facility_context,
                 field_states=baseline.get("field_states", {}),
@@ -191,29 +280,44 @@ def main() -> int:
                 status = "failed"
             _write(sample_dir / "baseline_prediction.json", baseline)
             _write(sample_dir / "enhanced_prediction.json", enhanced)
-            _write(sample_dir / "retrieval_trace.json", {"task_queries": task_queries, "task_hits": task_hits, "task_errors": task_errors, "hits": retrieval_hits})
-            _write(sample_dir / "field_results.json", {"used_fallback": used_fallback, "validation_errors": narrative.get("validation_errors", []), "locked_differences": locked})
+            _write(
+                sample_dir / "retrieval_trace.json",
+                {
+                    "task_queries": task_queries,
+                    "task_hits": task_hits,
+                    "task_errors": task_errors,
+                    "hits": retrieval_hits,
+                    "calls": retrieval_calls,
+                },
+            )
+            _write(
+                sample_dir / "field_results.json",
+                {
+                    "used_fallback": used_fallback,
+                    "field_results": narrative.get("field_results", {}),
+                    "selection_reasons": narrative.get("selection_reasons", {}),
+                    "validation_errors": narrative.get("validation_errors", []),
+                    "locked_differences": locked,
+                    "retrieval_calls": retrieval_calls,
+                    "call_metrics": narrative.get("call_metrics", {}),
+                },
+            )
             _write(status_path, {"status": status, "sample_id": sample_id})
 
             gold = gold_by_id[sample_id]
-            a_score = score_dataset([gold], [baseline])
-            d_score = score_dataset([gold], [enhanced])
-            results.append(
-                {
-                    "sample_id": sample_id,
-                    "group": item.get("group"),
-                    "status": status,
-                    "used_fallback": used_fallback,
-                    "locked_differences": locked,
-                    "a_total": a_score["micro_total_score"],
-                    "d_total": d_score["micro_total_score"],
-                    "delta": round(d_score["micro_total_score"] - a_score["micro_total_score"], 6),
-                    "a_text_25": round(sum(a_score["sections"][field]["score"] for field in ("detailed_conclusion", "causes", "safety_impact")), 6),
-                    "d_text_25": round(sum(d_score["sections"][field]["score"] for field in ("detailed_conclusion", "causes", "safety_impact")), 6),
-                }
+            result, baseline_for_score, enhanced_for_score = _score_result(
+                sample_id=sample_id,
+                group=item.get("group"),
+                status=status,
+                used_fallback=used_fallback,
+                locked=locked,
+                gold=gold,
+                baseline=baseline,
+                enhanced=enhanced,
             )
-            a_predictions.append(baseline)
-            d_predictions.append(enhanced)
+            results.append(result)
+            a_predictions.append(baseline_for_score)
+            d_predictions.append(enhanced_for_score)
             gold_records.append(gold)
         except Exception as error:
             _write(status_path, {"status": "failed", "sample_id": sample_id, "error": " ".join(str(error).split())[:300]})

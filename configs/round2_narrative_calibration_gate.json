@@ -1,0 +1,74 @@
+{
+  "purpose": "RAG+LLM校准门槛：两份正向人行通道、一份普通桥梁、一份长复杂桥梁",
+  "sample_count": 4,
+  "samples": [
+    {
+      "baseline_section_f1": {
+        "causes": 0.021739,
+        "defects": 1.0,
+        "detailed_conclusion": 0.094077,
+        "recommendations": 0.5,
+        "safety_impact": 0.088235,
+        "summary": 0.941176,
+        "treatments": 1.0
+      },
+      "baseline_total_score": 65.784545,
+      "converted_docx_relative_path": "2012年/杨公桥A叉口人行通道.docx",
+      "group": "core",
+      "sample_id": "2012年-杨公桥A叉口人行通道",
+      "source_report_relative_path": "2012年/杨公桥A叉口人行通道.doc",
+      "split": "train"
+    },
+    {
+      "baseline_section_f1": {
+        "causes": 0.295203,
+        "defects": 1.0,
+        "detailed_conclusion": 0.10068,
+        "recommendations": 0.0,
+        "safety_impact": 0.094737,
+        "summary": 0.941176,
+        "treatments": 0.983784
+      },
+      "baseline_total_score": 57.20234,
+      "converted_docx_relative_path": "2012年/杨公桥EC匝道人行通道.docx",
+      "group": "core",
+      "sample_id": "2012年-杨公桥EC匝道人行通道",
+      "source_report_relative_path": "2012年/杨公桥EC匝道人行通道.doc",
+      "split": "train"
+    },
+    {
+      "baseline_section_f1": {
+        "causes": 0.317949,
+        "defects": 0.758065,
+        "detailed_conclusion": 0.255411,
+        "recommendations": 1.0,
+        "safety_impact": 0.196193,
+        "summary": 0.764706,
+        "treatments": 0.985075
+      },
+      "baseline_total_score": 69.36332,
+      "converted_docx_relative_path": "2012年/桂花新村大桥.docx",
+      "group": "core",
+      "sample_id": "2012年-桂花新村大桥",
+      "source_report_relative_path": "2012年/桂花新村大桥.doc",
+      "split": "train"
+    },
+    {
+      "baseline_section_f1": {
+        "causes": 0.726776,
+        "defects": 0.0,
+        "detailed_conclusion": 0.261885,
+        "recommendations": 0.5,
+        "safety_impact": 0.323432,
+        "summary": 0.823529,
+        "treatments": 0.986726
+      },
+      "baseline_total_score": 40.583525,
+      "converted_docx_relative_path": "2013年/12-035杨公桥立交EC匝道桥.docx",
+      "group": "core",
+      "sample_id": "2013年-12-035杨公桥立交EC匝道桥",
+      "source_report_relative_path": "2013年/12-035杨公桥立交EC匝道桥.doc",
+      "split": "validation"
+    }
+  ]
+}

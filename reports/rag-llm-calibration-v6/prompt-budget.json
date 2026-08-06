@@ -1,0 +1,51 @@
+{
+  "prompt_chars": {
+    "sample_count": 16,
+    "before": {
+      "min": 29111,
+      "median": 57782.0,
+      "max": 63372,
+      "mean": 53869.8125
+    },
+    "after": {
+      "min": 13029,
+      "median": 16122.5,
+      "max": 16825,
+      "mean": 15740.8125
+    },
+    "mean_reduction_percent": 70.78,
+    "max_reduction_percent": 73.45
+  },
+  "changed_files": {
+    "src/agent/narrative.py": {
+      "added": 274,
+      "removed": 150
+    },
+    "prompts/narrative_enhancement.md": {
+      "added": 41,
+      "removed": 33
+    },
+    "scripts/run_narrative_enhancement.py": {
+      "added": 73,
+      "removed": 25
+    },
+    "scripts/run_round2_narrative_revalidation.py": {
+      "added": 15,
+      "removed": 2
+    },
+    "tests/agent/test_narrative.py": {
+      "added": 172,
+      "removed": 52
+    },
+    "tests/experiment/test_runner.py": {
+      "added": 16,
+      "removed": 1
+    }
+  },
+  "verification": {
+    "targeted_tests": "67 passed",
+    "compileall": "passed",
+    "full_review_bundle_suite": "not applicable: review package intentionally omits schema, CLI package, production template, and pedestrian knowledge assets",
+    "real_model_rerun": "not run: review package contains no API credentials, raw DOCX corpus, or vector matrices"
+  }
+}

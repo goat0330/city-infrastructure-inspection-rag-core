@@ -2,8 +2,8 @@
 """Run one inspection report through the narrative A/B/C/D experiment.
 
 This is deliberately a single-sample runner.  The deterministic extractor is
-the source of the baseline; the model may replace only the four narrative
-fields.  No credential is written to an artifact.
+the source of the baseline; the model may replace only three narrative fields; deterministic treatments
+remain unchanged.  No credential is written to an artifact.
 """
 
 from __future__ import annotations
@@ -36,6 +36,7 @@ from src.routing import route_sections  # noqa: E402
 
 
 TARGET_FIELDS = ("detailed_conclusion", "causes", "treatments", "safety_impact")
+MODEL_RETRIEVAL_FIELDS = ("detailed_conclusion", "causes", "safety_impact")
 RETRIEVAL_SOURCE_QUOTA = {
     "report_evidence": 3,
     "domain_knowledge": 2,
@@ -284,7 +285,7 @@ def _call_metrics(result: ModelCallResult | None, *, model: str, duration_ms: fl
 class TrackingClient:
     """Small recording wrapper; it does not store request text or credentials."""
 
-    def __init__(self, client: Any, *, default_chat_max_tokens: int = 4096) -> None:
+    def __init__(self, client: Any, *, default_chat_max_tokens: int = 2400) -> None:
         self.client = client
         self.default_chat_max_tokens = default_chat_max_tokens
         self.calls: list[dict[str, Any]] = []
@@ -314,10 +315,37 @@ class TrackingClient:
 
 
 class StaticRetriever:
-    def __init__(self, hits: Sequence[Mapping[str, Any]]) -> None:
-        self.hits = [dict(hit) for hit in hits]
+    """Replay precomputed retrieval without erasing task boundaries.
 
-    def retrieve(self, *_args: Any, **_kwargs: Any) -> list[dict[str, Any]]:
+    The batch runners retrieve each narrative task independently before the
+    LangGraph starts.  Earlier versions merged those hits and replayed the same
+    evidence for every task, which weakened causes/safety grounding.  This
+    adapter accepts either the legacy flat hit list or a ``task -> hits`` map.
+    """
+
+    _TASK_RE = re.compile(r"(?:^|;\s*)task=([^;]+)")
+
+    def __init__(
+        self,
+        hits: Sequence[Mapping[str, Any]] | Mapping[str, Sequence[Mapping[str, Any]]],
+    ) -> None:
+        if isinstance(hits, Mapping):
+            self.hits_by_task = {
+                str(task): [dict(hit) for hit in values if isinstance(hit, Mapping)]
+                for task, values in hits.items()
+                if isinstance(values, Sequence)
+                and not isinstance(values, (str, bytes, bytearray))
+            }
+            self.hits: list[dict[str, Any]] = []
+        else:
+            self.hits_by_task = {}
+            self.hits = [dict(hit) for hit in hits if isinstance(hit, Mapping)]
+
+    def retrieve(self, query: str = "", **_kwargs: Any) -> list[dict[str, Any]]:
+        if self.hits_by_task:
+            match = self._TASK_RE.search(str(query or ""))
+            task = match.group(1).strip() if match else ""
+            return deepcopy(self.hits_by_task.get(task, []))
         return deepcopy(self.hits)
 
 
@@ -331,7 +359,12 @@ class OfflineClient:
         evidence = [self.evidence_id] if self.evidence_id else []
         return ModelCallResult(
             value={
-                "detailed_conclusion": [f"offline {group} narrative"],
+                "detailed_conclusion": [
+                    f"经综合评定，offline {group} narrative。",
+                    "本次报告未提供往年检测评分及病害对比数据。",
+                    "目前，报告所述病害需要持续关注。",
+                    "综上，应依据既有建议开展处置。",
+                ],
                 "causes": [{"text": f"offline {group} cause", "evidence_ids": evidence}],
                 "treatments": [],
                 "safety_impact": [{"text": f"offline {group} safety", "evidence_ids": evidence}],
@@ -429,13 +462,13 @@ def _compact_context_records(
 def _prompt(group: str, baseline: Mapping[str, Any], facts: Sequence[Mapping[str, Any]]) -> list[dict[str, str]]:
     payload = {
         "group": group,
-        "task": "Enhance only the four narrative fields and return JSON.",
+        "task": "Enhance only detailed_conclusion, causes and safety_impact; keep treatments from baseline.",
         "baseline_prediction": _normalised_fields(baseline),
         "report_facts": _compact_context_records(facts),
         "contract": {
             "detailed_conclusion": "array of at most four concise strings",
             "causes": "array of concise objects with text and evidence_ids",
-            "treatments": "array of concise objects with recommendation_index, text and evidence_ids",
+            "treatments": "do not generate; deterministic baseline is retained",
             "safety_impact": "array of concise objects with text and evidence_ids",
             "brevity": "do not repeat the report; keep each item under 100 Chinese characters",
         },
@@ -515,7 +548,7 @@ def _merge_retrieval_hits(task_hits: Mapping[str, Sequence[Mapping[str, Any]]]) 
 
     merged: list[dict[str, Any]] = []
     positions: dict[str, int] = {}
-    for task in TARGET_FIELDS:
+    for task in MODEL_RETRIEVAL_FIELDS:
         for raw_hit in task_hits.get(task, []):
             if not isinstance(raw_hit, Mapping):
                 continue
@@ -579,7 +612,7 @@ def _retrieve_task_hits(
 ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, str]]:
     task_hits: dict[str, list[dict[str, Any]]] = {}
     errors: dict[str, str] = {}
-    for task in TARGET_FIELDS:
+    for task in MODEL_RETRIEVAL_FIELDS:
         try:
             results = _retrieve_task(
                 index,
@@ -599,35 +632,50 @@ def _select_context_facts(
     facts: Sequence[Mapping[str, Any]],
     baseline: Mapping[str, Any],
     *,
-    max_items: int = 24,
-    max_chars: int = 12000,
+    max_items: int = 12,
+    max_chars: int = 5200,
 ) -> list[dict[str, Any]]:
-    """Keep the generation prompt bounded while retaining source anchors."""
+    """Select a small evidence set with reserved safety and defect coverage."""
 
     query = _query(baseline)
     terms = [term for term in re.findall(r"[\u4e00-\u9fffA-Za-z0-9+#.-]{2,}", query) if term]
     preferred = {
-        "inspection_conclusion": 4,
-        "safety_assessment": 4,
-        "treatment_recommendations": 3,
-        "defect_table": 2,
+        "safety_assessment": 8,
+        "inspection_conclusion": 6,
+        "defect_table": 5,
+        "treatment_recommendations": 1,
     }
     ranked: list[tuple[int, int, Mapping[str, Any]]] = []
     for order, fact in enumerate(facts):
         text = str(fact.get("text", ""))
         section = str(fact.get("section", ""))
-        score = preferred.get(section, 0) + sum(1 for term in terms if term in text)
+        score = preferred.get(section, 0) + min(5, sum(1 for term in terms if term in text))
         ranked.append((score, -order, fact))
     ranked.sort(reverse=True, key=lambda item: (item[0], item[1]))
-    chosen = sorted((item[2] for item in ranked[:max_items]), key=lambda item: list(facts).index(item))
+
+    chosen: list[Mapping[str, Any]] = []
+    # Reserve current-report safety and defect evidence before general ranking.
+    for section, quota in (("safety_assessment", 2), ("inspection_conclusion", 2), ("defect_table", 4)):
+        matches = [item[2] for item in ranked if str(item[2].get("section", "")) == section]
+        chosen.extend(matches[:quota])
+    for _, _, fact in ranked:
+        if fact not in chosen and len(chosen) < max_items:
+            chosen.append(fact)
+    chosen = sorted(chosen, key=lambda item: list(facts).index(item))
+
     result: list[dict[str, Any]] = []
     used_chars = 0
     for fact in chosen:
-        text = str(fact.get("text", ""))
-        if result and used_chars + len(text) > max_chars:
+        text = " ".join(str(fact.get("text", "")).split())
+        if not text:
             continue
-        result.append(dict(fact))
-        used_chars += len(text)
+        remaining = max_chars - used_chars
+        if remaining <= 0:
+            break
+        compact = dict(fact)
+        compact["text"] = _compact_prompt_text(text, min(520, remaining))
+        result.append(compact)
+        used_chars += len(compact["text"])
     return result
 
 
@@ -904,7 +952,7 @@ def run_experiment(
             source_file,
             facts,
             client,
-            retriever=StaticRetriever(retrieval_hits),
+            retriever=StaticRetriever(task_hits),
             split=split,
             facility_context=facility_context,
             field_states=field_states,

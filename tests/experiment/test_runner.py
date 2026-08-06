@@ -114,6 +114,21 @@ def test_b_prompt_keeps_its_ablation_baseline_contract() -> None:
     assert payload["report_facts"] == []
 
 
+def test_static_retriever_replays_hits_for_the_requested_task_only() -> None:
+    retriever = runner.StaticRetriever(
+        {
+            "detailed_conclusion": [{"id": "detail"}],
+            "causes": [{"id": "cause"}],
+            "safety_impact": [{"id": "safety"}],
+        }
+    )
+
+    assert retriever.retrieve("task=detailed_conclusion; facility_type=bridge") == [{"id": "detail"}]
+    assert retriever.retrieve("task=causes; facility_type=bridge") == [{"id": "cause"}]
+    assert retriever.retrieve("task=safety_impact; facility_type=bridge") == [{"id": "safety"}]
+    assert retriever.retrieve("task=unknown; facility_type=bridge") == []
+
+
 def test_task_queries_are_independent_and_retrieval_hits_use_global_source_quotas() -> None:
     baseline = {
         "sample_id": "sample-1",
@@ -258,7 +273,7 @@ def test_real_runner_records_task_queries_and_final_d_hits(tmp_path: Path, monke
     trace = json.loads((output / "retrieval_trace.json").read_text(encoding="utf-8"))
     assert set(runner.TARGET_FIELDS).issubset(trace["task_queries"])
     assert [call["query"] for call in fake_index.calls] == [
-        trace["task_queries"][field] for field in runner.TARGET_FIELDS
+        trace["task_queries"][field] for field in runner.MODEL_RETRIEVAL_FIELDS
     ]
     assert all(call["source_quota"] == runner.RETRIEVAL_SOURCE_QUOTA for call in fake_index.calls)
     assert all(call["facility_type"] == "bridge" for call in fake_index.calls)
