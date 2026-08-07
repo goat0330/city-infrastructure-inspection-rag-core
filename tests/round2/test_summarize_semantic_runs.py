@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from scripts.summarize_semantic_runs import build_summary, summarize_run_directory
 
 
@@ -10,11 +12,20 @@ ROOT = Path(__file__).resolve().parents[2]
 RUNS_ROOT = ROOT / "runs" / "round2-semantic"
 
 
+def _require_live_run(name: str) -> Path:
+    path = RUNS_ROOT / name
+    if not path.is_dir():
+        pytest.skip("live semantic run artifacts are not bundled in the source review package")
+    return path
+
+
 def _run(summary: dict[str, object], name: str) -> dict[str, object]:
     return next(item for item in summary["runs"] if item["run"] == name)  # type: ignore[index]
 
 
 def test_real_live_runs_report_resolution_fallback_and_timeout() -> None:
+    _require_live_run("semantic-live-12-027-v4")
+    _require_live_run("semantic-live-12-030-v1")
     summary = build_summary(RUNS_ROOT)
     v4 = _run(summary, "semantic-live-12-027-v4")
     dc = _run(summary, "semantic-live-12-030-v1")
@@ -99,7 +110,8 @@ def test_summarizer_compares_locked_fields_categories_sources_and_tokens(tmp_pat
 
 
 def test_missing_enhanced_artifact_is_reported_without_crashing() -> None:
-    result = summarize_run_directory(RUNS_ROOT / "semantic-live-12-027-v1")
+    run_dir = _require_live_run("semantic-live-12-027-v1")
+    result = summarize_run_directory(run_dir)
     assert result["status"] == "incomplete"
     assert result["candidate_count"] == 5
     assert result["decision_count"] == 0

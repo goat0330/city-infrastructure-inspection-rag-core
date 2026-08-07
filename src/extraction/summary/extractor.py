@@ -252,9 +252,14 @@ _SOURCE_PRIORITY = {
     "underpass_conclusion": 520,
     "project_name": 80,
     "filename": 40,
-    "filename_facility": 680,
-    "filename_grade": 680,
-    "filename_history": 660,
+    # Filenames are useful release metadata, but they are not the authoritative
+    # report body.  They may fill a missing value or surface a conflict; they
+    # must never beat an explicit table/label/conclusion candidate.
+    "filename_facility": 60,
+    "filename_grade": 60,
+    "filename_history": 55,
+    "previous_detection": 680,
+    "history_comparison": 660,
 }
 
 _DATE_PRIORITY = {
@@ -388,6 +393,59 @@ _RISK_ADVICE_MARKERS = (
     "灌缝",
     "清理",
 )
+_RISK_CONSEQUENCE_MARKERS = (
+    "影响",
+    "降低",
+    "削弱",
+    "危及",
+    "隐患",
+    "安全",
+    "耐久",
+    "承载",
+    "受力",
+    "通行",
+    "行车",
+    "行人",
+    "使用功能",
+)
+_SUMMARY_ACTION_MARKERS = (
+    "建议",
+    "应及时",
+    "需及时",
+    "维修",
+    "修复",
+    "修补",
+    "处治",
+    "处置",
+    "加固",
+    "更换",
+    "清理",
+    "养护",
+    "可直接用",
+    "环氧砂浆",
+)
+_SUMMARY_NOISE_MARKERS = (
+    "目录",
+    "检测依据",
+    "评定依据",
+    "技术规范",
+    "评定标准",
+    "检查结果表",
+    "病害分布表",
+    "照片",
+    "示意图",
+    "布置图",
+    "结构检算",
+    "荷载试验",
+    "静载试验",
+    "动载试验",
+    "自振频率",
+    "冲击系数",
+    "混凝土强度",
+    "保护层合格率",
+    "桥梁博士",
+    "计算结果",
+)
 
 
 def _clean(value: str) -> str:
@@ -397,6 +455,141 @@ def _clean(value: str) -> str:
 
 def _compact(value: str) -> str:
     return re.sub(r"\s+", "", _clean(value))
+
+
+def _split_summary_sentences(value: str) -> tuple[str, ...]:
+    """Split a noisy summary cell into source-faithful sentence candidates."""
+
+    result: list[str] = []
+    for part in re.split(r"[\r\n]+|(?<=[。；;！？!?])", value or ""):
+        text = _clean(part).strip("，,；;。． ")
+        if text and text not in result:
+            result.append(text)
+    return tuple(result)
+
+
+def _is_raw_summary_data(value: str) -> bool:
+    compact = _compact(value)
+    if any(marker in compact for marker in _SUMMARY_NOISE_MARKERS):
+        return True
+    numeric_hits = len(
+        re.findall(r"\d+(?:\.\d+)?(?:MPa|mm|㎜|m/s2|Hz|kN|kN·m|%|℃)", value)
+    )
+    has_judgement = any(
+        marker in compact
+        for marker in (
+            "满足要求",
+            "符合要求",
+            "承载能力满足",
+            "安全性评估",
+            "技术状况等级",
+            "总体技术状况",
+        )
+    )
+    return numeric_hits >= 3 and not has_judgement
+
+
+def _normalise_overall_conclusion(value: str) -> str:
+    """Keep only concise formal conclusions, never an entire inspection body."""
+
+    selected: list[str] = []
+    total = 0
+    for sentence in _split_summary_sentences(value):
+        compact = _compact(sentence)
+        if not compact or _is_raw_summary_data(sentence):
+            continue
+        if any(marker in compact for marker in _SUMMARY_ACTION_MARKERS):
+            sentence = re.split(
+                r"[，,；;。]?\s*(?=(?:建议|应及时|需及时|维修|修复|修补|处治|处置|加固|更换|清理|养护|可直接用|环氧砂浆))",
+                sentence,
+                maxsplit=1,
+            )[0].strip("，,；;。 ")
+            compact = _compact(sentence)
+            if not sentence:
+                continue
+        has_overall = any(
+            marker in compact
+            for marker in (
+                "总体",
+                "整体",
+                "综合评定",
+                "技术状况",
+                "安全性评估",
+                "承载能力",
+                "满足要求",
+                "符合要求",
+                "正常使用",
+                "安全运营",
+            )
+        )
+        has_defect_fact = any(marker in compact for marker in _RISK_DEFECT_MARKERS) and any(
+            marker in compact
+            for marker in (
+                "桥面",
+                "主梁",
+                "梁体",
+                "支座",
+                "桥墩",
+                "桥台",
+                "栏杆",
+                "护栏",
+                "顶板",
+                "侧墙",
+                "结构",
+                "构件",
+            )
+        )
+        if not (has_overall or has_defect_fact):
+            continue
+        sentence = sentence[:180].rstrip("，,；; ")
+        if not sentence or sentence in selected:
+            continue
+        separator = 1 if selected else 0
+        if total + separator + len(sentence) > 250:
+            remaining = 250 - total - separator
+            if remaining < 24:
+                break
+            sentence = sentence[:remaining].rstrip("，,；; ")
+        selected.append(sentence)
+        total += separator + len(sentence)
+        if len(selected) >= 4 or total >= 250:
+            break
+    return "；".join(selected)
+
+
+def _normalise_risk_points(value: str) -> str:
+    """Keep at most three report-backed defect→consequence statements."""
+
+    selected: list[str] = []
+    total = 0
+    for sentence in _split_summary_sentences(value):
+        compact = _compact(sentence)
+        if not compact or len(compact) > 260:
+            continue
+        if any(marker in compact for marker in _SUMMARY_NOISE_MARKERS):
+            continue
+        if any(marker in compact for marker in _SUMMARY_ACTION_MARKERS):
+            continue
+        if re.search(r"(?:19|20)\d{2}年.*(?:检测|检查|维修|加固)", compact):
+            continue
+        if not any(marker in compact for marker in _RISK_DEFECT_MARKERS):
+            continue
+        if not any(marker in compact for marker in _RISK_CONSEQUENCE_MARKERS):
+            continue
+        sentence = sentence[:120].rstrip("，,；; ")
+        if not sentence or sentence in selected:
+            continue
+        separator = 1 if selected else 0
+        if total + separator + len(sentence) > 200:
+            remaining = 200 - total - separator
+            if remaining < 24:
+                break
+            sentence = sentence[:remaining].rstrip("，,；; ")
+        selected.append(sentence)
+        total += separator + len(sentence)
+        if len(selected) >= 3 or total >= 200:
+            break
+    return "；".join(selected)
 
 
 def _alias_pattern(alias: str) -> str:
@@ -625,7 +818,13 @@ def extract_summary(
     first_heading = _first_heading_index(document, selected_routes)
 
     blocks = tuple(document.blocks)
+    previous_section_blocks = _previous_section_block_indexes(blocks)
     for block in blocks:
+        # Chapter 1.2 describes the prior inspection.  Its BCI/grade must never
+        # compete with current-period summary facts.  Dedicated history parsing
+        # below owns every fact in this window.
+        if block.block_index in previous_section_blocks:
+            continue
         categories = route_categories.get(block.block_index, set())
         if isinstance(block, TableBlock):
             source_kind = _table_source_kind(block, categories, blocks)
@@ -643,6 +842,7 @@ def extract_summary(
     _extract_cover_names(blocks, first_heading, collector)
     _extract_cover_dates(blocks, first_heading, collector)
     _extract_cover_table_date_fallback(blocks, collector)
+    _extract_history_facts(blocks, collector)
     _extract_filename_facts(document.source_file, collector)
     _extract_risk_fallback(blocks, collector)
     recommendation_count = _select_recommendation_count(collector)
@@ -653,6 +853,15 @@ def extract_summary(
         field: _selected_or_missing(field, collector.values[field])
         for field in _SUMMARY_FIELDS
     }
+    # A previous-period score identical to the current score is almost always
+    # a mis-extraction (the current BCI leaking into the 1.2 window).  Drop it
+    # rather than shipping a wrong historical value.
+    if (
+        summary_values["previous_overall_score"] not in ("", "无")
+        and summary_values["overall_score"] not in ("", "无")
+        and summary_values["previous_overall_score"] == summary_values["overall_score"]
+    ):
+        summary_values["previous_overall_score"] = "无"
     # The official Gold contract uses “无” for the trend of first/no-history
     # reports.  Score fields already use the same display value when no
     # applicable score candidate exists; keep the trend consistent instead of
@@ -1157,6 +1366,26 @@ def _extract_embedded_fields(
     for index, (start, end, field, alias) in enumerate(matches):
         value_end = matches[index + 1][0] if index + 1 < len(matches) else len(text)
         value = text[end:value_end].strip(" \t:：=，,；;。．")
+        if field == "bridge_name":
+            # Recover the source spelling from the original paragraph.  The
+            # normalized scan above may expand Unicode Roman numerals (Ⅲ→III).
+            raw_match = re.search(
+                _alias_pattern(alias)
+                + r"\s*(?:[（(][^）)]*[）)])?\s*(?:(?:[:：=])\s*|(?:为|是)\s*)(.+)$",
+                raw_text,
+                flags=re.IGNORECASE,
+            )
+            if raw_match is not None:
+                raw_value = raw_match.group(1).strip(" \t:：=，,；;。．")
+                # Stop before another labelled field when several values share
+                # one compact paragraph.
+                raw_value = re.split(
+                    r"\s+(?=(?:桥梁编号|报告日期|总体技术状况|总体评分|总体等级)\s*[:：=])",
+                    raw_value,
+                    maxsplit=1,
+                )[0].strip()
+                if raw_value:
+                    value = raw_value
         if not value and field not in {"bridge_id", "previous_overall_score", "previous_overall_grade"}:
             continue
         date_kind = _date_kind_for_alias(alias) if field in {"report_date", "inspection_date"} else None
@@ -1457,7 +1686,9 @@ def _risk_fragments(value: str) -> tuple[str, ...]:
             continue
         if not any(marker in cleaned for marker in _RISK_DEFECT_MARKERS):
             continue
-        if not any(marker in cleaned for marker in _RISK_ADVICE_MARKERS):
+        if any(marker in cleaned for marker in _SUMMARY_ACTION_MARKERS):
+            continue
+        if not any(marker in cleaned for marker in _RISK_CONSEQUENCE_MARKERS):
             continue
         if cleaned not in fragments:
             fragments.append(cleaned)
@@ -1612,8 +1843,14 @@ def _add_field(
         source_kind = _conclusion_source_kind(label, source_kind)
         if source_kind not in _HIGH_CONCLUSION_KINDS and _looks_like_conclusion_fragment(value):
             return
+        value = _normalise_overall_conclusion(value)
+        if not value:
+            return
     if field == "risk_points":
         source_kind = _risk_source_kind(label, source_kind)
+        value = _normalise_risk_points(value)
+        if not value:
+            return
     collector.add(
         field,
         value,
@@ -1718,7 +1955,11 @@ def _is_specific_facility_name(value: str) -> bool:
 
 
 def _normalise_bridge_name(value: str) -> str:
-    cleaned = _clean(value).strip("：:=，,；;。． ")
+    # NFKC converts Unicode Roman numerals (Ⅲ) into ASCII letters (III), which
+    # is useful for matching but harmful for the public identity field.  Keep
+    # the source spelling here and perform alias normalization only internally.
+    cleaned = unicodedata.normalize("NFC", value or "").replace("\u00a0", " ")
+    cleaned = re.sub(r"\s+", " ", cleaned).strip("：:=，,；;。． ")
     cleaned = re.split(
         r"(?:所在路名|在路名|路名|桥梁编号|桥梁ID|等级)\s*[:：=]",
         cleaned,
@@ -1751,12 +1992,9 @@ def _normalise_bridge_name(value: str) -> str:
     cleaned = re.sub(r"互通式(?=立交)", "", cleaned)
     cleaned = re.sub(r"桥异形梁桥$", "异形桥", cleaned)
     cleaned = re.sub(r"(?<!立交)(\d+)#(?=人行天桥)", r"\1号", cleaned)
-    roman_map = {"I": "Ⅰ", "II": "Ⅱ", "III": "Ⅲ", "IV": "Ⅳ", "V": "Ⅴ", "VI": "Ⅵ"}
-    cleaned = re.sub(
-        r"(?i)(?<=主线)(VI|IV|V|III|II|I)(?=号桥)",
-        lambda match: roman_map[match.group(1).upper()],
-        cleaned,
-    )
+    # Keep the authoritative source spelling.  Roman numeral conversion is an
+    # aliasing concern; rewriting it in the public field caused strict-name
+    # mismatches (Ⅲ vs III) without adding factual value.
     cleaned = _strip_project_road_prefix(cleaned)
     cleaned = cleaned.strip("：:=，,；;。． ")
     return "" if _is_generic_bridge_name(cleaned) else cleaned
@@ -1837,36 +2075,43 @@ def _filename_grade(value: str, suffix: str = "") -> str:
 
 
 def _filename_identity(stem: str) -> str:
-    """Return the facility-name portion of an official input filename."""
+    """Return the facility-name portion of an official input filename.
+
+    The operation is deliberately narrow: remove the maintenance-unit prefix,
+    grade annotations and report suffix, while preserving chainage that is part
+    of the name before ``报告``. Roman numerals keep the exact filename form.
+    """
 
     value = (stem or "").strip()
     value = re.sub(r"^[^-—_]{1,12}[-—_]", "", value, count=1)
+    # Grade annotations are metadata, not part of the facility name.
     value = re.sub(
         r"[（(][^（）()]*(?:原|现)\s*[A-Ea-e一二三四五六][^（）()]*[）)]",
         "",
         value,
     )
+    # Anything after the first report suffix is document metadata.
     value = re.split(r"(?:定期)?(?:检测|检查|评估)?报告", value, maxsplit=1)[0]
     value = re.sub(r"\s+", "", value).strip("-—_（）()，,；;")
     value = re.sub(r"k(?=\d)", "K", value, flags=re.I)
-    if not value or not value.endswith(_FILENAME_FACILITY_SUFFIXES):
+    if not value:
+        return ""
+    # A filename ending in 匝道/互通X号 often omits the final facility noun;
+    # do not force it over a more explicit cover-field name.
+    if not value.endswith(_FILENAME_FACILITY_SUFFIXES):
         return ""
     return value
-
-
-def _filename_trend(previous_grade: str, current_grade: str) -> str:
-    if not previous_grade or not current_grade:
-        return ""
-    if previous_grade == current_grade:
-        return f"与上一次定检相比，总体技术状况等级保持{current_grade}。"
-    return f"与上一次定检相比，总体技术状况等级由{previous_grade}变为{current_grade}。"
 
 
 def _extract_filename_facts(
     source_file: str,
     collector: _CandidateCollector,
 ) -> None:
-    """Use explicit facts encoded by the official input filename."""
+    """Use facts explicitly encoded by the official input filename.
+
+    No score is inferred from a grade. Only a clearly marked ``原/现`` grade
+    and a clear facility-name stem are added.
+    """
 
     if not source_file:
         return
@@ -1880,6 +2125,8 @@ def _extract_filename_facts(
             "bridge_name", identity, "filename_facility", anchor, label="文件名设施名称"
         )
     else:
+        # Preserve the historical conservative fallback for filenames whose
+        # main stem does not expose a complete facility noun.
         parts = re.split(r"[-_—（）()]+", stem)
         for part in reversed(parts):
             part = re.sub(r"^\d+", "", part)
@@ -1892,7 +2139,9 @@ def _extract_filename_facts(
         else:
             name = _bridge_name_from_text(stem)
             if name:
-                collector.add("bridge_name", name, "filename", anchor, label="文件名")
+                collector.add(
+                    "bridge_name", name, "filename", anchor, label="文件名"
+                )
 
     previous_grade = ""
     current_grade = ""
@@ -1912,15 +2161,181 @@ def _extract_filename_facts(
             "overall_grade", current_grade, "filename_grade", anchor,
             label="文件名现等级",
         )
-    trend = _filename_trend(previous_grade, current_grade)
-    if trend:
-        collector.add("trend", trend, "filename_history", anchor, label="文件名等级变化")
+    # Do not write a trend sentence from filename metadata.  A pair of grade
+    # labels is not evidence of the report's disease-development narrative.
+
+
+
+_PREVIOUS_SECTION_HEADING_RE = re.compile(r"(?:^|\s)(?:1\.2\s*)?上一次(?:定期)?检测状况")
+_NEXT_MAIN_SECTION_RE = re.compile(r"^\s*2(?:\.0)?\s*(?:检测目的|检查目的)")
+_PREVIOUS_BCI_RE = re.compile(
+    r"(?:整体|总体)?技术状况指数\s*BCI\s*[=＝]?\s*(\d+(?:\.\d+)?)",
+    re.IGNORECASE,
+)
+_PREVIOUS_GRADE_TEXT_RE = re.compile(
+    r"整体技术状况等级(?:评定|评价|确定)?为\s*([A-Ea-e]\s*级|[一二三四五六]类)"
+)
+_PREVIOUS_GRADE_FALLBACK_RE = re.compile(
+    r"(?:总体|整体)技术状况[^。；;]{0,100}?(?:等级|级别)[^。；;]{0,30}?([A-Ea-e]\s*级|[一二三四五六]类)"
+)
+_HISTORY_HEADERS = {
+    "location": ("位置", "部位", "结构部位"),
+    "previous": ("上一次检测结果", "上次检测结果", "上一次定检结果", "历史检测结果"),
+    "current": ("本次检测结果", "本次定检结果", "当前检测结果"),
+    "development": ("发展状况", "发展情况", "变化情况", "病害发展"),
+}
+
+def _history_header_mapping(table: TableBlock) -> tuple[int, dict[str, int]] | None:
+    for row_index, row in enumerate(table.rows[:4]):
+        mapping: dict[str, int] = {}
+        for column_index, cell in enumerate(row.cells):
+            value = _compact(cell.raw_text)
+            for field, aliases in _HISTORY_HEADERS.items():
+                if field in mapping:
+                    continue
+                if any(alias in value for alias in aliases):
+                    mapping[field] = column_index
+                    break
+        if {"previous", "current", "development"}.issubset(mapping):
+            return row_index, mapping
+    return None
+
+def _history_cell(row: object, column_index: int | None) -> str:
+    cells = getattr(row, "cells", ())
+    if column_index is None or column_index < 0 or column_index >= len(cells):
+        return ""
+    return _clean(getattr(cells[column_index], "raw_text", ""))
+
+def _extract_history_comparison_table(
+    table: TableBlock,
+    collector: _CandidateCollector,
+) -> None:
+    header = _history_header_mapping(table)
+    if header is None:
+        return
+    header_row, mapping = header
+    trend_parts: list[str] = []
+    explicit_nonempty = False
+    for row in table.rows[header_row + 1 :]:
+        location = _history_cell(row, mapping.get("location"))
+        development = _history_cell(row, mapping.get("development"))
+        if not development:
+            continue
+        compact = _compact(development)
+        if not compact or compact in {"/", "-", "—", "无变化"}:
+            continue
+        if compact not in {"无", "暂无", "不适用"}:
+            explicit_nonempty = True
+        if location:
+            trend_parts.append(f"{location}：{development}")
+        else:
+            trend_parts.append(development)
+    if not trend_parts:
+        return
+    # Keep the source wording.  The official summary field is a compact
+    # cross-period statement, not an inferred severity label.
+    unique_parts = list(dict.fromkeys(trend_parts))
+    trend = "；".join(unique_parts[:8])
+    if not explicit_nonempty and all(_compact(part).endswith("：无") or _compact(part) == "无" for part in unique_parts):
+        trend = "无"
+    collector.add(
+        "trend",
+        trend,
+        "history_comparison",
+        table.source,
+        label="历次检测结果对比",
+    )
+
+
+def _previous_section_block_indexes(blocks: Sequence[object]) -> set[int]:
+    start_position: int | None = None
+    for position, block in enumerate(blocks):
+        if isinstance(block, ParagraphBlock) and _PREVIOUS_SECTION_HEADING_RE.search(_clean(block.raw_text)):
+            start_position = position
+            break
+    if start_position is None:
+        return set()
+    result: set[int] = set()
+    for block in blocks[start_position:]:
+        if (
+            len(result) > 0
+            and isinstance(block, ParagraphBlock)
+            and _NEXT_MAIN_SECTION_RE.search(_clean(block.raw_text))
+        ):
+            break
+        block_index = getattr(block, "block_index", None)
+        if isinstance(block_index, int):
+            result.add(block_index)
+    return result
+
+
+def _extract_history_facts(
+    blocks: Sequence[object],
+    collector: _CandidateCollector,
+) -> None:
+    """Extract explicit previous-period facts and comparison text.
+
+    Reports in the platform set commonly store the last BCI/grade under
+    ``1.2 上一次检测状况`` and development under a four-column comparison
+    table in chapter 7.  These are authoritative report facts and must not be
+    guessed from filenames or by the LLM.
+    """
+
+    for block in blocks:
+        if isinstance(block, TableBlock):
+            _extract_history_comparison_table(block, collector)
+
+    previous_indexes = _previous_section_block_indexes(blocks)
+    if not previous_indexes:
+        return
+
+    for block in blocks:
+        if getattr(block, "block_index", None) not in previous_indexes:
+            continue
+        if isinstance(block, ParagraphBlock):
+            text = _clean(block.raw_text)
+            source = block.source
+        elif isinstance(block, TableBlock):
+            text = _clean(block.raw_text)
+            source = block.source
+        else:
+            continue
+        if not text or _PREVIOUS_SECTION_HEADING_RE.fullmatch(text):
+            continue
+        if re.search(r"(?:无|没有|未有)上一次(?:定期)?检测(?:记录|资料|结果)?", text):
+            collector.add(
+                "previous_overall_score", "无", "previous_detection", source,
+                label="上一次检测明确无记录",
+            )
+            collector.add(
+                "previous_overall_grade", "无", "previous_detection", source,
+                label="上一次检测明确无记录",
+            )
+            continue
+        score = _PREVIOUS_BCI_RE.search(text)
+        if score:
+            collector.add(
+                "previous_overall_score",
+                score.group(1),
+                "previous_detection",
+                source,
+                label="上一次检测BCI",
+            )
+        grade = _PREVIOUS_GRADE_TEXT_RE.search(text) or _PREVIOUS_GRADE_FALLBACK_RE.search(text)
+        if grade:
+            collector.add(
+                "previous_overall_grade",
+                grade.group(1),
+                "previous_detection",
+                source,
+                label="上一次检测总体等级",
+            )
 
 
 def _normalise_field_value(field: str, value: str) -> str:
-    cleaned = _clean(value).strip("：:=，,；;。．")
     if field == "bridge_name":
-        return _normalise_bridge_name(cleaned)
+        return _normalise_bridge_name(value)
+    cleaned = _clean(value).strip("：:=，,；;。．")
     if field.endswith("_score"):
         if not cleaned or cleaned in {"无", "暂无", "不适用"}:
             return cleaned
@@ -1979,6 +2394,20 @@ def _conclusion_quality(value: str) -> tuple[int, int, int, int]:
     # Lower tuple is better: reject contents-like fragments and single-test
     # snippets, then prefer richer defect/component coverage.
     return toc_penalty, fragment_penalty, -(defect_hits + component_hits), len(compact)
+
+
+def _date_candidate_priority(candidate: SummaryCandidate) -> int:
+    """Prefer explicitly labelled report/sign dates over incidental cover text."""
+
+    base = _DATE_PRIORITY.get(candidate.date_kind or "", 0)
+    label = _compact(candidate.label)
+    if any(marker in label for marker in ("报告日期", "报告出具", "出具日期", "签发日期", "签字日期")):
+        base += 300
+    elif any(marker in label for marker in ("检测日期", "检验日期", "检查日期")):
+        base += 80
+    elif candidate.label in {"封面日期", "封面中文日期"}:
+        base += 20
+    return base
 
 
 def _select_value(field: str, values: Sequence[SummaryCandidate]) -> str:
@@ -2079,8 +2508,9 @@ def _selection_priority(field: str, candidate: SummaryCandidate) -> int:
         "section_score": 280,
         "summary_page": 200,
         "underpass_conclusion": 520,
-        "filename_grade": 680,
-        "filename_history": 660,
+        "filename_grade": 60,
+        "filename_history": 55,
+        "previous_detection": 680,
         "conclusion": 100,
     }.get(candidate.source_kind, 80)
 

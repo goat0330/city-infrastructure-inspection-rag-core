@@ -146,7 +146,7 @@ def test_task_queries_are_independent_and_retrieval_hits_use_global_source_quota
 
     assert tuple(queries) == narrative.RETRIEVAL_TASK_FIELDS
     assert len(set(queries.values())) == len(queries)
-    assert "封闭裂缝" in queries["treatments"]
+    assert "treatments" not in queries
     assert "裂缝描述" in queries["causes"]
 
     task_hits = {

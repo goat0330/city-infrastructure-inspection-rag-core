@@ -67,10 +67,13 @@ def _normalise_live_response(
     raw = dict(value)
     raw.setdefault("candidate_id", candidate.candidate_id)
     raw.setdefault("task_type", candidate.task_type)
-    result = raw.get("result")
-    result = dict(result) if isinstance(result, Mapping) else {}
+    raw_result = raw.get("result")
+    result = dict(raw_result) if isinstance(raw_result, Mapping) else {}
     if candidate.task_type == "recommendation_category":
-        result["category"] = result.get("category", raw.get("category", ""))
+        if not result and raw_result is not None:
+            result["category"] = str(raw_result)
+        else:
+            result["category"] = result.get("category", raw.get("category", ""))
     elif candidate.task_type in {
         "conclusion_evidence_selection",
         "risk_evidence_selection",
@@ -79,6 +82,11 @@ def _normalise_live_response(
         if selected_ids is None:
             selected_ids = raw.get("selected_evidence_ids", raw.get("evidence_ids", ()))
         selected_text = result.get("selected_text", raw.get("selected_text", ""))
+        if not selected_text:
+            field = "overall_conclusion" if candidate.task_type == "conclusion_evidence_selection" else "risk_points"
+            selected_text = result.get(field, raw.get(field, ""))
+        if not selected_text and raw_result is not None and not isinstance(raw_result, Mapping):
+            selected_text = str(raw_result)
         result = {
             "selected_evidence_ids": selected_ids,
             "selected_text": selected_text,

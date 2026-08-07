@@ -427,8 +427,228 @@ def extract_defects(
                 added_row_count=len(records) - before_merge,
             )
         )
+    history_records, history_updated = _enrich_defect_history(document, records)
+    if history_updated:
+        records = history_records
+        flags.append(
+            _flag(
+                "history_comparison_enriched",
+                "Explicit chapter-7 comparison evidence populated defect history fields where a disease-level match was available.",
+                updated_row_count=history_updated,
+            )
+        )
     records = list(_fill_missing_indices(records))
     return DefectExtractionResult(tuple(records), tuple(flags))
+
+
+
+_HISTORY_TABLE_HEADERS = {
+    "location": ("位置", "部位", "结构部位"),
+    "previous": ("上一次检测结果", "上次检测结果", "上一次定检结果", "历史检测结果"),
+    "current": ("本次检测结果", "本次定检结果", "当前检测结果"),
+    "development": ("发展状况", "发展情况", "变化情况", "病害发展"),
+}
+_HISTORY_COMPONENT_TERMS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("上部结构", ("上部结构", "主梁", "梁", "板", "翼板", "腹板", "横隔", "铰缝", "索", "桥面板")),
+    ("下部结构", ("下部结构", "桥墩", "墩", "桥台", "台帽", "台身", "盖梁", "支座", "基础", "挡块")),
+    ("桥面系", ("桥面系", "桥面", "铺装", "路面", "伸缩缝", "护栏", "栏杆", "排水", "泄水", "人行道", "路缘")),
+    ("主体结构", ("主体结构", "顶板", "侧墙", "墙体", "底板", "衬砌", "洞口", "翼墙")),
+    ("附属设施", ("附属设施", "栏杆", "扶手", "照明", "标志", "排水")),
+)
+_HISTORY_DISEASE_TERMS = tuple(
+    dict.fromkeys(
+        term
+        for term in _TEXT_DEFECT_WORDS
+        if len(term) >= 2 and not term.startswith("无")
+    )
+)
+
+def _history_table_mapping(table: TableBlock) -> tuple[int, dict[str, int]] | None:
+    for row_index, row in enumerate(table.rows[:4]):
+        mapping: dict[str, int] = {}
+        for column_index, cell in enumerate(row.cells):
+            value = _normalise_header(cell.raw_text)
+            for field, aliases in _HISTORY_TABLE_HEADERS.items():
+                if field in mapping:
+                    continue
+                if any(_normalise_header(alias) in value for alias in aliases):
+                    mapping[field] = column_index
+                    break
+        if {"previous", "current", "development"}.issubset(mapping):
+            return row_index, mapping
+    return None
+
+def _history_cell_text(row: TableRow, column: int | None) -> str:
+    if column is None or column < 0 or column >= len(row.cells):
+        return ""
+    return _display_text(row.cells[column].raw_text).strip("，,；;。 ")
+
+def _history_groups(document: DocumentModel) -> tuple[dict[str, str], ...]:
+    groups: list[dict[str, str]] = []
+    for block in document.blocks:
+        if not isinstance(block, TableBlock):
+            continue
+        header = _history_table_mapping(block)
+        if header is None:
+            continue
+        header_row, mapping = header
+        for row in block.rows[header_row + 1 :]:
+            location = _history_cell_text(row, mapping.get("location"))
+            previous = _history_cell_text(row, mapping.get("previous"))
+            current = _history_cell_text(row, mapping.get("current"))
+            development = _history_cell_text(row, mapping.get("development"))
+            if not any((previous, current, development)):
+                continue
+            groups.append(
+                {
+                    "location": location,
+                    "previous": previous,
+                    "current": current,
+                    "development": development,
+                    "block_index": str(block.block_index),
+                }
+            )
+    return tuple(groups)
+
+def _defect_component_key(record: DefectObservation) -> str:
+    text = _display_text(
+        " ".join((record.location, record.defect_type, record.description))
+    )
+    for key, terms in _HISTORY_COMPONENT_TERMS:
+        if any(term in text for term in terms):
+            return key
+    return ""
+
+def _disease_terms(value: str) -> tuple[str, ...]:
+    compact = _normalise_header(value)
+    found = [term for term in _HISTORY_DISEASE_TERMS if term in compact]
+    # Composite labels such as 渗水泛碱 should beat their shorter members.
+    found.sort(key=len, reverse=True)
+    result: list[str] = []
+    for term in found:
+        if any(term in kept for kept in result):
+            continue
+        result.append(term)
+    return tuple(result[:6])
+
+
+def _history_location_tokens(value: str) -> tuple[str, ...]:
+    text = _display_text(value)
+    tokens = re.findall(
+        r"(?:左幅|右幅)?\d+#(?:跨|墩|台|缝|支座|梁|板)|"
+        r"(?:距)?\d+#(?:伸缩缝|墩|台)|K\d+(?:\+\d+)?",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if tokens:
+        return tuple(dict.fromkeys(tokens))
+    compact = _normalise_header(text)
+    generic = {"桥面", "主梁", "桥墩", "桥台", "支座", "护栏", "栏杆", "伸缩缝", "路面", "上部结构", "下部结构", "桥面系"}
+    if 3 <= len(compact) <= 24 and compact not in generic:
+        return (compact,)
+    return ()
+
+
+def _history_location_match(record: DefectObservation, text: str) -> bool:
+    tokens = _history_location_tokens(record.location)
+    if not tokens:
+        return False
+    compact = _normalise_header(text)
+    return any(_normalise_header(token) in compact for token in tokens)
+
+
+def _best_history_group(record: DefectObservation, groups: Sequence[dict[str, str]]) -> dict[str, str] | None:
+    component = _defect_component_key(record)
+    text = _display_text(" ".join((record.location, record.defect_type, record.description)))
+    disease_terms = _disease_terms(text)
+    ranked: list[tuple[int, int, dict[str, str]]] = []
+    for order, group in enumerate(groups):
+        score = 0
+        location = group.get("location", "")
+        group_text = " ".join((group.get("current", ""), group.get("development", ""), group.get("previous", "")))
+        disease_hits = sum(1 for term in disease_terms if term in group_text)
+        if not disease_hits and not (record.defect_type and record.defect_type in group_text):
+            continue
+        if component and component in location:
+            score += 8
+        if _history_location_match(record, group_text):
+            score += 12
+        score += 3 * disease_hits
+        if record.defect_type and record.defect_type in group_text:
+            score += 5
+        if score:
+            ranked.append((score, -order, group))
+    if not ranked:
+        return None
+    ranked.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    return ranked[0][2]
+
+def _enrich_defect_history(
+    document: DocumentModel,
+    records: Sequence[DefectObservation],
+) -> tuple[list[DefectObservation], int]:
+    groups = _history_groups(document)
+    if not groups:
+        return list(records), 0
+    enriched: list[DefectObservation] = []
+    updated = 0
+    for record in records:
+        # Respect explicit row-level history columns if the source defect table
+        # already contains them.  Chapter-7 evidence only fills defaults.
+        if (record.previous_status not in {"", "无"} or record.development not in {"", "无"} or record.is_new not in {"", "否"}):
+            enriched.append(record)
+            continue
+        group = _best_history_group(record, groups)
+        if group is None:
+            enriched.append(record)
+            continue
+        defect_terms = _disease_terms(" ".join((record.defect_type, record.description)))
+        previous = group.get("previous", "")
+        current = group.get("current", "")
+        development = group.get("development", "")
+        previous_match = (
+            bool(defect_terms)
+            and _history_location_match(record, previous)
+            and any(term in previous for term in defect_terms)
+        )
+        current_match = (
+            bool(defect_terms)
+            and _history_location_match(record, current)
+            and any(term in current for term in defect_terms)
+        )
+        # Development is component-level in many reports.  Only copy it to an
+        # individual defect when the development text names the same disease;
+        # otherwise the existing Gold-template defaults are safer.
+        development_match = bool(defect_terms) and any(term in development for term in defect_terms)
+
+        is_new = record.is_new or "否"
+        previous_status = record.previous_status or "无"
+        development_value = record.development or "无"
+        if previous_match:
+            previous_status = previous[:220]
+        if "新增" in development and current_match and development_match:
+            is_new = "是"
+            development_value = development[:220]
+        elif development_match and current_match and any(
+            term in development for term in ("发展", "加重", "扩大", "修复", "减轻", "变化")
+        ):
+            development_value = development[:220]
+        elif _normalise_header(development) in {"无", "无变化", "未见明显变化"}:
+            development_value = "无"
+
+        if (is_new, previous_status, development_value) != (record.is_new, record.previous_status, record.development):
+            updated += 1
+            enriched.append(
+                replace(
+                    record,
+                    is_new=is_new,
+                    previous_status=previous_status,
+                    development=development_value,
+                )
+            )
+        else:
+            enriched.append(record)
+    return enriched, updated
 
 
 def _locate_tables(

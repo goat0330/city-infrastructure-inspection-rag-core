@@ -54,17 +54,42 @@ def test_structured_facts_do_not_generate_component_count_paragraphs() -> None:
         _facts(),
     )
 
-    assert result.detailed_conclusion == (
-        "经综合评定，该桥总体技术状况评分 86.5 分，总体技术状况等级为 B级。",
+    assert result.detailed_conclusion[0] == (
+        "经综合评定，该桥总体技术状况评分 86.5 分，总体技术状况等级为 B级。"
     )
-    assert not any("记录" in item for item in result.detailed_conclusion)
+    assert any("上一周期总体评分为84.0分" in item for item in result.detailed_conclusion)
+    assert any("病害总体稳定" in item for item in result.detailed_conclusion)
+    assert any("处置重点为" in item for item in result.detailed_conclusion)
     assert not any("未提取到结构化病害记录" in item for item in result.detailed_conclusion)
-    assert len(result.causes) >= 3
-    assert any("裂缝" in cause for cause in result.causes)
-    assert any("露筋锈蚀" in cause for cause in result.causes)
-    assert any("渗水泛碱" in cause for cause in result.causes)
+    # Defect labels are not causal evidence.  With no explicit report cause,
+    # the conservative production path leaves the field empty.
+    assert result.causes == ()
     assert result.treatments == ("封闭裂缝", "清理露筋并修补")
-    assert 3 <= len(result.safety_impact) <= 4
+    assert result.safety_impact == ()
+
+
+def test_explicit_report_causes_and_safety_are_preserved_without_templates() -> None:
+    heading = _paragraph(0, "6 安全性评估", heading_level=1)
+    cause = _paragraph(1, "梁体裂缝主要由于温度收缩所致。")
+    safety = _paragraph(2, "综合评定认为现有裂缝暂不影响结构承载能力。")
+    document = DocumentModel("fixture.docx", (heading, cause, safety))
+    route = SectionRoute(
+        category=SectionCategory.SAFETY_ASSESSMENT,
+        heading=heading,
+        blocks=document.blocks,
+        source=heading.source,
+    )
+
+    result = extract_text_sections(
+        document,
+        (route,),
+        (),
+        BridgeSummary(),
+        _facts(),
+    )
+
+    assert result.causes == ("梁体裂缝主要由于温度收缩所致。",)
+    assert result.safety_impact == ("综合评定认为现有裂缝暂不影响结构承载能力。",)
 
 
 def test_missing_unified_score_does_not_generate_missing_score_sentence() -> None:
@@ -109,7 +134,7 @@ def test_detailed_conclusion_uses_only_clean_conclusion_evidence() -> None:
         _facts(),
     )
 
-    assert len(result.detailed_conclusion) == 2
+    assert len(result.detailed_conclusion) == 3
     text = "\n".join(result.detailed_conclusion)
     assert "桥面铺装存在裂缝、坑槽" in text
     assert "主梁腹板存在竖向裂缝" in text

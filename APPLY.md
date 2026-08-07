@@ -1,79 +1,88 @@
-# 应用说明
+# 使用方式
 
-## 覆盖方式
+## 1. 覆盖
 
-在仓库根目录解压本包，覆盖同名文件。
+在项目根目录解压本 ZIP，允许覆盖同名文件。本包不删除其他文件。
 
-适用基线：
+不要继续使用旧的：
+
+- `prediction.jsonl`
+- 已生成的 92 份 DOCX/DOC
+- 旧 `submission.tar.gz`
+
+## 2. 代码验证
+
+```powershell
+python -m pytest -q
+python -m compileall -q src scripts
+```
+
+Review 包不携带 live semantic/calibration 运行目录，因此相应 6 项数据型测试会 skip；核心代码测试必须全部通过。
+
+## 3. 从原始转换 DOCX 重新预测
+
+```powershell
+python -m inspection predict-batch `
+  --input-dir runs/p0-converted `
+  --output runs/round2-v7/prediction.jsonl `
+  --report runs/round2-v7/prediction-report.json
+```
+
+本轮先不要加 `--semantic-live`，先得到严格证据确定性版本。
+
+## 4. 必须通过平台一致性 Gate
+
+```powershell
+python scripts/check_platform_consistency.py `
+  --input runs/round2-v7/prediction.jsonl `
+  --output runs/round2-v7/platform-consistency.json
+```
+
+必须满足：
 
 ```text
-9559f5698a9d2a8246f4898b71b86a739979c548
+valid = true
+issue_record_count = 0
 ```
 
-本包是累计覆盖包，不需要先应用 v4。
+`filename_*_conflict` 是人工复核提示，不会自动覆盖报告事实。
 
-## 修改内容
+若出现 `dominant_report_date_requires_source_check`，抽查原报告封面、签发日期和检测信息表；不要凭分布批量改日期。
 
-### P0：报告日期
+## 5. 通过 Gate 后再渲染与打包
 
-对封面被压平成单个表格的人行天桥报告，识别：
+```powershell
+python -m inspection render-batch `
+  --input runs/round2-v7/prediction.jsonl `
+  --manifest <官方manifest> `
+  --output-dir runs/round2-v7/docx `
+  --report runs/round2-v7/render-report.json
 
-```text
-检验日期 / 检测日期 / Sampling date
+python -m inspection convert-doc `
+  --input-dir runs/round2-v7/docx `
+  --output-dir runs/round2-v7/doc `
+  --manifest <官方manifest> `
+  --report runs/round2-v7/convert-report.json
+
+python -m inspection package `
+  --input-dir runs/round2-v7/doc `
+  --code-dir . `
+  --design-dir design `
+  --manifest <官方manifest> `
+  --output runs/round2-v7/submission.tar.gz
+
+python -m inspection validate-package `
+  --input runs/round2-v7/submission.tar.gz `
+  --manifest <官方manifest> `
+  --output runs/round2-v7/package-validation.json
 ```
 
-当值是日期区间时，以区间结束日期作为低优先级报告日期候选。显式报告日期、签发日期仍优先。
+## 6. 上传前人工抽查
 
-### P0：详细结论 Recall
+至少检查：
 
-保留 v4 的高精度病害综述，同时新增独立的正式评估段：
-
-- 保留安全性评估、承载能力、耐久性、正常运营和明确试验结论；
-- 排除图片/表格标题、目录、规范条文、检测方法和原始计算数据；
-- 不恢复按构件计数段，不重复整张病害表；
-- 扁平化单表报告可从“评估结论/安全性评估”标签行取证；
-- 只在标签化单表报告中增加简短建议综述。
-
-### P1：建议明细
-
-- 补充“建议措施、处理措施、处治措施、病害处治”标签；
-- 支持 `1.修复；2.清理；3.观察` 等紧凑编号；
-- 当普通路由为空或只得到一个未拆分块时，采用标签行结果；
-- 已有完整叶子建议章节时，不重复追加同一整段建议；
-- 轻量合并相同内容和兼容部位的重复建议。
-
-### P1：病害残余路由
-
-当病害路由命中普通检查表但该表不具备病害表结构时，在全文中回退查找真正的病害表。
-
-未修改病害语义白名单和 A1 修复。
-
-### P2：名称和建议摘要
-
-- `主线III号桥` 等统一为 `主线Ⅲ号桥`；
-- 同优先级候选中，`匝道桥` 优先于截断的 `匝道`；
-- 建议摘要仍根据最终建议明细重新计数，避免另建一套模板逻辑。
-
-## 验证
-
-```bash
-python -m compileall -q src/extraction src/routing
-pytest tests/extraction/test_text_sections.py \
-       tests/extraction/recommendations/test_extractor.py \
-       tests/round2_v3/test_defect_meaning_gate.py \
-       tests/round2_v4/test_routing_regressions.py \
-       tests/round2_v5/test_structural_residuals.py
-```
-
-当前可用真实源文件子集结果：
-
-- 8 个 DOCX 物理文件，7 个不重复 Gold 样本；
-- 0 个抽取失败；
-- Micro：78.896885 → 79.200400；
-- Macro：77.848058 → 78.044618；
-- 详细结论 Recall：0.281392 → 0.332073；
-- 详细结论得分：6.439695 → 6.575130；
-- Summary：17.310920 → 17.479000；
-- 建议、病害、成因、处置建议和安全影响在该子集不退化。
-
-这不是完整 86 份 Gold 复跑结果。覆盖后仍需用本地完整数据执行 86 份同口径评分。
+- 文件名等级与报告最终综合评定冲突的样本；
+- 日期高度集中的样本；
+- 人行天桥、人行通道、桥式通道；
+- 总体结论、风险点、成因、安全影响是否均能在原报告找到依据；
+- 建议摘要与建议表计数是否一致。

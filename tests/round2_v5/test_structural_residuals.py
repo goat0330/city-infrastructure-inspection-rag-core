@@ -51,5 +51,6 @@ def test_misrouted_ordinary_table_falls_back_to_real_defect_table() -> None:
     assert tables == (defect,)
 
 
-def test_facility_name_normalizes_mainline_roman_numeral() -> None:
-    assert _normalise_bridge_name("主线III号桥") == "主线Ⅲ号桥"
+def test_facility_name_preserves_source_roman_numeral_spelling() -> None:
+    assert _normalise_bridge_name("主线III号桥") == "主线III号桥"
+    assert _normalise_bridge_name("主线Ⅲ号桥") == "主线Ⅲ号桥"

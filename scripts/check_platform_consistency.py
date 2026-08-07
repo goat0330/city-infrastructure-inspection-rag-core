@@ -14,9 +14,9 @@ import re
 import sys
 from typing import Any, Iterable, Mapping
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from src.extraction.output_normalizer import (
     normalize_recommendations_summary,
@@ -34,6 +34,10 @@ _COMPOSER_MARKERS = (
     "可能削弱结构整体性",
     "影响传力状态",
     "若不及时处理，会影响使用功能并降低构件耐久性",
+    "可能与构件受力、材料收缩或温度变化有关",
+    "报告未明确该类病害对安全性、承载能力或耐久性的具体影响",
+    "已有证据为",
+    "综上，报告建议",
 )
 
 
@@ -106,21 +110,18 @@ def inspect_record(record: Mapping[str, Any]) -> dict[str, Any]:
     actual_previous = _text(summary.get("previous_overall_grade"))
     actual_current = _text(summary.get("overall_grade"))
     actual_trend = _text(summary.get("trend"))
-    if previous_grade and actual_previous != previous_grade:
-        issues.append({
-            "code": "filename_previous_grade_missing_or_conflicting",
+    if previous_grade and actual_previous and actual_previous not in {"无", previous_grade}:
+        warnings.append({
+            "code": "filename_previous_grade_conflict",
             "detail": f"filename={previous_grade!r}; prediction={actual_previous!r}",
         })
-    if current_grade and actual_current != current_grade:
-        issues.append({
+    if current_grade and actual_current and actual_current != current_grade:
+        warnings.append({
             "code": "filename_current_grade_conflict",
             "detail": f"filename={current_grade!r}; prediction={actual_current!r}",
         })
-    if previous_grade and current_grade and not actual_trend:
-        issues.append({
-            "code": "trend_missing_with_filename_history",
-            "detail": f"filename carries {previous_grade}->{current_grade}",
-        })
+    # Filename metadata is only a conflict signal.  It must not force a trend
+    # sentence or override an explicit report value.
 
     joined_text = "\n".join(
         _text(value)
@@ -138,9 +139,66 @@ def inspect_record(record: Mapping[str, Any]) -> dict[str, Any]:
         })
     marker_hits = sorted({marker for marker in _COMPOSER_MARKERS if marker in joined_text})
     if marker_hits:
-        warnings.append({
+        issues.append({
             "code": "generic_composer_marker",
             "detail": " | ".join(marker_hits),
+        })
+
+    overall = _text(summary.get("overall_conclusion"))
+    risk = _text(summary.get("risk_points"))
+    if len(overall) > 250:
+        issues.append({
+            "code": "overall_conclusion_too_long",
+            "detail": f"length={len(overall)}",
+        })
+    if any(marker in overall for marker in ("建议", "维修", "修复", "处治", "处置")):
+        issues.append({
+            "code": "overall_conclusion_contains_action",
+            "detail": overall[:160],
+        })
+    if len(risk) > 200:
+        issues.append({
+            "code": "risk_points_too_long",
+            "detail": f"length={len(risk)}",
+        })
+    if any(marker in risk for marker in (
+        "建议", "维修", "修复", "处治", "处置", "可直接用", "环氧砂浆",
+    )):
+        issues.append({
+            "code": "risk_points_contains_action",
+            "detail": risk[:160],
+        })
+
+    detailed = record.get("detailed_conclusion") if isinstance(record.get("detailed_conclusion"), list) else []
+    if any("综上，报告建议" in _text(value) for value in detailed):
+        issues.append({
+            "code": "detailed_conclusion_contains_recommendation",
+            "detail": "detailed conclusion repeats recommendation content",
+        })
+    if any("无往年检测评分" in _text(value) for value in detailed):
+        issues.append({
+            "code": "unsupported_no_history_statement",
+            "detail": "missing extraction was converted into a factual no-history claim",
+        })
+
+    safety_values = record.get("safety_impact") if isinstance(record.get("safety_impact"), list) else []
+    safety_text = "\n".join(_text(value) for value in safety_values)
+    if "已有证据为" in safety_text or "报告未明确" in safety_text:
+        issues.append({
+            "code": "safety_meta_text",
+            "detail": "safety field contains extractor commentary instead of report conclusions",
+        })
+    reassuring = any(marker in safety_text for marker in ("不影响", "未影响", "满足要求", "符合要求"))
+    adverse_text = re.sub(
+        r"(?:暂不|不|未)\s*影响(?:结构)?(?:安全|承载能力|承载)",
+        "",
+        safety_text,
+    )
+    adverse = any(marker in adverse_text for marker in ("影响安全", "影响承载", "承载能力不足", "不满足要求"))
+    if reassuring and adverse:
+        issues.append({
+            "code": "safety_conclusion_conflict",
+            "detail": "contains both reassuring and adverse final conclusions",
         })
 
     return {
@@ -152,7 +210,8 @@ def inspect_record(record: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def build_report(path: Path) -> dict[str, Any]:
-    records = [inspect_record(record) for record in _iter_records(path)]
+    source_records = list(_iter_records(path))
+    records = [inspect_record(record) for record in source_records]
     issue_records = [item for item in records if item["issues"]]
     warning_records = [item for item in records if item["warnings"]]
     counts: dict[str, int] = {}
@@ -162,6 +221,21 @@ def build_report(path: Path) -> dict[str, Any]:
             counts[issue["code"]] = counts.get(issue["code"], 0) + 1
         for warning in item["warnings"]:
             warning_counts[warning["code"]] = warning_counts.get(warning["code"], 0) + 1
+    date_counts: dict[str, int] = {}
+    for record in source_records:
+        summary = record.get("summary") if isinstance(record.get("summary"), Mapping) else {}
+        date = _text(summary.get("report_date"))
+        if date:
+            date_counts[date] = date_counts.get(date, 0) + 1
+    dataset_warnings: list[dict[str, str]] = []
+    if records and date_counts:
+        dominant_date, dominant_count = max(date_counts.items(), key=lambda item: item[1])
+        if dominant_count / len(records) >= 0.8:
+            dataset_warnings.append({
+                "code": "dominant_report_date_requires_source_check",
+                "detail": f"{dominant_date!r} appears in {dominant_count}/{len(records)} records",
+            })
+
     return {
         "input": str(path),
         "record_count": len(records),
@@ -170,6 +244,8 @@ def build_report(path: Path) -> dict[str, Any]:
         "warning_record_count": len(warning_records),
         "issue_counts": counts,
         "warning_counts": warning_counts,
+        "dataset_warnings": dataset_warnings,
+        "report_date_counts": dict(sorted(date_counts.items(), key=lambda item: (-item[1], item[0]))),
         "records_with_issues": issue_records,
         "records_with_warnings": warning_records,
     }

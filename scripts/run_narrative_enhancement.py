@@ -35,7 +35,7 @@ from src.rag import LightRagIndex  # noqa: E402
 from src.routing import route_sections  # noqa: E402
 
 
-TARGET_FIELDS = ("detailed_conclusion", "causes", "treatments", "safety_impact")
+TARGET_FIELDS = ("detailed_conclusion", "causes", "safety_impact")
 MODEL_RETRIEVAL_FIELDS = ("detailed_conclusion", "causes", "safety_impact")
 RETRIEVAL_SOURCE_QUOTA = {
     "report_evidence": 3,

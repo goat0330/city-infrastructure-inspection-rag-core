@@ -1,0 +1,87 @@
+{
+  "schema_version": "round2-platform-evidence-v7-validation-v1",
+  "scope": "code/tests and deterministic replay of the submitted V5 prediction JSONL; not a platform score and not a fresh 92-source-document run",
+  "base_review_package": "round2-v5-review-core-package.zip",
+  "previous_overlay": "city-infrastructure-round2-platform-alignment-overlay-v6.zip",
+  "tests": {
+    "total": 329,
+    "passed": 323,
+    "skipped": 6,
+    "failures": 0,
+    "errors": 0,
+    "skip_reason": "live semantic run/calibration artifacts are not bundled in the review package"
+  },
+  "compileall": {
+    "src": true,
+    "scripts": true
+  },
+  "static_checks": {
+    "conflict_markers": [],
+    "trailing_whitespace": []
+  },
+  "production_guards": {
+    "official_composer_default_disabled": true,
+    "generic_defect_to_cause_rules_removed": true,
+    "no_missing_history_prose": true,
+    "detailed_conclusion_recommendation_paragraph_removed": true,
+    "safety_meta_prose_removed": true,
+    "report_values_beat_filename_metadata": true,
+    "filename_does_not_generate_trend": true,
+    "recommendation_categories_resolved_before_summary": true,
+    "facility_specific_subjects": true,
+    "overall_conclusion_max_chars": 250,
+    "risk_points_max_chars": 200,
+    "generic_composer_markers_block_release": true,
+    "dominant_report_date_emits_dataset_warning": true
+  },
+  "submitted_prediction_replay": {
+    "schema_version": "platform-alignment-v7-simulation-v1",
+    "input": "review_reports/prediction.jsonl",
+    "record_count": 92,
+    "scope": "normalization replay over submitted V5 prediction JSONL; not a new 92-document extraction or platform score",
+    "before": {
+      "valid": false,
+      "issue_record_count": 92,
+      "warning_record_count": 5,
+      "issue_counts": {
+        "missing_value_sentence_splice": 91,
+        "generic_composer_marker": 92,
+        "blank_recommendation_category": 34,
+        "recommendation_summary_mismatch": 34
+      },
+      "warning_counts": {
+        "filename_current_grade_conflict": 5
+      },
+      "dataset_warnings": [
+        {
+          "code": "dominant_report_date_requires_source_check",
+          "detail": "'2019年11月20日' appears in 88/92 records"
+        }
+      ],
+      "report_date_counts": {
+        "2019年11月20日": 88,
+        "2019年10月30日": 4
+      }
+    },
+    "after": {
+      "valid": true,
+      "issue_record_count": 0,
+      "warning_record_count": 5,
+      "issue_counts": {},
+      "warning_counts": {
+        "filename_current_grade_conflict": 5
+      },
+      "dataset_warnings": [
+        {
+          "code": "dominant_report_date_requires_source_check",
+          "detail": "'2019年11月20日' appears in 88/92 records"
+        }
+      ],
+      "report_date_counts": {
+        "2019年11月20日": 88,
+        "2019年10月30日": 4
+      }
+    }
+  },
+  "required_next_gate": "rerun predict-batch on the 92 original converted DOCX files, then require scripts/check_platform_consistency.py valid=true before rendering and packaging"
+}

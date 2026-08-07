@@ -61,6 +61,7 @@ _SECTION_PATTERNS = {
     "conclusion": re.compile(r"(?:\d+(?:\.\d+)*\s*)?(?:检测结论|评估结论|检查结论|总体结论|综合结论)"),
     "treatment": re.compile(r"(?:\d+(?:\.\d+)*\s*)?(?:处理建议|处置建议|处治建议|处理意见|建议明细)"),
     "overview": re.compile(r"(?:\d+(?:\.\d+)*\s*)?(?:外观检查结果|外观病害检查)"),
+    "cause": re.compile(r"(?:\d+(?:\.\d+)*\s*)?(?:病害原因分析|病害成因分析|原因分析)"),
 }
 _TITLE_RE = re.compile(
     r"^(?:第?\d+(?:\.\d+)*\s*)?(?:检测结论|评估结论|检查结论|总体结论|安全性评估|"
@@ -143,7 +144,7 @@ _MISSING_VALUES = frozenset(
     }
 )
 _EXPLICIT_CAUSE_RE = re.compile(
-    r"(?:由于|因为|主要原因(?:是|为)?|原因(?:是|为)|导致|造成)"
+    r"(?:由于|因为|主要原因(?:是|为)?|原因(?:是|为)|系[^。；;]{1,80}所致|由[^。；;]{1,80}(?:引起|导致)|受[^。；;]{1,80}影响)"
 )
 _CAUSE_NOISE_PHRASES = (
     "检测不得对", "不得对设施结构造成损坏", "检测过程中",
@@ -197,38 +198,6 @@ _SAFETY_NOISE_WORDS = (
     "评估等级",
     "等级划分",
     "桥梁完好状况",
-)
-_STRUCTURED_CAUSE_RULES: tuple[tuple[str, tuple[str, ...], str], ...] = (
-    (
-        "裂缝",
-        ("裂缝", "裂纹", "开裂"),
-        "裂缝/开裂：报告已记录该类病害，可能与构件受力、材料收缩或温度变化有关，报告未明确单一主因。",
-    ),
-    (
-        "露筋锈蚀",
-        ("露筋", "锈蚀", "腐蚀"),
-        "露筋锈蚀：混凝土保护层破损或剥落使钢筋暴露并受水汽侵蚀，报告未明确具体主因。",
-    ),
-    (
-        "渗水泛碱",
-        ("渗水", "渗漏", "漏水", "泛碱", "浸水"),
-        "渗水泛碱：报告记录水迹或泛碱病害，说明水分进入或排水、防水条件存在问题，具体主因未明确。",
-    ),
-    (
-        "蜂窝麻面",
-        ("蜂窝", "麻面"),
-        "蜂窝麻面：报告记录混凝土表面密实性缺陷，可能与浇筑密实性不足或局部施工缺陷有关，具体主因未明确。",
-    ),
-    (
-        "支座变形",
-        ("支座", "变形"),
-        "支座变形：报告记录支座变形病害，可能与长期受力、位移或老化有关，具体主因未明确。",
-    ),
-    (
-        "铺装/伸缩缝破损",
-        ("铺装", "伸缩缝"),
-        "铺装/伸缩缝破损：报告记录铺装或伸缩缝破损，可能与车辆荷载、温度变形及长期使用有关，具体主因未明确。",
-    ),
 )
 _STRUCTURED_COMPONENTS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
@@ -326,8 +295,15 @@ def _structured_text_sections(
         safety_units = _route_units(routes, "safety_assessment", recommendation_blocks)
     if not safety_units:
         safety_units = units
+    cause_units = _section_window(units, "cause", {"safety", "conclusion", "treatment"})
+    if not cause_units:
+        # Cause paragraphs are often in chapter 7 while safety assessment is
+        # chapter 9.  Falling back to all report units is still safer than
+        # reusing only the safety window, because _source_causes itself accepts
+        # only explicit disease-cause statements and excludes actions/noise.
+        cause_units = units
     source_causes = _source_causes(
-        safety_units,
+        cause_units,
         summary_value,
         recommendation_blocks,
         heading_blocks,
@@ -998,6 +974,16 @@ def _concise_recommendation_action(value: str, location: str = "") -> str:
     text = re.split(r"(?:以免|从而|保证|提高|防止|避免|该病害|若不|如不|同时也会)", text, maxsplit=1)[0]
     return _truncate_fact(text.strip(" ，,；;。 "), 40)
 
+def _valid_score_value(value: str) -> str:
+    text = _present_value(value)
+    return text if re.fullmatch(r"\d+(?:\.\d+)?", text) else ""
+
+
+def _valid_grade_value(value: str) -> str:
+    text = _present_value(value).replace(" ", "")
+    return text if re.fullmatch(r"(?:[A-Ea-e]级|[一二三四五六]类|优|良好|中等|差)", text) else ""
+
+
 def _history_text(summary: object, noun: str) -> str:
     """Return only explicit historical comparison facts.
 
@@ -1006,8 +992,8 @@ def _history_text(summary: object, noun: str) -> str:
     """
 
     history = _summary_field(summary, "trend")
-    previous_score = _summary_field(summary, "previous_overall_score")
-    previous_grade = _summary_field(summary, "previous_overall_grade")
+    previous_score = _valid_score_value(_summary_field(summary, "previous_overall_score"))
+    previous_grade = _valid_grade_value(_summary_field(summary, "previous_overall_grade"))
     history_parts: list[str] = []
     if previous_score:
         history_parts.append(f"上一周期总体评分为{previous_score}分")
@@ -1027,7 +1013,13 @@ def _structured_detailed_conclusion(
     facility_context: object | None = None,
     field_states: Mapping[str, str] | None = None,
 ) -> tuple[str, ...]:
-    """Return up to four concise, report-backed conclusion paragraphs."""
+    """Return concise, report-backed conclusion paragraphs.
+
+    This field is not a second defect/recommendation table.  It contains only
+    the formal score/grade, a compact disease overview and explicit assessment
+    conclusions.  Missing history is omitted rather than converted into a
+    fabricated "first inspection/no history" statement.
+    """
 
     score = _structured_score_paragraph(summary, facility_context=facility_context)
     noun = _context_value(facility_context, "facility_noun", "桥梁")
@@ -1045,36 +1037,47 @@ def _structured_detailed_conclusion(
     paragraphs: list[str] = []
     if _compact(score):
         paragraphs.append(score)
-    if disease_overview:
-        history = _history_text(summary, noun)
-        if history:
-            prefix = f"{history}；"
-        else:
-            prefix = "本次为桥梁定期检测，无往年检测评分、病害对比数据，不存在既有病害扩展情况，"
-        paragraphs.append(f"{prefix}检测病害具体表现为：{disease_overview}")
 
-    # Keep formal assessment and concise result sentences as their own Gold-like
-    # paragraph instead of attaching them to the disease list.
+    history = _history_text(summary, noun)
+    if disease_overview or history:
+        overview = _truncate_fact(disease_overview, 520) if disease_overview else ""
+        parts: list[str] = []
+        if history:
+            parts.append(history)
+        if overview:
+            parts.append(f"检测病害具体表现为：{overview}")
+        paragraphs.append("本次报告" + "；".join(parts))
+
+    # Keep formal assessment as the third official paragraph.
     assessment = _concise_assessment_facts(
         assessment_facts,
         _summary_field(summary, "bridge_name"),
     )
     if assessment:
-        paragraphs.append(assessment)
+        paragraphs.append("目前" + assessment.lstrip("目前，, "))
 
-    # A short synthesis may reuse the selected report conclusion and explicit
-    # recommendation actions, but never repeat the full defect/recommendation tables.
-    action_texts = []
-    for item in recommendations:
-        content = _concise_recommendation_action(
-            _field_value(item, "content"),
-            _field_value(item, "location"),
-        )
-        if content and content not in action_texts and len(action_texts) < 4:
-            action_texts.append(content)
-    if action_texts and len(paragraphs) < 4 and _labelled_table_conclusion_facts(document):
-        paragraphs.append("综上，报告建议" + "、".join(action_texts))
+    # The official answer shape contains a fourth synthesis paragraph.  Build
+    # it only from already extracted risk and recommendation evidence so the
+    # deterministic fallback remains useful when the live model is rejected.
+    risk = _safe_summary_fact(_summary_field(summary, "risk_points"))
+    recommendation_texts = [
+        _field_value(item, "content") for item in recommendations
+        if _field_value(item, "content")
+    ]
+    synthesis_parts: list[str] = []
+    if risk:
+        synthesis_parts.append(_truncate_fact(risk, 260).rstrip("。"))
+    elif disease_overview:
+        synthesis_parts.append("应重点关注上述突出病害及其后续发展")
+    if recommendation_texts:
+        selected = "；".join(_unique(recommendation_texts)[:2])
+        synthesis_parts.append("处置重点为" + _truncate_fact(selected, 220).rstrip("。"))
+    if synthesis_parts:
+        paragraphs.append("综上，" + "；".join(synthesis_parts))
 
+    # Preserve the four official slots when evidence is available.  Missing
+    # slots are not filled with invented facts; the live narrative layer can
+    # still enhance them when it has evidence.
     return tuple(
         _clean_text(value, strip_number=False).rstrip("；;")
         + ("" if value.rstrip().endswith("。") else "。")
@@ -1083,8 +1086,8 @@ def _structured_detailed_conclusion(
     )
 
 def _structured_score_paragraph(summary: object, *, facility_context: object | None = None) -> str:
-    score = _summary_field(summary, "overall_score")
-    grade = _summary_field(summary, "overall_grade")
+    score = _valid_score_value(_summary_field(summary, "overall_score"))
+    grade = _valid_grade_value(_summary_field(summary, "overall_grade"))
     facility_type = _context_value(facility_context, "facility_type", "bridge")
     facility_name = _summary_field(summary, "bridge_name")
     subject = {
@@ -1099,6 +1102,8 @@ def _structured_score_paragraph(summary: object, *, facility_context: object | N
     }.get(facility_type, "该桥")
     if "人行天桥" in facility_name:
         subject = "该人行天桥"
+    elif "桥式通道" in facility_name:
+        subject = "该桥式通道"
     elif "人行通道" in facility_name or "人行地通道" in facility_name:
         subject = "该人行通道"
 
@@ -1108,8 +1113,8 @@ def _structured_score_paragraph(summary: object, *, facility_context: object | N
         ("下部结构", "substructure"),
         ("桥面系", "deck"),
     ):
-        component_score = _summary_field(summary, f"{prefix}_score")
-        component_grade = _summary_field(summary, f"{prefix}_grade")
+        component_score = _valid_score_value(_summary_field(summary, f"{prefix}_score"))
+        component_grade = _valid_grade_value(_summary_field(summary, f"{prefix}_grade"))
         if not component_score and not component_grade:
             continue
         item = label
@@ -1192,38 +1197,9 @@ def _structured_causes(
     defects: Sequence[object],
     source_causes: Sequence[str],
 ) -> tuple[str, ...]:
-    rule_causes: list[str] = []
-    text = "\n".join(
-        " ".join(
-            (
-                _field_value(record, "location"),
-                _field_value(record, "defect_type"),
-                _field_value(record, "description"),
-            )
-        )
-        for record in defects
-    )
-    compact = _compact(text)
-    for _, words, rule in _STRUCTURED_CAUSE_RULES:
-        if _cause_rule_matches(words, compact):
-            rule_causes.append(rule)
-    if source_causes:
-        if len(source_causes) >= 3:
-            return _unique(source_causes)[:6]
-        return _unique((*source_causes, *rule_causes))[:6]
-    if len(rule_causes) < 2:
-        return ()
-    return tuple(rule_causes)
-
-
-def _cause_rule_matches(words: Sequence[str], text: str) -> bool:
-    if words == ("支座", "变形"):
-        return "支座" in text and "变形" in text
-    if words == ("铺装", "伸缩缝"):
-        return ("铺装" in text or "伸缩缝" in text) and any(
-            word in text for word in ("破损", "损坏", "坑槽", "开裂", "裂缝", "脱落")
-        )
-    return any(word in text for word in words)
+    # Defect labels are not causal evidence.  Return only sentences that the
+    # source report itself states as a cause; otherwise leave the field empty.
+    return _unique(source_causes)[:4]
 
 
 def _impact_sources(
@@ -1237,6 +1213,8 @@ def _impact_sources(
         for value in _split_sentences(unit.text, split_semicolon=True):
             compact = _compact(value)
             if not _is_impact(value) or not _has_any(compact, _SAFETY_EVIDENCE_WORDS):
+                continue
+            if _is_action(value):
                 continue
             if value.rstrip().endswith(("：", ":")) or "桥梁博士" in compact:
                 continue
@@ -1253,34 +1231,99 @@ def _impact_sources(
     return tuple(item for item in result if not (item in seen or seen.add(item)))
 
 
+def _safety_topic(value: str, category: str | None) -> str:
+    compact = _compact(value)
+    if "承载" in compact or "荷载" in compact:
+        return "承载能力"
+    if "耐久" in compact:
+        return "耐久性"
+    if any(marker in compact for marker in ("行车", "通行", "行人")):
+        return "通行安全"
+    if "使用功能" in compact or "功能" in compact:
+        return "使用功能"
+    if "结构安全" in compact or "安全" in compact:
+        return "结构安全"
+    return category or "总体"
+
+
+def _safety_polarity(value: str) -> str:
+    compact = _compact(value)
+    if any(marker in compact for marker in (
+        "不影响", "未影响", "暂不影响", "满足要求", "符合要求",
+        "承载能力满足", "安全运营", "处于弹性工作状态", "工作性能良好",
+    )):
+        return "reassuring"
+    if any(marker in compact for marker in (
+        "影响", "削弱", "降低", "危及", "风险", "隐患", "不满足", "不足",
+    )):
+        return "adverse"
+    return "neutral"
+
+
+def _safety_rank(value: str, category: str | None) -> tuple[int, int, int]:
+    compact = _compact(value)
+    score = 0
+    if any(marker in compact for marker in ("综合评定", "总体评定", "最终评定", "安全性评估")):
+        score += 8
+    if any(marker in compact for marker in ("承载能力", "结构安全", "使用功能", "耐久性")):
+        score += 5
+    if any(marker in compact for marker in ("满足要求", "符合要求", "不影响", "影响")):
+        score += 3
+    if category is None:
+        score += 2
+    return (-score, len(compact), 0)
+
+
+def _select_safety_impacts(
+    values: Sequence[tuple[str | None, str]],
+    *,
+    limit: int = 3,
+) -> tuple[str, ...]:
+    """Select non-contradictory final safety conclusions from source text."""
+
+    by_topic: dict[str, tuple[tuple[int, int, int], str, str]] = {}
+    for category, value in values:
+        text = _clean_text(value, strip_number=False).strip("，,；;。 ")
+        compact = _compact(text)
+        if not text or len(compact) > 320:
+            continue
+        if any(marker in compact for marker in (
+            "已有证据为", "报告未明确", "评估分级", "等级划分", "检测依据",
+            "建议", "应及时", "需及时", "维修", "修复", "处治", "处置",
+        )):
+            continue
+        topic = _safety_topic(text, category)
+        rank = _safety_rank(text, category)
+        polarity = _safety_polarity(text)
+        current = by_topic.get(topic)
+        if current is None or rank < current[0]:
+            by_topic[topic] = (rank, text, polarity)
+            continue
+        # At equal evidence quality prefer a qualified/reassuring final
+        # conclusion over a generic adverse phrase; this prevents simultaneous
+        # "影响" and "不影响" statements for the same topic.
+        if rank == current[0] and polarity == "reassuring" and current[2] != "reassuring":
+            by_topic[topic] = (rank, text, polarity)
+
+    ordered = sorted(by_topic.values(), key=lambda item: item[0])
+    return tuple(
+        text + ("" if text.endswith("。") else "。")
+        for _, text, _ in ordered[:limit]
+    )
+
+
 def _structured_safety_impact(
     summary: object,
     defects: Sequence[object],
     impact_sources: Sequence[tuple[str | None, str]],
 ) -> tuple[str, ...]:
-    """Return component-scoped, report-backed safety impact statements."""
+    """Return only explicit, non-contradictory report safety conclusions."""
 
-    result: list[str] = []
-    labels = ("桥面系", "上部结构", "下部结构")
-    for label in labels:
-        grouped = tuple(record for record in defects if _record_component(record) == label)
-        source = _unique(text for category, text in impact_sources if category == label)
-        if not grouped and not source:
-            continue
-        if source:
-            impact = "；".join(source[:2])
-        else:
-            impact = "报告未明确该类病害对安全性、承载能力或耐久性的具体影响。"
-        evidence = _format_defect_counts(grouped, limit=4) if grouped else "原文安全影响表述"
-        result.append(f"{label}：已有证据为{evidence}；{impact}")
-    overall: list[str] = []
+    candidates = list(impact_sources)
     risk = _safe_summary_fact(_summary_field(summary, "risk_points"))
-    if risk and _is_impact(risk):
-        overall.append(risk)
-    overall.extend(text for category, text in impact_sources if category is None)
-    if overall:
-        result.append("总体评估：" + "；".join(_unique(overall)[:3]))
-    return tuple(result[:4])
+    if risk and _is_impact(risk) and not _is_action(risk):
+        candidates.append((None, risk))
+    return _select_safety_impacts(candidates)
 
 
 def _structured_treatments(recommendations: Sequence[object]) -> tuple[str, ...]:

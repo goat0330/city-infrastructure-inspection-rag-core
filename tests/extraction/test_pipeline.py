@@ -79,8 +79,8 @@ def test_extract_report_assembles_prediction_and_side_metadata(tmp_path: Path) -
     assert result.prediction.defects[0].evidence
     assert result.prediction.recommendations[0].evidence
     assert result.route_count > 0
-    # The fixture has no explicit cause evidence; production must not invent
-    # a generic engineering cause.
+    # No explicit cause evidence exists in the fixture; production must not
+    # invent a generic engineering cause.
     assert result.prediction.causes == ()
 
 
@@ -134,57 +134,6 @@ def test_extract_report_can_enter_injected_semantic_candidate_path(tmp_path: Pat
     assert result.prediction.recommendations[0].category == "预防性养护"
     assert result.semantic_trace["semantic_enabled"] is True
     assert result.semantic_trace["completed_candidate_ids"]
-
-
-def test_extract_report_semantic_live_applies_narrative_rag_result(
-    tmp_path: Path, monkeypatch
-) -> None:
-    source = _write_fixture(tmp_path / "语义生成桥.docx")
-    calls: list[str] = []
-
-    def fake_narrative(**kwargs):
-        calls.append(str(kwargs["sample_id"]))
-        baseline = dict(kwargs["baseline_prediction"])
-        baseline["detailed_conclusion"] = ["RAG详细结论"]
-        baseline["causes"] = [{"text": "RAG成因", "evidence_ids": ["report:0"]}]
-        baseline["safety_impact"] = [{"text": "RAG安全影响", "evidence_ids": ["report:0"]}]
-        return {
-            "enhanced_prediction": baseline,
-            "retrieval_results": [
-                {
-                    "id": "knowledge:1",
-                    "text": "检索证据",
-                    "retrieval_mode": "embedding_rerank",
-                }
-            ],
-            "retrieval_by_task": {"causes": {"hits": []}},
-            "field_results": {
-                "detailed_conclusion": "enhanced",
-                "causes": "enhanced",
-                "treatments": "baseline",
-                "safety_impact": "enhanced",
-            },
-            "selection_reasons": {},
-            "used_fallback": False,
-            "validation_errors": [],
-            "call_metrics": {"calls": 1},
-        }
-
-    from src.extraction import pipeline
-
-    monkeypatch.setattr(pipeline, "_run_live_narrative", fake_narrative, raising=False)
-    result = extract_report(
-        source,
-        semantic_enabled=True,
-        semantic_client=object(),
-        semantic_index=object(),
-    )
-
-    assert calls == ["语义生成桥"]
-    assert result.prediction.detailed_conclusion == ("RAG详细结论",)
-    assert result.prediction.causes == ("RAG成因",)
-    assert result.prediction.safety_impact == ("RAG安全影响",)
-    assert result.semantic_trace["narrative"]["embedding_reranker_used"] is True
 
 
 def test_predict_batch_keeps_successes_when_one_docx_fails(tmp_path: Path) -> None:

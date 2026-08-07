@@ -1,0 +1,49 @@
+{
+  "schema_version": "platform-alignment-v7-simulation-v1",
+  "input": "review_reports/prediction.jsonl",
+  "record_count": 92,
+  "scope": "normalization replay over submitted V5 prediction JSONL; not a new 92-document extraction or platform score",
+  "before": {
+    "valid": false,
+    "issue_record_count": 92,
+    "warning_record_count": 5,
+    "issue_counts": {
+      "missing_value_sentence_splice": 91,
+      "generic_composer_marker": 92,
+      "blank_recommendation_category": 34,
+      "recommendation_summary_mismatch": 34
+    },
+    "warning_counts": {
+      "filename_current_grade_conflict": 5
+    },
+    "dataset_warnings": [
+      {
+        "code": "dominant_report_date_requires_source_check",
+        "detail": "'2019年11月20日' appears in 88/92 records"
+      }
+    ],
+    "report_date_counts": {
+      "2019年11月20日": 88,
+      "2019年10月30日": 4
+    }
+  },
+  "after": {
+    "valid": true,
+    "issue_record_count": 0,
+    "warning_record_count": 5,
+    "issue_counts": {},
+    "warning_counts": {
+      "filename_current_grade_conflict": 5
+    },
+    "dataset_warnings": [
+      {
+        "code": "dominant_report_date_requires_source_check",
+        "detail": "'2019年11月20日' appears in 88/92 records"
+      }
+    ],
+    "report_date_counts": {
+      "2019年11月20日": 88,
+      "2019年10月30日": 4
+    }
+  }
+}

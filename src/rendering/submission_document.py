@@ -238,6 +238,8 @@ def _facility_subject(record: Mapping[str, Any], facility_context: object = None
         ("人行地道", "人行通道"),
         ("地下通道", "人行通道"),
         ("人行通道", "人行通道"),
+        ("人行天桥", "人行天桥"),
+        ("桥式通道", "桥式通道"),
         ("隧道", "隧道"),
         ("涵洞", "涵洞"),
         ("道路", "道路"),
@@ -274,6 +276,13 @@ def _detailed_slots(
         else record.get("detailed_conclusion")
     )
     values = [_visible_text(value) for value in _items(detailed_source) if _visible_text(value)]
+    # Preserve extracted paragraphs first; renderer fallbacks must not create a
+    # second narrative layer or duplicate summary/risk text across slots.
+    deduped: list[str] = []
+    for value in values:
+        if value and value not in deduped:
+            deduped.append(value)
+    values = deduped
     while len(values) < 4:
         values.append("")
 
@@ -282,15 +291,21 @@ def _detailed_slots(
         grade = _summary_value(summary, ("overall_grade",), field_states)
         if score and score.casefold() not in _NONE_VALUES and grade and grade.casefold() not in _NONE_VALUES:
             values[0] = f"经综合评定，{subject}总体技术状况评分为{score}分，总体技术状况等级为{grade}。"
+        elif grade and grade.casefold() not in _NONE_VALUES:
+            values[0] = f"经综合评定，{subject}总体技术状况等级为{grade}。"
+        elif score and score.casefold() not in _NONE_VALUES:
+            values[0] = f"经综合评定，{subject}总体技术状况评分为{score}分。"
         else:
-            values[0] = "该文档无总体技术状况评分和总体技术状况等级。"
+            values[0] = "无"
     if not values[1]:
         trend = _summary_value(summary, ("trend", "defect_development_trend"), field_states)
-        values[1] = trend or _MISSING
+        values[1] = trend if trend.casefold() not in _NONE_VALUES else "无"
     if not values[2]:
-        values[2] = _summary_value(summary, ("overall_conclusion",), field_states)
+        overall = _summary_value(summary, ("overall_conclusion",), field_states)
+        values[2] = overall if overall not in values[:2] else "无"
     if not values[3]:
-        values[3] = _summary_value(summary, ("risk_points", "major_risks"), field_states)
+        risk = _summary_value(summary, ("risk_points", "major_risks"), field_states)
+        values[3] = risk if risk not in values[:3] else "无"
     return tuple(values[:4])  # type: ignore[return-value]
 
 

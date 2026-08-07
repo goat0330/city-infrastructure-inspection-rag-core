@@ -113,6 +113,8 @@ def test_build_infers_facility_metadata_from_sample_identity(tmp_path: Path) -> 
 
 def test_retrieve_uses_top30_top8_then_top6_and_excludes_holdout_gold(tmp_path: Path) -> None:
     entries = _entries(40)
+    for index in range(6):
+        entries[index]["sample_id"] = "query-1"
     entries.extend(
         [
             {"id": "fit-label", "text": "fit-label", "kind": "label", "sample_id": "fit-1", "split": "fit"},
@@ -146,12 +148,13 @@ def test_retrieve_uses_top30_top8_then_top6_and_excludes_holdout_gold(tmp_path: 
 
     assert len(client.rerank_calls) == 1
     _, documents, rerank_top_k = client.rerank_calls[0]
-    assert len(documents) == 30
+    assert 0 < len(documents) <= 30
     assert rerank_top_k == 8
     assert len(result) == 6
     assert all(item["retrieval_mode"] == "embedding_rerank" for item in result)
     assert "holdout-label" not in {item["id"] for item in result}
     assert "query-gold" not in {item["id"] for item in result}
+    assert all(item["sample_id"] == "query-1" for item in result)
 
 
 def test_missing_reranker_is_explicit_offline_fallback(tmp_path: Path) -> None:
@@ -183,7 +186,13 @@ def test_retrieve_returns_empty_before_embedding_when_metadata_filter_removes_al
 def test_retrieve_source_quota_covers_aliases_and_excludes_current_gold(tmp_path: Path) -> None:
     entries: list[dict[str, object]] = []
     entries.extend(
-        {"id": f"report-{index}", "text": f"report-{index}", "kind": "report_evidence", "split": "fit"}
+        {
+            "id": f"report-{index}",
+            "text": f"report-{index}",
+            "kind": "report_evidence",
+            "sample_id": "current" if index < 3 else "other",
+            "split": "fit",
+        }
         for index in range(8)
     )
     entries.extend(
@@ -224,6 +233,7 @@ def test_retrieve_source_quota_covers_aliases_and_excludes_current_gold(tmp_path
     assert sum(kind in {"knowledge_card", "domain_knowledge"} for kind in kinds) == 2
     assert sum(kind in {"gold_label", "label_example"} for kind in kinds) == 1
     assert "current-gold" not in {item["id"] for item in result}
+    assert not any(item["id"].startswith("report-") and item["sample_id"] != "current" for item in result)
     assert client.rerank_calls[0][2] == 8
 
 

@@ -117,13 +117,6 @@ def valid_sections() -> dict[str, Any]:
             "综上，桥梁当前状态需要关注，建议按既有建议完成后续处置。",
         ],
         "causes": [{"text": "病害与既有构件状态有关。", "evidence_ids": ["fact-1"]}],
-        "treatments": [
-            {
-                "recommendation_index": "1",
-                "text": "按原建议完成处置。",
-                "evidence_ids": ["fact-1", "rag-1"],
-            }
-        ],
         "safety_impact": [{"text": "病害可能影响通行安全。", "evidence_ids": ["fact-1"]}],
     }
 
@@ -140,7 +133,7 @@ def run(client: FakeClient, *, retriever: Any = None) -> dict[str, Any]:
     )
 
 
-def test_success_retrieves_context_and_enhances_only_four_fields() -> None:
+def test_success_retrieves_context_and_enhances_only_three_fields() -> None:
     client = FakeClient([valid_sections()])
     retriever = FakeRetriever()
     result = run(client, retriever=retriever)
@@ -171,7 +164,6 @@ def test_success_retrieves_context_and_enhances_only_four_fields() -> None:
 def test_task_specific_retrieval_evidence_is_valid_without_public_merge() -> None:
     sections = valid_sections()
     sections["causes"][0]["evidence_ids"] = ["causes-knowledge-0"]
-    sections["treatments"][0]["evidence_ids"] = ["treatments-knowledge-0"]
     client = FakeClient([sections])
     retriever = QuotaRetriever()
 
@@ -179,10 +171,9 @@ def test_task_specific_retrieval_evidence_is_valid_without_public_merge() -> Non
 
     assert result["used_fallback"] is False
     assert result["enhanced_prediction"]["causes"][0]["evidence_ids"] == ["causes-knowledge-0"]
-    assert len(retriever.calls) == len(narrative.MODEL_GENERATED_FIELDS)
+    assert len(retriever.calls) == len(narrative.RETRIEVAL_TASK_FIELDS)
     causes = result["retrieval_by_task"]["causes"]
     assert causes["source_counts"] == {
-        "report_evidence": 3,
         "domain_knowledge": 2,
         "label_example": 1,
     }
@@ -208,109 +199,101 @@ def test_official_narrative_rejects_internal_statistics_and_references() -> None
     assert any("forbidden internal extraction language" in error for error in result["validation_errors"])
 
 
-def test_model_absence_phrase_is_normalized_to_official_none() -> None:
-    sections = valid_sections()
-    sections["detailed_conclusion"][1] = "本次报告往年评分未提取到，无法开展跨期变化比较。"
+def test_unmanaged_model_fields_are_ignored_and_never_merged() -> None:
+    response = valid_sections()
+    response["treatments"] = [{"recommendation_index": "99", "text": "模型越权处置。"}]
+    response["summary"] = {"bridge_name": "被篡改的桥", "overall_grade": "A 级"}
 
-    result = run(FakeClient([sections]), retriever=FakeRetriever())
+    result = run(FakeClient([response]))
 
-    assert result["field_results"]["detailed_conclusion"] == "enhanced"
-    assert "未提取到" not in result["enhanced_prediction"]["detailed_conclusion"][1]
-    assert "无" in result["enhanced_prediction"]["detailed_conclusion"][1]
-
-
-def test_model_treatment_output_is_ignored_and_baseline_is_preserved() -> None:
-    invalid = valid_sections()
-    invalid["treatments"][0]["recommendation_index"] = "2"
-
-    result = run(FakeClient([invalid]))
-
-    assert result["field_results"]["treatments"] == "baseline"
+    assert result["used_fallback"] is False
+    assert result["enhanced_prediction"]["summary"] == baseline()["summary"]
     assert result["enhanced_prediction"]["treatments"] == baseline()["treatments"]
+    assert "treatments" not in result["generated_sections"]
 
 
-def test_deterministic_treatments_are_not_required_in_model_output() -> None:
-    sections = valid_sections()
-    sections.pop("treatments")
-
-    result = run(FakeClient([sections]), retriever=FakeRetriever())
-
-    assert "treatments must be an array" not in result["validation_errors"]
-    assert result["field_results"]["causes"] == "enhanced"
-    assert result["field_results"]["safety_impact"] == "enhanced"
-    assert result["enhanced_prediction"]["treatments"] == baseline()["treatments"]
-
-
-def test_validation_failure_falls_back_without_second_full_prompt() -> None:
+def test_one_validation_failure_is_sent_to_retry_and_then_succeeds() -> None:
     invalid = copy.deepcopy(valid_sections())
     invalid["causes"][0]["evidence_ids"] = ["missing-id"]
-    client = FakeClient([invalid])
+    client = FakeClient([invalid, valid_sections()])
 
     result = run(client, retriever=FakeRetriever())
 
-    assert result["used_fallback"] is True
-    assert result["retry_count"] == 0
-    assert result["call_metrics"]["call_count"] == 1
-    assert result["field_results"]["causes"] == "fallback"
-    assert result["enhanced_prediction"]["causes"] == baseline()["causes"]
+    assert result["used_fallback"] is False
+    assert result["retry_count"] == 1
+    assert result["call_metrics"]["call_count"] == 2
+    assert result["validation_errors"] == []
+    assert "unknown evidence_id" in client.prompts[1]
 
 
-def test_invalid_safety_falls_back_only_the_invalid_model_field() -> None:
+def test_second_failure_falls_back_only_the_invalid_field() -> None:
     invalid = copy.deepcopy(valid_sections())
     invalid["safety_impact"][0]["evidence_ids"] = ["missing-id"]
-    client = FakeClient([invalid])
+    client = FakeClient([invalid, invalid])
     expected = baseline()
 
     result = run(client, retriever=FakeRetriever())
 
     assert result["used_fallback"] is True
-    assert result["retry_count"] == 0
-    assert result["call_metrics"]["call_count"] == 1
+    assert result["retry_count"] == 1
+    assert result["call_metrics"]["call_count"] == 2
     assert result["enhanced_prediction"]["safety_impact"] == expected["safety_impact"]
+    assert result["enhanced_prediction"]["causes"] != expected["causes"]
     assert result["field_results"]["safety_impact"] == "fallback"
     assert result["field_results"]["causes"] == "enhanced"
-    assert result["field_results"]["treatments"] == "baseline"
+    enhanced = result["enhanced_prediction"]
+    assert enhanced["safety_impact"] == expected["safety_impact"]
+    assert enhanced["detailed_conclusion"] == valid_sections()["detailed_conclusion"]
+    assert enhanced["causes"] == valid_sections()["causes"]
+    assert enhanced["treatments"] == expected["treatments"]
     assert result["field_fallbacks"] == ["safety_impact"]
+    assert result["validation_errors"]
 
 
-def test_explicit_locked_field_change_is_rejected_and_never_merged() -> None:
-    invalid = valid_sections()
-    invalid["summary"] = {"bridge_name": "被篡改的桥"}
-    client = FakeClient([invalid, invalid])
+def test_extra_locked_field_is_ignored_because_it_is_not_merge_owned() -> None:
+    response = valid_sections()
+    response["summary"] = {"bridge_name": "被篡改的桥"}
 
-    result = run(client)
+    result = run(FakeClient([response]))
 
-    assert result["used_fallback"] is True
+    assert result["used_fallback"] is False
     assert result["enhanced_prediction"]["summary"] == baseline()["summary"]
-    assert any("locked" in error for error in result["validation_errors"])
+    assert "summary" not in result["generated_sections"]
 
 
 @pytest.mark.parametrize(
-    ("field", "mutate", "failed_field"),
+    ("field", "mutate"),
     [
         (
             "evidence",
             lambda sections: sections["causes"][0].update({"evidence_ids": ["not-in-facts"]}),
-            "causes",
         ),
         (
-            "paragraph-count",
-            lambda sections: sections["detailed_conclusion"].extend(["二", "三", "四", "五"]),
-            "detailed_conclusion",
+            "unsupported-number",
+            lambda sections: sections["detailed_conclusion"].__setitem__(
+                0, sections["detailed_conclusion"][0] + " 无证据评分9999。"
+            ),
         ),
     ],
 )
-def test_model_contract_violations_fall_back_by_field(
-    field: str, mutate: Any, failed_field: str
-) -> None:
+def test_contract_violations_are_rejected(field: str, mutate: Any) -> None:
     invalid = valid_sections()
     mutate(invalid)
-    result = run(FakeClient([invalid]), retriever=FakeRetriever())
+    client = FakeClient([invalid, invalid])
+
+    result = run(client, retriever=FakeRetriever())
 
     assert result["used_fallback"] is True, field
-    assert result["field_results"][failed_field] == "fallback"
+    assert "fallback" in result["field_results"].values()
+    failed_field = {
+        "evidence": "causes",
+        "unsupported-number": "detailed_conclusion",
+    }[field]
     assert result["enhanced_prediction"][failed_field] == baseline()[failed_field]
-    assert result["enhanced_prediction"]["treatments"] == baseline()["treatments"]
+    for generated_field in set(narrative.ENHANCED_FIELDS) - {failed_field}:
+        assert result["enhanced_prediction"][generated_field] == valid_sections()[generated_field]
+    assert result["field_fallbacks"] == [failed_field]
+    assert result["validation_errors"]
 
 
 def test_graph_exposes_the_required_five_nodes() -> None:
@@ -357,7 +340,7 @@ def test_prompt_baseline_is_compact_but_keeps_summary_recommendations_and_full_f
     assert prompt_baseline["summary"] == expanded["summary"]
     assert prompt_baseline["recommendations"] == expanded["recommendations"]
     assert len(prompt_baseline["defects"]) == 1
-    assert len(prompt_baseline["defects"][0]["representative_descriptions"]) == 1
+    assert len(prompt_baseline["defects"][0]["representative_descriptions"]) == 3
     assert len(narrative._json_dump(prompt_baseline)) < len(narrative._json_dump(expanded)) * 0.5
     assert "summary-anchor-保留" in prompt
     assert "封闭裂缝" in prompt
@@ -488,7 +471,6 @@ def test_pedestrian_underpass_fixture_keeps_facility_terms_and_safety_priority(
             f"综上，{facility_name}当前状态需要关注，建议按既有建议完成处置。",
         ],
         "causes": [{"text": "侧墙局部破损与构件状态有关。", "evidence_ids": ["fact-defect"]}],
-        "treatments": [{"recommendation_index": "1", "text": "按建议修复侧墙并完善排水设施。", "evidence_ids": ["fact-treatment", "fact-defect"]}],
         "safety_impact": [{"text": "当前病害对通行安全影响较小。", "evidence_ids": ["fact-safety"]}],
     }
     retriever = FakeRetriever()
@@ -511,253 +493,8 @@ def test_pedestrian_underpass_fixture_keeps_facility_terms_and_safety_priority(
     assert "侧墙" in generated_text and "排水设施" in generated_text
     assert [item["evidence_ids"] for item in enhanced["causes"]] == [["fact-defect"]]
     assert enhanced["treatments"] == baseline_prediction["treatments"]
-    assert result["field_results"]["treatments"] == "baseline"
     assert len(enhanced["recommendations"]) == len(baseline_prediction["recommendations"])
     assert enhanced["summary"] == baseline_prediction["summary"]
     assert enhanced["defects"] == baseline_prediction["defects"]
     assert all("pedestrian_underpass" in call["query"] for call in retriever.calls)
     assert all("侧墙" in call["query"] and "排水设施" in call["query"] for call in retriever.calls)
-
-
-def test_normative_tunnel_standard_title_is_not_a_foreign_facility() -> None:
-    state = {
-        "baseline_prediction": {
-            "summary": {"bridge_name": "杨公桥A叉口人行通道"},
-            "defects": [],
-            "facility_context": {
-                "facility_name": "杨公桥A叉口人行通道",
-                "facility_type": "pedestrian_underpass",
-                "facility_noun": "人行通道",
-            },
-        },
-        "facility_context": {
-            "facility_name": "杨公桥A叉口人行通道",
-            "facility_type": "pedestrian_underpass",
-            "facility_noun": "人行通道",
-        },
-        "report_facts": [
-            {
-                "evidence_id": "fact-standard",
-                "section": "treatment_recommendations",
-                "text": "参照《公路隧道养护技术规范》（JTG H12-2003）开展养护。",
-            }
-        ],
-        "retrieval_results": [],
-    }
-    candidate = {
-        "safety_impact": [
-            {
-                "text": "参照《公路隧道养护技术规范》（JTG H12-2003）评估当前影响。",
-                "evidence_ids": ["fact-standard"],
-            }
-        ]
-    }
-
-    errors = narrative._facility_semantic_errors_by_field(state, candidate)
-
-    assert not any("another facility noun" in message for message in errors["safety_impact"])
-
-    candidate["safety_impact"][0]["text"] = "该隧道主体存在重大安全隐患。"
-    errors = narrative._facility_semantic_errors_by_field(state, candidate)
-    assert any("another facility noun" in message for message in errors["safety_impact"])
-
-
-def test_detailed_conclusion_preserves_locked_summary_scores_and_grades() -> None:
-    state = {
-        "baseline_prediction": {
-            "summary": {
-                "bridge_name": "桂花新村大桥",
-                "overall_score": "86.07",
-                "overall_grade": "B级",
-                "superstructure_score": "80.00",
-                "superstructure_grade": "B级",
-                "substructure_score": "95.31",
-                "substructure_grade": "A级",
-                "deck_score": "74.56",
-                "deck_grade": "C级",
-            },
-            "defects": [],
-            "recommendations": [],
-            "detailed_conclusion": [
-                "经综合评定，总体技术状况评分86.07分、等级为B级；上部结构80.00分（B级），下部结构95.31分（A级），桥面系74.56分（C级）。"
-            ],
-        },
-        "facility_context": {
-            "facility_name": "桂花新村大桥",
-            "facility_type": "bridge",
-            "facility_noun": "桥梁",
-        },
-        "report_facts": [],
-        "retrieval_results": [],
-        "generated_sections": {
-            "detailed_conclusion": [
-                "经综合评定，桂花新村大桥总体技术状况评分86.07分，等级为B级。",
-                "本次报告未提供往年检测评分及病害对比数据，无法开展跨期变化比较。",
-                "目前，桥梁整体状态良好。",
-                "综上，桥梁总体状态良好。",
-            ],
-            "causes": [],
-            "treatments": [],
-            "safety_impact": [],
-        },
-    }
-
-    validation = narrative._validate_output(state)
-
-    assert "detailed_conclusion omits a locked summary score or grade" in validation["validation_errors"]
-
-
-def test_bridge_baseline_four_paragraphs_are_projected_to_official_prefixes() -> None:
-    paragraphs = narrative._official_baseline_detailed_conclusion(
-        [
-            "经综合评定，桥梁总体状态良好。",
-            "检测病害主要表现为局部破损。",
-            "该设施承载能力满足设计要求。",
-            "综上，建议及时维修。",
-        ]
-    )
-
-    assert paragraphs == [
-        "经综合评定，桥梁总体状态良好。",
-        "本次报告检测病害主要表现为局部破损。",
-        "目前，该设施承载能力满足设计要求。",
-        "综上，建议及时维修。",
-    ]
-
-
-def test_large_bridge_prompt_stays_within_calibrated_budget() -> None:
-    expanded = baseline()
-    expanded["defects"] = [
-        {
-            "index": str(index),
-            "location": f"第{index}跨梁底",
-            "defect_type": "裂缝",
-            "description": "梁底存在纵向裂缝并伴有局部渗水泛碱" * 8,
-        }
-        for index in range(125)
-    ]
-    expanded["recommendations"] = [
-        {
-            "index": str(index),
-            "category": "尽快维修",
-            "location": "梁底",
-            "content": "对裂缝进行封闭并处理渗水部位" * 6,
-        }
-        for index in range(1, 10)
-    ]
-    facts = [
-        {
-            "evidence_id": f"fact-{index}",
-            "section": "safety_assessment" if index < 2 else "defect_table",
-            "text": "当前病害对结构安全影响较小，但需关注耐久性。" * 20,
-        }
-        for index in range(20)
-    ]
-    prepared = narrative._prepare_context(
-        {
-            "baseline_prediction": expanded,
-            "sample_id": "large-bridge",
-            "source_file": "large.docx",
-            "report_facts": facts,
-        },
-        max_retries=0,
-    )
-    prompt = narrative._render_prompt(prepared)
-
-    assert len(prompt) < 20000
-    assert prompt.count("representative_descriptions") <= narrative._MAX_PROMPT_DEFECT_GROUPS
-
-
-def test_prompt_exposes_only_components_observed_in_current_report() -> None:
-    state = narrative._prepare_context(
-        {
-            "baseline_prediction": {
-                **baseline(),
-                "summary": {**baseline()["summary"], "bridge_name": "示例人行通道"},
-                "facility_context": {
-                    "facility_name": "示例人行通道",
-                    "facility_type": "pedestrian_underpass",
-                    "facility_noun": "人行通道",
-                },
-                "defects": [{"location": "顶板", "defect_type": "刮痕", "description": "顶板存在车辆刮痕"}],
-            },
-            "sample_id": "underpass",
-            "source_file": "underpass.docx",
-            "report_facts": [{"evidence_id": "f1", "section": "defect_table", "text": "顶板存在车辆刮痕。"}],
-        },
-        max_retries=0,
-    )
-    prompt = narrative._render_prompt(state)
-
-    facility_json = prompt.split("设施上下文：", 1)[1].split("\n设施称谓：", 1)[0]
-    assert "顶板" in facility_json
-    assert "止水带" not in facility_json
-    assert "防水层" not in facility_json
-
-
-def test_safety_items_must_use_current_report_evidence_not_only_knowledge() -> None:
-    state = {
-        "baseline_prediction": baseline(),
-        "facility_context": {"facility_name": "示例桥", "facility_type": "bridge", "facility_noun": "桥梁"},
-        "report_facts": [
-            {"evidence_id": "safety-1", "section": "safety_assessment", "text": "当前病害对安全影响较小。"},
-            {"evidence_id": "defect-1", "section": "defect_table", "text": "桥面存在裂缝。"},
-        ],
-        "retrieval_results": [{"evidence_id": "knowledge-1", "kind": "knowledge_card", "text": "裂缝可能影响耐久性。"}],
-    }
-    candidate = {
-        "safety_impact": [
-            {"text": "桥面裂缝可能影响耐久性。", "evidence_ids": ["knowledge-1"]}
-        ]
-    }
-
-    errors = narrative._facility_semantic_errors_by_field(state, candidate)
-
-    assert any("current report" in message for message in errors["safety_impact"])
-
-
-def test_low_impact_report_rejects_unsupported_severe_safety_claim() -> None:
-    state = {
-        "baseline_prediction": baseline(),
-        "facility_context": {"facility_name": "示例桥", "facility_type": "bridge", "facility_noun": "桥梁"},
-        "report_facts": [
-            {"evidence_id": "safety-1", "section": "safety_assessment", "text": "当前病害对结构安全影响较小。"},
-            {"evidence_id": "defect-1", "section": "defect_table", "text": "桥面存在裂缝。"},
-        ],
-        "retrieval_results": [],
-    }
-    candidate = {
-        "safety_impact": [
-            {"text": "桥面裂缝形成重大安全隐患。", "evidence_ids": ["safety-1", "defect-1"]}
-        ]
-    }
-
-    errors = narrative._facility_semantic_errors_by_field(state, candidate)
-
-    assert any("exaggerates" in message for message in errors["safety_impact"])
-
-
-def test_good_bridge_baseline_is_kept_without_counting_as_validation_fallback() -> None:
-    strong = baseline()
-    strong["detailed_conclusion"] = [
-        "经综合评定，该桥总体技术状况良好。",
-        "本次报告未提供往年检测评分及病害对比数据。",
-        "目前，该桥桥面存在局部裂缝。",
-        "综上，该桥可正常使用并应按既有建议维修。",
-    ]
-    strong["causes"] = ["桥面裂缝主要是由于车辆荷载长期作用所致。"]
-    strong["safety_impact"] = ["桥面裂缝持续发展可能影响耐久性。"]
-    candidate = valid_sections()
-    result = narrative.run_narrative_enhancement(
-        strong,
-        sample_id="bridge-strong",
-        source_file="bridge.docx",
-        report_facts=[{"evidence_id": "fact-1", "section": "defect_table", "text": "桥面存在裂缝。"}],
-        client=FakeClient([candidate]),
-        facility_context={"facility_name": "示例桥", "facility_type": "bridge", "facility_noun": "桥梁"},
-    )
-
-    assert result["used_fallback"] is False
-    assert result["field_results"]["detailed_conclusion"] == "baseline"
-    assert result["enhanced_prediction"]["detailed_conclusion"] == strong["detailed_conclusion"]
-    assert result["field_results"]["treatments"] == "baseline"

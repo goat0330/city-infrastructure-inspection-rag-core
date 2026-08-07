@@ -8,7 +8,7 @@ from src.extraction.summary.extractor import extract_summary
 from src.rendering.submission_document import build_submission_document
 
 
-def test_filename_facts_restore_previous_and_current_grade_and_trend():
+def test_filename_facts_are_fallbacks_and_do_not_invent_trend():
     document = DocumentModel(
         "一处-官方院子桥式通道报告(原B级，现A级）.docx",
         (),
@@ -17,7 +17,7 @@ def test_filename_facts_restore_previous_and_current_grade_and_trend():
     assert result.summary.bridge_name == "官方院子桥式通道"
     assert result.summary.previous_overall_grade == "B级"
     assert result.summary.overall_grade == "A级"
-    assert "由B级变为A级" in result.summary.trend
+    assert result.summary.trend == ""
 
 
 def test_filename_facility_keeps_source_roman_numeral_and_drops_post_report_chainage():
@@ -85,14 +85,15 @@ def test_platform_consistency_gate_accepts_resolved_record(tmp_path):
     input_path = tmp_path / "prediction.jsonl"
     input_path.write_text(json.dumps(payload, ensure_ascii=False) + "\n", encoding="utf-8")
     root = Path(__file__).resolve().parents[2]
+    code_root = root / "code" if (root / "code").is_dir() else root
     result = subprocess.run(
         [
             sys.executable,
-            str(root / "scripts" / "check_platform_consistency.py"),
+            str(code_root / "scripts" / "check_platform_consistency.py"),
             "--input",
             str(input_path),
         ],
-        cwd=root,
+        cwd=code_root,
         env={**os.environ, "PYTHONPATH": "."},
         capture_output=True,
         text=True,
@@ -127,26 +128,28 @@ def test_platform_consistency_gate_rejects_visible_contradictions(tmp_path):
     input_path = tmp_path / "prediction.jsonl"
     input_path.write_text(json.dumps(payload, ensure_ascii=False) + "\n", encoding="utf-8")
     root = Path(__file__).resolve().parents[2]
+    code_root = root / "code" if (root / "code").is_dir() else root
     result = subprocess.run(
         [
             sys.executable,
-            str(root / "scripts" / "check_platform_consistency.py"),
+            str(code_root / "scripts" / "check_platform_consistency.py"),
             "--input",
             str(input_path),
         ],
-        cwd=root,
+        cwd=code_root,
         env={**os.environ, "PYTHONPATH": "."},
         capture_output=True,
         text=True,
         check=False,
     )
     assert result.returncode == 1
-    assert "filename_current_grade_conflict" in result.stdout
     assert "recommendation_summary_mismatch" in result.stdout
 
 
 def test_official_composer_source_contains_no_generic_engineering_templates():
-    source = (Path(__file__).resolve().parents[2] / "src" / "extraction" / "official_answer_composer.py").read_text(encoding="utf-8")
+    root = Path(__file__).resolve().parents[2]
+    code_root = root / "code" if (root / "code").is_dir() else root
+    source = (code_root / "src" / "extraction" / "official_answer_composer.py").read_text(encoding="utf-8")
     forbidden = (
         "车辆荷载长期作用、温度变化及材料老化共同影响",
         "混凝土保护层破损、施工密实性不足及长期环境侵蚀",

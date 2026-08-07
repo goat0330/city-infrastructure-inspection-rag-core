@@ -1,8 +1,11 @@
 from src.contracts import BridgeSummary, DefectObservation, InspectionPrediction, Recommendation
 from src.extraction.output_normalizer import (
     normalize_defect_description,
+    normalize_overall_conclusion,
     normalize_prediction_output,
     normalize_recommendations_summary,
+    normalize_risk_points,
+    normalize_safety_impacts,
 )
 
 
@@ -45,3 +48,49 @@ def test_prediction_normalization_changes_only_display_noise():
     assert result.recommendations[0].content == "修补裂缝"
     assert result.defects[0].defect_type == "裂缝,渗水"
     assert result.defects[0].description == "裂缝宽0.2mm"
+
+
+def test_overall_conclusion_is_short_and_excludes_actions_and_raw_data():
+    value = (
+        "经综合评定，该桥总体技术状况等级为B级。"
+        "主梁存在竖向裂缝，支座存在锈蚀。"
+        "混凝土强度52.7MPa、56.1MPa、59.2MPa。"
+        "建议及时修复裂缝并更换支座。"
+    )
+    result = normalize_overall_conclusion(value)
+    assert "总体技术状况等级为B级" in result
+    assert "主梁存在竖向裂缝" in result
+    assert "混凝土强度" not in result
+    assert "建议" not in result
+    assert len(result) <= 250
+
+
+def test_risk_points_require_defect_and_consequence_without_advice():
+    value = (
+        "于2014年进行了外观检查。"
+        "建议及时修复梁底裂缝。"
+        "梁底裂缝持续发展可能削弱构件耐久性。"
+    )
+    assert normalize_risk_points(value) == "梁底裂缝持续发展可能削弱构件耐久性"
+
+
+def test_final_summary_limits_include_join_separator():
+    value = "总体技术状况" + "良" * 176 + "。" + "主梁裂缝" + "安" * 70
+    result = normalize_overall_conclusion(value)
+    assert len(result) <= 250
+
+
+def test_treatment_sentence_is_not_a_risk_point():
+    value = "裂缝不影响结构安全，可直接用环氧砂浆封闭"
+    assert normalize_risk_points(value) == ""
+
+
+def test_safety_normalizer_removes_meta_text_and_same_topic_conflict():
+    result = normalize_safety_impacts(
+        (
+            "上部结构：已有证据为裂缝1条；报告未明确该类病害影响。",
+            "局部裂缝影响结构承载能力。",
+            "综合评定认为现有裂缝暂不影响结构承载能力。",
+        )
+    )
+    assert result == ("综合评定认为现有裂缝暂不影响结构承载能力。",)

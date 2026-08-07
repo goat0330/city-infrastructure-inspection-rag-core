@@ -1,102 +1,22 @@
-# 城市基础设施定检报告：Word-first 核心仓库
+# Round2 平台证据严格版 v7 覆盖包
 
-本仓库服务于“城市基础设施定检报告问答分析”赛题。当前直接评测链路是：
+本包面向平台 31.21 / 32.80 分诊断中已经确认的内容问题。它是代码覆盖包，不包含旧 prediction、旧 DOC 或旧 submission；覆盖后必须从原始转换 DOCX 重新运行全链。
 
-```text
-原始定检报告 → DOCX → Word 结构化预测 → 固定 Word 信息提取报告 → tar.gz
-```
+核心原则：报告正文事实优先，文件名只作缺失兜底和冲突提示；没有报告证据时不生成成因、风险或安全影响。
 
-默认预测仍以 Word 证据为事实来源；显式传入 `--semantic-live` 时，RAG 的 Embedding → Reranker → Qwen 路径增强允许的叙事字段，不改写结构化事实。
+已处理：
 
-## 交付边界与当前基线
+- 报告明确值优先于文件名，文件名不再强制覆盖等级、名称或生成趋势；
+- 总体结论最多 250 字，风险点最多 200 字，删除建议、历史过程、原始计算及旧作文模板；
+- 关闭生产链中的 OfficialAnswerComposer 覆盖；
+- 删除病害到成因、病害到安全后果的自动作文；
+- 删除“无往年数据”“综上报告建议”“已有证据为”“报告未明确”等程序说明；
+- 安全影响只保留报告明确结论，并对同一主题的影响/不影响冲突择一；
+- 建议类别在 Prediction 层统一后再统计摘要，渲染表与摘要保持一致；
+- 修复详细结论评分段重复等级及标签回显；
+- 人行天桥、人行通道、桥式通道使用各自设施称谓；
+- 新增发布前一致性 Gate，并对 80% 以上报告共享同一日期发出数据集级告警；
+- 语义依赖改为可选/延迟加载，依赖清单同步；
+- design 文件为完整版本，不再是空模板。
 
-Word-first 是硬边界：`.doc` 先经 LibreOffice 转换为 `.docx`，再以 `python-docx/OOXML` 读取段落、标题、表格和合并单元格。Word 结构是当前预测链的事实来源；PDF/OCR/RAG 不会在本 benchmark 路径中替代 Word 输入。
-
-当前主线为 `33dc366`：
-
-- 94 个标签、161 份报告完成审计；161/161 份 DOCX 转换成功且可用。
-- `predict-batch` 对 161 份 DOCX 成功产出 161 条预测；评测 manifest 通过 `source_docx` 自动对齐到 86 条 Gold 记录。
-- 已具备原生结构解析、章节路由、评分器、DOCX 渲染、校验、Gate 0 错题本，以及概要/评分、病害、建议三个高权重抽取器。
-- 当前 Round A 内部 scorer 结果为：全量 `44.82606`、fit `40.593175`、holdout `46.820635`。这些数值用于同一 manifest、权重和 scorer 下的回归比较，不等同于官方平台最终分数。
-
-当前仍有明确的后续提分项：`recommendations` 的误召回及部位/内容边界，以及嵌套在长文本中的病害识别与拆分。
-
-详见：[当前状态](docs/status.md)｜[路线图](docs/roadmap.md)｜[范围边界](docs/current_scope.md)｜[平台一致性修复证据](reports/platform-alignment-v6)。
-
-## 核心合同
-
-- `schema/gold_record.schema.json`：标签/Gold数据合同，包含 split、provenance 和质量标记。
-- `schema/prediction_record.schema.json`：运行时预测合同，不包含训练标签来源字段。
-- `schema/inspection_record.schema.json`：早期兼容Schema，暂保留，不作为B2新代码入口。
-
-## 可复制的 Word-first 与 benchmark 路径
-
-以下命令均从仓库根目录执行，路径全部是仓库相对路径。公开仓库不携带官方原始报告和 Gold；在本地数据已按这些相对路径准备好后执行即可。
-
-先完成 `.doc → .docx`（若 `runs/p0-converted` 已由受控转换步骤生成，可直接从批量预测开始）：
-
-```bash
-python -m inspection convert --input-dir runs/source-doc --output-dir runs/p0-converted --state-path runs/p0-convert.state.json
-```
-
-对全部转换后的 DOCX 运行预测：
-
-```bash
-python -m inspection predict-batch --input-dir runs/p0-converted --output runs/b2-night/round-a-merged/raw-predictions.jsonl --report runs/b2-night/round-a-merged/prediction-report.json
-```
-
-也可以使用一键入口完成预测、对齐和 benchmark：
-
-```bash
-python scripts/run_b2_word_pipeline.py --input-dir runs/p0-converted --gold runs/p0-gold/gold.json --manifest runs/b2-night/eval-manifest.json --output-dir runs/b2-night/round-a-merged --commit 0000961 --config round-a-word-first
-```
-
-批量报告必须显示 `input_count=161`、`prediction_count=161`、`failed_count=0`。随后使用 manifest 的 `source_docx` 作为唯一对齐依据运行 benchmark；不要直接把 161 条原始预测按文件顺序截取为 86 条：
-
-```bash
-python scripts/run_b2_benchmark.py --gold runs/p0-gold/gold.json --predictions runs/b2-night/round-a-merged/raw-predictions.jsonl --manifest runs/b2-night/eval-manifest.json --weights data/core/score_weights.json --output-dir runs/b2-night/round-a-merged/benchmark --commit 0000961 --config round-a-word-first
-```
-
-该命令默认执行验证，不要使用 `--skip-verify` 作为交付门禁。成功条件是进程返回码为 `0` 且输出 `verify : OK`。
-
-真实门禁至少检查：
-
-- `alignment.json`：`mode=manifest-source-docx`，`manifest_count=86`，`input_prediction_count=161`，`aligned_prediction_count=86`，`excluded_prediction_count=75`；缺失或歧义匹配必须使命令失败。
-- manifest 的 86 条记录按 `fit=75`、`holdout=11` 分组；拆分汇总只从 manifest 读取，不按原始预测文件顺序猜测。
-- `score.json`：`record_count=86` 且 `missing_sample_ids`、`extra_sample_ids` 均为空；`total_score` 是当前内部 scorer 的全量结果来源。
-- `diagnostics.json`、`summaries.json`、`errorbook.md` 和 `leaderboard.csv`：分别保存汇总诊断、fit/holdout/stress 视图、无 Gold 原文的错题摘要和可排序实验记录。
-
-benchmark 还会写出 `aligned-predictions.jsonl` 作为 manifest 顺序下的评测视图。原始预测不被原地改写，manifest 对齐只在输出评测视图中重写 `sample_id`。
-
-## CLI
-
-```bash
-python -m inspection audit --labels-dir ... --reports-dir ... --output-dir ...
-python -m inspection build-gold --labels-dir ... --reports-dir ... --output-dir ...
-python -m inspection convert --input-dir ... --output-dir ... --state-path ...
-python -m inspection parse --input report.docx --output parsed.json
-python -m inspection route --input report.docx --output routes.json
-python -m inspection predict --input report.docx --output prediction.json
-python -m inspection predict-batch --input-dir converted-docx --output predictions.jsonl --report batch-report.json
-# 启用真实 Embedding + Reranker + Qwen narrative 增强（需提供 fit-only 索引）
-python -m inspection predict-batch --input-dir converted-docx --output predictions.jsonl --report batch-report.json --semantic-live --semantic-index-dir runs/rag-index --semantic-split holdout
-python -m inspection score --gold gold.json --predictions predictions.json
-python -m inspection render --input prediction.json --output result.docx
-python -m inspection render-batch --input prediction.jsonl --manifest submission-manifest.json --output-dir rendered-docx --report render-report.json
-python -m inspection convert-doc --input-dir rendered-docx --output-dir final-doc --manifest submission-manifest.json --report convert-report.json --soffice-path ...
-python -m inspection validate --input result.docx --output validation.json
-python -m inspection package --input-dir final-doc --code-dir submission-code --design-dir submission-design --output submission.tar.gz --manifest expected.csv
-python -m inspection validate-package --input submission.tar.gz --manifest expected.csv
-```
-
-`predict` 和 `predict-batch` 默认使用 Word 结构、章节路由和确定性抽取；`OfficialAnswerComposer` 仅在显式 A/B 参数中启用。传入 `--semantic-live --semantic-index-dir` 后，会在不改写名称、日期、评分、等级、病害和建议明细的前提下，调用现有 Embedding → Reranker → Qwen narrative 路径增强详细结论、成因和安全影响；sidecar 会记录检索模式、来源配额、模型字段结果和回退原因。单文件失败会显式写入 sidecar 报告；批量模式不会用伪记录掩盖失败。
-
-## 最终提交包约束
-
-提交链路为 `prediction.jsonl → render-batch → rendered-docx → convert-doc → final-doc → package → validate-package`。`render-batch` 和 `convert-doc` 都以 manifest 授权的文件名为准，并为单文件失败保留报告；最终要求预测、DOCX、DOC 和 tar 成员数量一致。`convert-doc` 使用 LibreOffice/`soffice` 将 DOCX 转为旧版 `.doc`，可通过 `--soffice-path` 指定可执行文件。
-
-`package` 要求分别提供代码目录、方案目录和结果目录，生成官方要求的 `code/`、`design/`、`result/` 三个一级目录；`result/` 直接包含 `.doc` 文件。可选 manifest 用于严格检查测试集输出文件名和数量。`validate-package` 校验 gzip/tar 完整性、三目录结构、重复/临时文件、扩展名、缺失和多余文件；不尝试解析旧版二进制 `.doc` 内容。
-
-## 公开边界
-
-仓库不包含官方原始 `.doc/.docx`、测试集、图片、账号、密钥、绝对路径或本地 `runs/` 产物。公开文档只记录仓库相对路径、计数和汇总分，不写入 Gold 原文或隐私路径。代码采用 MIT License；派生数据的来源说明优先于代码许可证，不能据此推断官方原始数据获得再分发许可。
+验证范围与结果见 `reports/validation.json`。验证不等于新平台分数。

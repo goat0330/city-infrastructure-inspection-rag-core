@@ -16,7 +16,12 @@ from ..routing import route_sections
 from .defects import DefectExtractionResult, extract_defects
 from .recommendations import RecommendationExtractionResult, extract_recommendations
 from .recommendations.extractor import summarize_recommendations
-from .output_normalizer import normalize_prediction_output, normalize_recommendations_summary
+from .output_normalizer import (
+    normalize_prediction_output,
+    normalize_recommendations_summary,
+    normalize_risk_points,
+    normalize_narrative_detailed,
+)
 from .official_answer_composer import compose_official_answers
 from .summary import SummaryExtraction, extract_summary
 from .summary.facility_context import FacilityContext
@@ -83,6 +88,23 @@ def _flags(stage: str, values: object) -> tuple[dict[str, object], ...]:
     return tuple(result)
 
 
+_FACT_SECTION_PATTERNS = (
+    ("安全性评估", ("安全性评估", "安全评估", "综合评估", "预测评估", "安全影响", "安全分析")),
+    ("评估结论", ("评估结论", "检测结论", "总体结论", "结论与建议")),
+    ("维护建议", ("维护建议", "养护建议", "维修建议", "处理建议", "处置建议")),
+    ("病害原因", ("原因分析", "病害原因", "病害成因", "成因分析")),
+    ("历次检测", ("历次检测", "历史检测", "对比分析", "发展状况")),
+    ("检测结果", ("检测结果", "外观检查", "技术状况", "评定")),
+)
+
+
+def _infer_fact_section(text: str) -> str:
+    for section, patterns in _FACT_SECTION_PATTERNS:
+        if any(pattern in text for pattern in patterns):
+            return section
+    return "other"
+
+
 def _report_facts(document: object) -> tuple[dict[str, object], ...]:
     """Expose stable, source-local evidence identifiers to semantic candidates."""
 
@@ -97,6 +119,7 @@ def _report_facts(document: object) -> tuple[dict[str, object], ...]:
                 "evidence_id": f"report:{block_index}",
                 "kind": "report_evidence",
                 "block_index": block_index,
+                "section": _infer_fact_section(text),
                 "text": text,
             }
         )
@@ -170,6 +193,10 @@ def _apply_live_narrative(
         values = _text_values(enhanced.get(field))
         if values:
             updates[field] = values
+    if "detailed_conclusion" in updates:
+        updates["detailed_conclusion"] = normalize_narrative_detailed(
+            updates["detailed_conclusion"]
+        )
     return replace(prediction, **updates)
 
 
@@ -185,7 +212,7 @@ def _run_live_narrative(
     facility_context: FacilityContext,
     field_states: Mapping[str, str],
 ) -> dict[str, Any]:
-    """Run the existing LangGraph narrative path for the official live mode."""
+    """Run the evidence-grounded narrative path used by the official live mode."""
 
     from ..agent.narrative import run_narrative_enhancement
 
@@ -200,8 +227,11 @@ def _run_live_narrative(
         facility_context=facility_context.to_dict(),
         field_states=dict(field_states),
     )
-    hits = result.get("retrieval_results", ())
-    hits = [dict(item) for item in hits if isinstance(item, Mapping)]
+    hits = [
+        dict(item)
+        for item in result.get("retrieval_results", ())
+        if isinstance(item, Mapping)
+    ]
     modes = {str(item.get("retrieval_mode", "")) for item in hits}
     return {
         **dict(result),
@@ -293,7 +323,7 @@ def _derive_risk_points(
         candidate.source_kind in {"major_risk", "risk_label"}
         for candidate in summary.candidates.get("risk_points", ())
     )
-    current = summary.summary.risk_points
+    current = normalize_risk_points(summary.summary.risk_points)
     consequence_words = (
         "影响", "降低", "削弱", "危及", "隐患", "安全",
         "耐久", "承载", "受力", "通行", "行车", "行人",
@@ -318,7 +348,8 @@ def _derive_risk_points(
                     continue
                 if any(marker in text for marker in (
                     "检测目的", "进行详细检查", "评估规程", "评定方法",
-                    "处理建议", "建议及时", "建议对",
+                    "处理建议", "处置建议", "维修建议", "养护建议",
+                    "建议及时", "建议对", "应及时", "需及时",
                 )):
                     continue
                 if not any(word in text for word in (
@@ -343,10 +374,11 @@ def _derive_risk_points(
                 selected.append(text)
             if len(selected) == 3:
                 break
-        return "；".join(selected) + "。"
+        return normalize_risk_points("；".join(selected))
 
-    # Do not manufacture a defect-to-consequence statement from the first
-    # defect row when the report has no explicit risk evidence.
+    # No report sentence expresses a defect-to-consequence relation.  Do not
+    # manufacture one from the first defect row: unsupported risk prose was a
+    # major source of platform consistency false positives.
     return current
 
 
@@ -430,9 +462,10 @@ def extract_report(
         str(getattr(block, "raw_text", "") or "")
         for block in getattr(document, "blocks", ())
     )
-    # Source-grounded extraction is the production default. The composer is
-    # retained only for explicit A/B experiments and cannot silently replace
-    # report evidence in the final submission path.
+
+    # Source-grounded extraction is the production default.  The deterministic
+    # composer remains available only for explicit A/B experiments; it must not
+    # silently overwrite six final fields without a full evaluation gate.
     if official_composer_enabled:
         official = compose_official_answers(
             summary=summary.summary,
@@ -457,13 +490,12 @@ def extract_report(
         causes = text_sections.causes
         treatments = text_sections.treatments
         safety_impact = text_sections.safety_impact
+
     field_states["overall_conclusion"] = (
-        "present" if summary_value.overall_conclusion
-        else field_states.get("overall_conclusion", "not_extracted")
+        "present" if summary_value.overall_conclusion else field_states.get("overall_conclusion", "not_extracted")
     )
     field_states["risk_points"] = (
-        "present" if summary_value.risk_points
-        else field_states.get("risk_points", "not_extracted")
+        "present" if summary_value.risk_points else field_states.get("risk_points", "not_extracted")
     )
     summary = replace(summary, summary=summary_value, field_states=field_states)
 
@@ -492,8 +524,8 @@ def extract_report(
         quality_flags += _flags("recommendations", summary_text.get("diagnostics"))
     semantic_trace: dict[str, Any] = {}
     if semantic_enabled:
-        # Import the candidate graph lazily so deterministic extraction does
-        # not require the optional semantic dependencies.
+        # The official live path owns narrative fields.  The older candidate
+        # graph remains available for injected A/B tests only.
         from .semantic_merge import merge_semantic_predictions
 
         if semantic_client is not None and semantic_index is not None:
@@ -532,9 +564,7 @@ def extract_report(
                 "retrieval_by_task": dict(narrative.get("retrieval_by_task", {})),
                 "call_metrics": dict(narrative.get("call_metrics", {})),
             }
-        # The legacy candidate graph remains available for injected A/B tests.
-        # The official live path has its own narrative graph and should not
-        # also run unresolved summary candidates that only add noisy fallbacks.
+
         legacy_semantic_requested = bool(
             semantic_decisions or semantic_retriever is not None or semantic_decider is not None
         )

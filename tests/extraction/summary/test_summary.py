@@ -457,10 +457,10 @@ def test_conclusion_fragments_are_excluded_and_risk_fallback_is_limited(tmp_path
         )
     )
 
-    assert result.summary.overall_conclusion == "侧墙破损,建议及时修复"
+    assert result.summary.overall_conclusion == "侧墙破损"
     assert all(
         "抗压强度" not in candidate.value
         for candidate in result.candidates["overall_conclusion"]
     )
-    assert result.summary.risk_points == "侧墙破损,建议及时修复"
+    assert result.summary.risk_points == "侧墙破损会影响耐久性,但不应把整段安全影响当作主要风险"
     assert len(result.candidates["risk_points"]) <= 3

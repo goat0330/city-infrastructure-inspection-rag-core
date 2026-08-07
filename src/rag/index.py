@@ -39,6 +39,8 @@ _FACILITY_TYPE_ALIASES = {
     "人行通道": "pedestrian_underpass",
     "人行地道": "pedestrian_underpass",
     "人行地通道": "pedestrian_underpass",
+    "pedestrian_overpass": "pedestrian_overpass",
+    "人行天桥": "pedestrian_overpass",
     "vehicle_underpass": "vehicle_underpass",
     "车行下穿道": "vehicle_underpass",
     "下穿道": "vehicle_underpass",
@@ -58,8 +60,8 @@ _FACILITY_SUFFIXES = (
     ("隧道", "tunnel", "隧道"),
     ("涵洞", "culvert", "涵洞"),
     ("道路", "road", "道路"),
-    ("桥式通道", "bridge", "桥梁"),
-    ("人行天桥", "bridge", "人行天桥"),
+    ("桥式通道", "bridge", "桥式通道"),
+    ("人行天桥", "pedestrian_overpass", "人行天桥"),
     ("匝道桥", "bridge", "桥梁"),
     ("立交桥", "bridge", "桥梁"),
     ("大桥", "bridge", "桥梁"),
@@ -70,6 +72,7 @@ _FACILITY_SUFFIXES = (
 _FACILITY_NOUNS = {
     "bridge": "桥梁",
     "pedestrian_underpass": "人行通道",
+    "pedestrian_overpass": "人行天桥",
     "vehicle_underpass": "车行下穿道",
     "tunnel": "隧道",
     "culvert": "涵洞",
@@ -376,6 +379,14 @@ class LightRagIndex:
         for index, record in enumerate(self.metadata):
             record_facility_type = _text(record.get("facility_type")).casefold()
             if facility_types is not None and record_facility_type and record_facility_type not in facility_types:
+                continue
+            source_kind = _source_kind(record)
+            # Current-report evidence is factual only when it belongs to the
+            # current sample.  Cross-sample report chunks caused the 32.80
+            # narrative path to import foreign components/causes as if they
+            # were facts of the target report.  Knowledge cards and fit-label
+            # examples remain available cross-sample for explanation/style.
+            if sample_id is not None and source_kind == "report_evidence" and not _same_sample(record, sample_id):
                 continue
             if sample_id is not None and _same_sample(record, sample_id) and _is_label(record):
                 continue
