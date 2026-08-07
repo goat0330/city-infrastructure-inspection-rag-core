@@ -1,0 +1,144 @@
+{
+  "status": "partial_real_source_audit_missing_official_92_inputs",
+  "platform_score_verified": false,
+  "official_92_source_docs_available_in_uploaded_v10_package": false,
+  "existing_92_evidence": {
+    "v8_platform_score": 37.92,
+    "correctness": 0.2849,
+    "v10_deterministic_previous_score_value": 47
+  },
+  "real10_structured_before_after": {
+    "input_count": 10,
+    "scalar_fields_per_sample": 13,
+    "scalar_value_changes": [
+      {
+        "sample": "07__一处-尹家湾桥式通道报告（原B级，现B级）.docx",
+        "field": "previous_overall_score",
+        "before": "无",
+        "after": "85.98"
+      }
+    ],
+    "current_name_date_score_grade_component_fields_changed_count": 0,
+    "date_spot_check_first5": [
+      {
+        "sample": "01__一处-太平水库大桥报告（原B级，现B级）.docx",
+        "value": "2019年11月20日",
+        "source_kind": "cover",
+        "label": "封面中文日期",
+        "date_kind": "cover",
+        "anchor": {
+          "source_file": "01__一处-太平水库大桥报告（原B级，现B级）.docx",
+          "block_index": 21,
+          "raw_text": "二〇一九年十一月二十日\n",
+          "table_index": null,
+          "row_index": null,
+          "column_index": null,
+          "paragraph_index": 21
+        }
+      },
+      {
+        "sample": "02__二处-界石立交主线IV号桥报告（原A级，现B级）.docx",
+        "value": "2019年11月20日",
+        "source_kind": "cover",
+        "label": "封面中文日期",
+        "date_kind": "cover",
+        "anchor": {
+          "source_file": "02__二处-界石立交主线IV号桥报告（原A级，现B级）.docx",
+          "block_index": 21,
+          "raw_text": "二〇一九年十一月二十日\n",
+          "table_index": null,
+          "row_index": null,
+          "column_index": null,
+          "paragraph_index": 21
+        }
+      },
+      {
+        "sample": "03__一处-官方院子桥式通道报告(原B级，现A级）.docx",
+        "value": "2019年11月20日",
+        "source_kind": "cover",
+        "label": "封面中文日期",
+        "date_kind": "cover",
+        "anchor": {
+          "source_file": "03__一处-官方院子桥式通道报告(原B级，现A级）.docx",
+          "block_index": 21,
+          "raw_text": "二〇一九年十一月二十日\n",
+          "table_index": null,
+          "row_index": null,
+          "column_index": null,
+          "paragraph_index": 21
+        }
+      },
+      {
+        "sample": "04__一处-小四沟人行天桥报告（原A级，现A级）.docx",
+        "value": "2019年11月20日",
+        "source_kind": "cover",
+        "label": "封面中文日期",
+        "date_kind": "cover",
+        "anchor": {
+          "source_file": "04__一处-小四沟人行天桥报告（原A级，现A级）.docx",
+          "block_index": 21,
+          "raw_text": "二〇一九年十一月二十日\n",
+          "table_index": null,
+          "row_index": null,
+          "column_index": null,
+          "paragraph_index": 21
+        }
+      },
+      {
+        "sample": "05__一处-还建人行天桥报告（原A级，现A级）.docx",
+        "value": "2019年11月20日",
+        "source_kind": "cover",
+        "label": "封面中文日期",
+        "date_kind": "cover",
+        "anchor": {
+          "source_file": "05__一处-还建人行天桥报告（原A级，现A级）.docx",
+          "block_index": 21,
+          "raw_text": "二〇一九年十一月二十日\n",
+          "table_index": null,
+          "row_index": null,
+          "column_index": null,
+          "paragraph_index": 21
+        }
+      }
+    ]
+  },
+  "real10_defect_history": {
+    "defect_count_before": 237,
+    "defect_count_after": 237,
+    "source_enriched_nondefault_rows_before": 45,
+    "source_enriched_nondefault_rows_after": 45,
+    "all_three_history_fields_internal_missing_before": 0,
+    "all_three_history_fields_internal_missing_after": 192,
+    "note": "Missing history fields are now kept empty internally and rendered as 无; source-enriched rows are not expanded beyond conservative location+disease evidence."
+  },
+  "real5_exact_renderer_audit": {
+    "input_count": 5,
+    "field_record_count": 65,
+    "renderer_mismatch_count": 0,
+    "states": {
+      "ambiguous": 7,
+      "explicit_none": 3,
+      "extracted": 55
+    }
+  },
+  "tests": {
+    "extraction_rendering": "131/131 passed",
+    "compileall": "passed"
+  },
+  "scope": {
+    "modified_source_files": [
+      "src/extraction/summary/extractor.py",
+      "src/extraction/summary/facility_context.py",
+      "src/extraction/defects/extractor.py"
+    ],
+    "added_script": "scripts/audit_structured_fields_v10.py",
+    "rendering_source_changed": false,
+    "forbidden_modules_changed": false
+  },
+  "remaining": [
+    "完整 92 份 before/after 未执行：上传的 v10 task package 不含官方 92 份原始 DOC/DOCX。",
+    "88/92 同日期只能确认已抽查的 5 份均为真实封面日期，不能据此替代剩余 87 份来源审计。",
+    "平台 28% 是否提升尚未验证。",
+    "字段 conflict/ambiguous 需在完整 92 audit 后按 source anchor 逐项判断，不应按通用等级区间批量重算。"
+  ]
+}

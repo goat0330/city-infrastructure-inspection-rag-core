@@ -1,0 +1,63 @@
+{
+  "by_field": {
+    "bridge_name": {
+      "extracted": 10
+    },
+    "deck_grade": {
+      "extracted": 10
+    },
+    "deck_score": {
+      "extracted": 10
+    },
+    "overall_grade": {
+      "extracted": 10
+    },
+    "overall_score": {
+      "extracted": 10
+    },
+    "previous_overall_grade": {
+      "explicit_none": 1,
+      "extracted": 9
+    },
+    "previous_overall_score": {
+      "explicit_none": 4,
+      "extracted": 6
+    },
+    "report_date": {
+      "extracted": 10
+    },
+    "substructure_grade": {
+      "extracted": 10
+    },
+    "substructure_score": {
+      "extracted": 10
+    },
+    "superstructure_grade": {
+      "extracted": 10
+    },
+    "superstructure_score": {
+      "extracted": 10
+    },
+    "trend": {
+      "explicit_none": 1,
+      "extracted": 9
+    }
+  },
+  "common_report_dates": [
+    [
+      "2019年11月20日",
+      10
+    ]
+  ],
+  "errors": [],
+  "field_record_count": 130,
+  "input_count": 10,
+  "platform_score_verified": false,
+  "renderer_mismatch_count": 0,
+  "renderer_mismatch_samples": [],
+  "stage": "after",
+  "states": {
+    "explicit_none": 6,
+    "extracted": 124
+  }
+}

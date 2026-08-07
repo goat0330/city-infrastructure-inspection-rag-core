@@ -464,3 +464,116 @@ def test_conclusion_fragments_are_excluded_and_risk_fallback_is_limited(tmp_path
     )
     assert result.summary.risk_points == "侧墙破损会影响耐久性,但不应把整段安全影响当作主要风险"
     assert len(result.candidates["risk_points"]) <= 3
+
+
+def test_history_window_stops_at_any_chapter_two_heading_and_keeps_equal_scores(tmp_path: Path) -> None:
+    result = extract_summary(
+        _parse(
+            tmp_path,
+            paragraph("1.2 上一次检测状况"),
+            paragraph("上次检测桥梁BCI=85.46，总体等级为B级。"),
+            paragraph("2 桥梁概况"),
+            paragraph("本桥BCI=85.46，整体技术状况等级评定为B级。"),
+        )
+    )
+
+    assert result.summary.previous_overall_score == "85.46"
+    assert result.summary.previous_overall_grade == "B级"
+    assert result.summary.overall_score == "85.46"
+    assert result.summary.overall_grade == "B级"
+    assert any(c.source_kind == "previous_detection" for c in result.candidates["previous_overall_score"])
+    assert all(c.source_kind != "previous_detection" for c in result.candidates["overall_score"])
+
+
+def test_score_matrix_uses_explicit_component_label_not_first_serial_cell(tmp_path: Path) -> None:
+    result = extract_summary(
+        _parse(
+            tmp_path,
+            table(
+                row(cell("序号"), cell("部位名称"), cell("评分"), cell("等级")),
+                row(cell("1"), cell("上部结构"), cell("78.50"), cell("C级")),
+                row(cell("2"), cell("下部结构"), cell("91.20"), cell("A级")),
+                row(cell("3"), cell("桥面系"), cell("88.40"), cell("B级")),
+                row(cell("4"), cell("总体"), cell("84.60"), cell("B级")),
+            ),
+        )
+    )
+
+    assert result.summary.superstructure_score == "78.50"
+    assert result.summary.superstructure_grade == "C级"
+    assert result.summary.substructure_score == "91.20"
+    assert result.summary.substructure_grade == "A级"
+    assert result.summary.deck_score == "88.40"
+    assert result.summary.deck_grade == "B级"
+    assert result.summary.overall_score == "84.60"
+    assert result.summary.overall_grade == "B级"
+
+
+def test_facility_specific_name_labels_are_first_class_body_sources(tmp_path: Path) -> None:
+    cases = (
+        ("桥式通道名称", "官方院子桥式通道"),
+        ("人行天桥名称", "小四沟人行天桥"),
+        ("车行地通道名称", "K20+100车行地通道"),
+        ("车行通道名称", "K20+200车行通道"),
+    )
+    expected_types = {
+        "官方院子桥式通道": "桥式通道",
+        "小四沟人行天桥": "人行天桥",
+        "K20+100车行地通道": "车行地通道",
+        "K20+200车行通道": "车行通道",
+    }
+    for label, expected in cases:
+        result = extract_summary(_parse(tmp_path, _summary_table((label, expected))))
+        assert result.summary.bridge_name == expected
+        assert result.facility_context.facility_name == expected
+        assert result.facility_context.facility_type_raw == expected_types[expected]
+
+
+def test_component_grade_accepts_structural_assessment_phrasing(tmp_path: Path) -> None:
+    result = extract_summary(
+        _parse(
+            tmp_path,
+            paragraph("根据桥面系检查，经计算桥面系BCIm=85.78，且BSIm=min(100-MDPi)=76.94，评定等级为C级；"),
+            paragraph("根据上部结构检查，经计算上部结构BCIs=86.92，且BSIs=min(BCIs)=73.83，评定等级为C级；"),
+            paragraph("根据下部结构检查，经计算结构BSIX=95.8；BSIx=min（BCIxi）=91.6，下部结构结构状况评定为A级；"),
+        )
+    )
+
+    assert result.summary.deck_grade == "C级"
+    assert result.summary.superstructure_grade == "C级"
+    assert result.summary.substructure_grade == "A级"
+
+
+def test_final_assessment_table_wins_component_score_conflict_only(tmp_path: Path) -> None:
+    result = extract_summary(
+        _parse(
+            tmp_path,
+            paragraph("根据下部结构外观检查，经计算下部结构BCIx=96.29，BSIx=min（BCIxj）=88.89，评定为B级；"),
+            table(
+                row(cell("部位名称"), cell("技术状况指数"), cell("权重"), cell("BCI"), cell("桥梁整体技术状况等级")),
+                row(cell("桥面系"), cell("91.95"), cell("0.15"), cell("89.31"), cell("B")),
+                row(cell("上部结构"), cell("81.32"), cell("0.40"), cell(""), cell("")),
+                row(cell("下部结构"), cell("95.53"), cell("0.45"), cell(""), cell("")),
+            ),
+            paragraph("本桥BCI=89.31，整体技术状况等级评定为B级。"),
+        )
+    )
+
+    assert result.summary.substructure_score == "95.53"
+    assert result.summary.overall_score == "89.31"
+    assert result.summary.overall_grade == "B级"
+    assert any(
+        candidate.source_kind == "overall_assessment_table" and candidate.value == "95.53"
+        for candidate in result.candidates["substructure_score"]
+    )
+
+
+def test_explicit_bci_score_phrase_is_current_score_fact(tmp_path: Path) -> None:
+    result = extract_summary(
+        _parse(
+            tmp_path,
+            paragraph("综合评估：本设施技术状况等级BCI评分为95.39分，处于完好状态。"),
+        )
+    )
+
+    assert result.summary.overall_score == "95.39"

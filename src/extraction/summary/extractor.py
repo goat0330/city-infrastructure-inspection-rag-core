@@ -91,11 +91,15 @@ _ALIASES: dict[str, tuple[str, ...]] = {
         "工程/设施名称",
         "工程（设施）名称",
         "项目名称",
+        "桥式通道名称",
+        "人行天桥名称",
         "地通道名称",
         "人行通道名称",
         "人行地通道名称",
         "地下通道名称",
         "车行下穿道名称",
+        "车行地通道名称",
+        "车行通道名称",
         "下穿道名称",
         "隧道名称",
         "涵洞名称",
@@ -301,7 +305,10 @@ _RECOMMENDATION_COUNT_RE = re.compile(r"(\d+)\s*条")
 
 _BCI_SCORE_RE = re.compile(r"BCI\s*([mMkKsSxX]?)\s*[=＝]\s*(\d+(?:\.\d+)?)")
 _BCI_COMPONENT = {"m": "deck", "s": "superstructure", "k": "superstructure", "x": "substructure"}
-_GRADE_AFTER_RE = re.compile(r"评定(?:为)?\s*([A-Ea-e]\s*级|[一二三四五六]类)")
+_GRADE_AFTER_RE = re.compile(
+    r"(?:结构状况)?评定(?:等级|级别)?(?:为|是|[:：=])?\s*"
+    r"([A-Ea-e]\s*级|[一二三四五六]类)"
+)
 _OVERALL_GRADE_RE = re.compile(
     r"(?<!下部结构)(?<!上部结构)(?<!桥面系)整体技术状况等级(?:评定|定)?为\s*([A-Ea-e]\s*级)"
 )
@@ -324,6 +331,8 @@ _OVERALL_ASSESSMENT_MARKERS = (
     "技术状况评定结果",
     "评定结果",
     "总体评定表",
+    "桥梁整体技术状况等级",
+    "部位名称技术状况指数权重BCI",
 )
 _RECOMMENDATION_MARKERS = (
     "建议类别",
@@ -853,15 +862,11 @@ def extract_summary(
         field: _selected_or_missing(field, collector.values[field])
         for field in _SUMMARY_FIELDS
     }
-    # A previous-period score identical to the current score is almost always
-    # a mis-extraction (the current BCI leaking into the 1.2 window).  Drop it
-    # rather than shipping a wrong historical value.
-    if (
-        summary_values["previous_overall_score"] not in ("", "无")
-        and summary_values["overall_score"] not in ("", "无")
-        and summary_values["previous_overall_score"] == summary_values["overall_score"]
-    ):
-        summary_values["previous_overall_score"] = "无"
+    # Current and previous scores are separated by source section, not by value.
+    # Two inspections may legitimately have the same numeric score; clearing an
+    # equal historical value would convert an observed fact into a false missing
+    # value.  Leakage prevention therefore belongs to the candidate-routing
+    # boundary above and the dedicated history parser below.
     # The official Gold contract uses “无” for the trend of first/no-history
     # reports.  Score fields already use the same display value when no
     # applicable score candidate exists; keep the trend consistent instead of
@@ -1169,11 +1174,11 @@ def _extract_score_matrix(
                     score_columns[cell.column_index] = kind
         if not score_columns and not grade_columns:
             continue
+        value_columns = set(score_columns) | set(grade_columns)
         for row in rows[header_index + 1 :]:
-            category_cell = next(iter(row.cells), None)
-            if category_cell is None:
+            category_cell, base = _score_category_cell(row, value_columns)
+            if category_cell is None or base is None:
                 continue
-            base = _field_base_for_category(category_cell.raw_text)
             for cell in row.cells:
                 if cell.column_index in score_columns:
                     if not _clean(cell.raw_text):
@@ -1282,6 +1287,47 @@ def _score_column_kind(value: str) -> str | None:
     if compact == "技术状况":
         return "grade"
     return None
+
+
+def _score_category_cell(
+    row: object,
+    value_columns: set[int],
+) -> tuple[object | None, str | None]:
+    """Find the labelled component cell without relying on row position.
+
+    Real assessment tables often prepend a serial/group column, so the first
+    physical cell is not necessarily “上部结构/下部结构/桥面系/总体”.  Only
+    non-value columns are considered and explicit component labels outrank
+    generic overall wording.
+    """
+
+    cells = tuple(getattr(row, "cells", ()))
+    ranked: list[tuple[int, int, object, str]] = []
+    for order, cell in enumerate(cells):
+        column = getattr(cell, "column_index", order)
+        if column in value_columns:
+            continue
+        text = _clean(getattr(cell, "raw_text", ""))
+        base = _field_base_for_category(text)
+        if base is None:
+            continue
+        compact = _compact(text)
+        exact = {
+            "上部结构": 40,
+            "下部结构": 40,
+            "桥面系": 40,
+            "总体": 35,
+            "整体": 35,
+            "总评": 35,
+            "全桥": 35,
+        }.get(compact, 0)
+        component = 30 if base in {"superstructure", "substructure", "deck"} else 20
+        ranked.append((exact + component, -order, cell, base))
+    if not ranked:
+        return None, None
+    ranked.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    _, _, cell, base = ranked[0]
+    return cell, base
 
 
 def _field_base_for_category(value: str) -> str | None:
@@ -1582,6 +1628,52 @@ def _extract_score_phrases(
                 source,
                 label=base,
             )
+
+        # Many official reports state component grades as
+        # “上部结构结构状况评定为B级” or “评定等级为C级” rather than
+        # using a literal “上部结构等级” key.  These are explicit facts, not
+        # score-to-grade derivations, so capture them directly.
+        if base != "overall":
+            explicit_grade = re.search(
+                rf"{label_pattern}(?:结构)?(?:技术)?状况?\s*"
+                rf"(?:等级|级别)?\s*评定(?:等级|级别)?\s*"
+                rf"(?:为|是|[:：=])?\s*({_GRADE_RE.pattern})",
+                text,
+            )
+            if explicit_grade is None:
+                explicit_grade = re.search(
+                    rf"{label_pattern}.*?评定(?:等级|级别)?\s*"
+                    rf"(?:为|是|[:：=])?\s*({_GRADE_RE.pattern})",
+                    text,
+                )
+            if explicit_grade is not None:
+                _add_field(
+                    collector,
+                    f"{base}_grade",
+                    explicit_grade.group(1),
+                    source_kind,
+                    source,
+                    label=f"{base}显式评定等级",
+                )
+
+    # Current comprehensive summaries often use “BCI评分为95.39分” instead
+    # of “BCI=95.39”.  Preserve the explicit score without inferring it from
+    # a grade or from the filename.
+    overall_bci_phrase = re.search(
+        r"(?<![A-Za-z])BCI\s*(?:指数)?\s*(?:评分|得分|分数)\s*"
+        r"(?:为|是|[:：=])?\s*(\d+(?:\.\d+)?)\s*分?",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if overall_bci_phrase is not None:
+        _add_field(
+            collector,
+            "overall_score",
+            overall_bci_phrase.group(1),
+            source_kind,
+            source,
+            label="BCI评分",
+        )
 
     previous_patterns = (
         ("previous_overall_score", r"上一次(?:总体)?(?:技术状况)?(?:评分|分数|得分)"),
@@ -1967,7 +2059,7 @@ def _normalise_bridge_name(value: str) -> str:
         flags=re.IGNORECASE,
     )[0].strip()
     cleaned = re.sub(
-        r"^(?:桥梁名称|桥名|工程名称|设施名称|桥梁工程名称|工程设施名称|工程/设施名称|工程（设施）名称|项目名称|地通道名称|人行通道名称|人行地通道名称|地下通道名称|车行下穿道名称|下穿道名称|隧道名称|涵洞名称|道路名称|通道名称)\s*[:：=]\s*",
+        r"^(?:桥梁名称|桥名|工程名称|设施名称|桥梁工程名称|工程设施名称|工程/设施名称|工程（设施）名称|项目名称|桥式通道名称|人行天桥名称|地通道名称|人行通道名称|人行地通道名称|地下通道名称|车行下穿道名称|车行地通道名称|车行通道名称|下穿道名称|隧道名称|涵洞名称|道路名称|通道名称)\s*[:：=]\s*",
         "",
         cleaned,
     )
@@ -2166,14 +2258,22 @@ def _extract_filename_facts(
 
 
 
-_PREVIOUS_SECTION_HEADING_RE = re.compile(r"(?:^|\s)(?:1\.2\s*)?上一次(?:定期)?检测状况")
-_NEXT_MAIN_SECTION_RE = re.compile(r"^\s*2(?:\.0)?\s*(?:检测目的|检查目的)")
+_PREVIOUS_SECTION_HEADING_RE = re.compile(
+    r"(?:^|\s)(?:1\s*[.．、]?\s*2\s*)?(?:上一次|上次|上一年度|上年度)(?:定期)?(?:检测|检查)(?:状况|情况|结果|概况)?"
+)
+# Stop the 1.2 history window at any real chapter-2 heading.  The previous
+# implementation only stopped at “2 检测目的/检查目的”; reports whose chapter 2
+# is named “桥梁概况/工程概况/检测依据” could otherwise suppress the entire
+# current-period body.  Exclude 2.1/2.2 subheadings explicitly.
+_NEXT_MAIN_SECTION_RE = re.compile(
+    r"^\s*(?:第\s*二\s*章|2(?:\.0)?)(?!\s*[.．]\s*\d)(?:\s*[、.．:：)）-]?\s*)[^0-9]"
+)
 _PREVIOUS_BCI_RE = re.compile(
-    r"(?:整体|总体)?技术状况指数\s*BCI\s*[=＝]?\s*(\d+(?:\.\d+)?)",
+    r"(?:整体|总体)?(?:技术状况指数\s*)?BCI(?!\s*[mMkKsSxX])\s*(?:为|是|[:：=＝])?\s*(\d+(?:\.\d+)?)",
     re.IGNORECASE,
 )
 _PREVIOUS_GRADE_TEXT_RE = re.compile(
-    r"整体技术状况等级(?:评定|评价|确定)?为\s*([A-Ea-e]\s*级|[一二三四五六]类)"
+    r"(?:总体|整体)(?:技术状况)?(?:等级|级别)(?:评定|评价|确定)?\s*(?:为|是|[:：=＝])?\s*([A-Ea-e]\s*级|[一二三四五六]类)"
 )
 _PREVIOUS_GRADE_FALLBACK_RE = re.compile(
     r"(?:总体|整体)技术状况[^。；;]{0,100}?(?:等级|级别)[^。；;]{0,30}?([A-Ea-e]\s*级|[一二三四五六]类)"
@@ -2186,25 +2286,35 @@ _HISTORY_HEADERS = {
 }
 
 def _history_header_mapping(table: TableBlock) -> tuple[int, dict[str, int]] | None:
-    for row_index, row in enumerate(table.rows[:4]):
-        mapping: dict[str, int] = {}
-        for column_index, cell in enumerate(row.cells):
+    """Resolve one- or multi-level history headers by logical column index."""
+
+    mapping: dict[str, int] = {}
+    for row in table.rows[:4]:
+        for cell in row.cells:
             value = _compact(cell.raw_text)
             for field, aliases in _HISTORY_HEADERS.items():
                 if field in mapping:
                     continue
                 if any(alias in value for alias in aliases):
-                    mapping[field] = column_index
+                    mapping[field] = cell.column_index
                     break
         if {"previous", "current", "development"}.issubset(mapping):
-            return row_index, mapping
+            return row.row_index, mapping
+    return None
+
+def _history_cell_record(row: object, column_index: int | None) -> object | None:
+    if column_index is None or column_index < 0:
+        return None
+    for cell in getattr(row, "cells", ()):
+        start = getattr(cell, "column_index", -1)
+        span = max(1, int(getattr(cell, "column_span", 1) or 1))
+        if start <= column_index < start + span:
+            return cell
     return None
 
 def _history_cell(row: object, column_index: int | None) -> str:
-    cells = getattr(row, "cells", ())
-    if column_index is None or column_index < 0 or column_index >= len(cells):
-        return ""
-    return _clean(getattr(cells[column_index], "raw_text", ""))
+    cell = _history_cell_record(row, column_index)
+    return _clean(getattr(cell, "raw_text", "")) if cell is not None else ""
 
 def _extract_history_comparison_table(
     table: TableBlock,
@@ -2216,9 +2326,26 @@ def _extract_history_comparison_table(
     header_row, mapping = header
     trend_parts: list[str] = []
     explicit_nonempty = False
+    inherited_location = ""
+    inherited_development = ""
     for row in table.rows[header_row + 1 :]:
+        location_cell = _history_cell_record(row, mapping.get("location"))
+        development_cell = _history_cell_record(row, mapping.get("development"))
         location = _history_cell(row, mapping.get("location"))
         development = _history_cell(row, mapping.get("development"))
+        if location:
+            inherited_location = location
+        elif location_cell is not None and getattr(location_cell, "is_merge_continuation", False):
+            location = inherited_location
+        elif not location and inherited_location:
+            # Blank location cells in chapter-7 comparison tables conventionally
+            # continue the preceding component group.  This does not copy any
+            # disease fact, only the grouping label.
+            location = inherited_location
+        if development:
+            inherited_development = development
+        elif development_cell is not None and getattr(development_cell, "is_merge_continuation", False):
+            development = inherited_development
         if not development:
             continue
         compact = _compact(development)
@@ -2302,7 +2429,11 @@ def _extract_history_facts(
             continue
         if not text or _PREVIOUS_SECTION_HEADING_RE.fullmatch(text):
             continue
-        if re.search(r"(?:无|没有|未有)上一次(?:定期)?检测(?:记录|资料|结果)?", text):
+        if re.search(
+            r"(?:无|没有|未有)(?:上一次|上次|往年|历史)(?:定期)?(?:检测|检查)(?:记录|资料|结果|数据)?|"
+            r"(?:首次|第一次)(?:定期)?(?:检测|检查)",
+            text,
+        ):
             collector.add(
                 "previous_overall_score", "无", "previous_detection", source,
                 label="上一次检测明确无记录",
@@ -2462,12 +2593,27 @@ def _select_value(field: str, values: Sequence[SummaryCandidate]) -> str:
     if field.endswith("_score"):
         numeric = _numeric_value(selected)
         if numeric is not None:
+            equivalent = [
+                candidate
+                for candidate in (nonempty or ordered)
+                if _numeric_value(candidate.value) == numeric
+            ]
+            # When the final assessment table and the explicit BCI sentence
+            # agree numerically, preserve the report's BCI spelling/precision
+            # to avoid cosmetic v10->v11 changes such as 86.10 -> 86.1.
+            bci_forms = [
+                candidate.value
+                for candidate in equivalent
+                if candidate.source_kind == "bci" and "." in candidate.value
+            ]
             decimal_forms = [
                 candidate.value
-                for candidate in (nonempty or ordered)
-                if "." in candidate.value and _numeric_value(candidate.value) == numeric
+                for candidate in equivalent
+                if "." in candidate.value
             ]
-            if decimal_forms:
+            if bci_forms:
+                selected = bci_forms[0]
+            elif decimal_forms:
                 selected = decimal_forms[0]
     return selected
 
@@ -2501,6 +2647,16 @@ def _selected_or_missing(field: str, values: Sequence[SummaryCandidate]) -> str:
 def _selection_priority(field: str, candidate: SummaryCandidate) -> int:
     if field not in _SCORE_FIELDS:
         return candidate.priority
+    # For component scores, the final “部位名称/技术状况指数/权重/BCI”
+    # assessment table is the report's current consolidated result.  It may
+    # legitimately correct an earlier subsection calculation.  Keep the old
+    # BCI-phrase preference for overall grade/score so explicit final prose can
+    # still override a known table misprint.
+    if (
+        field in {"superstructure_score", "substructure_score", "deck_score"}
+        and candidate.source_kind == "overall_assessment_table"
+    ):
+        return 650
     return {
         "bci": 500,
         "overall_assessment_table": 400,

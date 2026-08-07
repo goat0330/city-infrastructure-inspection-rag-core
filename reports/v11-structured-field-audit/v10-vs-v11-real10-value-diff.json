@@ -1,0 +1,133 @@
+{
+  "input_count": 10,
+  "changed_value_count": 7,
+  "changes": [
+    {
+      "sample_id": "03__一处-官方院子桥式通道报告(原B级，现A级）",
+      "field": "substructure_grade",
+      "before": "无",
+      "after": "A级",
+      "source_kind": "paragraph",
+      "source_section": "8.3 下部结构BCIX值",
+      "anchor": {
+        "block_index": 305,
+        "column_index": null,
+        "paragraph_index": 292,
+        "raw_text": "根据下部结构外观检查情况，桥台评分等级、扣分表见表8.3-1，经计算结构BSIX=95.8；BSIx=min（BCIxi）=91.6，下部结构结构状况评定为A级； ",
+        "row_index": null,
+        "source_file": "03__一处-官方院子桥式通道报告(原B级，现A级）.docx",
+        "table_index": null
+      },
+      "renderer_match": true
+    },
+    {
+      "sample_id": "07__一处-尹家湾桥式通道报告（原B级，现B级）",
+      "field": "substructure_grade",
+      "before": "无",
+      "after": "B级",
+      "source_kind": "paragraph",
+      "source_section": "8.3 下部结构BCIx值",
+      "anchor": {
+        "block_index": 298,
+        "column_index": null,
+        "paragraph_index": 287,
+        "raw_text": "根据下部结构外观检查情况，桥台评分等级、扣分表见表8.3-1~表8.3-13，经计算左幅下部结构BSIx=84.56；BSIx=min（BCIxj）=84.56，下部结构结构状况评定为B级；",
+        "row_index": null,
+        "source_file": "07__一处-尹家湾桥式通道报告（原B级，现B级）.docx",
+        "table_index": null
+      },
+      "renderer_match": true
+    },
+    {
+      "sample_id": "07__一处-尹家湾桥式通道报告（原B级，现B级）",
+      "field": "superstructure_grade",
+      "before": "无",
+      "after": "B级",
+      "source_kind": "paragraph",
+      "source_section": "8.2 上部结构BCIs值",
+      "anchor": {
+        "block_index": 293,
+        "column_index": null,
+        "paragraph_index": 283,
+        "raw_text": "根据上部结构外观检查情况，上部结构各构件评分等级、扣分表见表8.2-1~表8.2-13，经计算左、右幅上部结构BSIs=85；BSIs=min（BCIsi）=85，上部结构结构状况评定为B级；",
+        "row_index": null,
+        "source_file": "07__一处-尹家湾桥式通道报告（原B级，现B级）.docx",
+        "table_index": null
+      },
+      "renderer_match": true
+    },
+    {
+      "sample_id": "08__二处-人行天桥K25+304报告（原B级，现A级）",
+      "field": "deck_grade",
+      "before": "无",
+      "after": "C级",
+      "source_kind": "bci",
+      "source_section": "8.1 桥面系BCIm值",
+      "anchor": {
+        "block_index": 311,
+        "column_index": null,
+        "paragraph_index": 298,
+        "raw_text": "根据桥面系及其附属设施检查情况，桥面系各构件评分等级、扣分表见表8.1-1，经计算桥面系BCIm=85.78，且BSIm=min(100-MDPi)=76.94，评定等级为C级；",
+        "row_index": null,
+        "source_file": "08__二处-人行天桥K25+304报告（原B级，现A级）.docx",
+        "table_index": null
+      },
+      "renderer_match": true
+    },
+    {
+      "sample_id": "08__二处-人行天桥K25+304报告（原B级，现A级）",
+      "field": "substructure_grade",
+      "before": "无",
+      "after": "A级",
+      "source_kind": "bci",
+      "source_section": "8.3 下部结构BCIx值",
+      "anchor": {
+        "block_index": 323,
+        "column_index": null,
+        "paragraph_index": 307,
+        "raw_text": "根据下部结构外观检查情况，下部结构墩台评分等级、扣分表见表8.3-1~表8.3-3，经计算下部结构BCIx=97.33，且BSIx=min(BCIx)=92.00，评定等级为A级；",
+        "row_index": null,
+        "source_file": "08__二处-人行天桥K25+304报告（原B级，现A级）.docx",
+        "table_index": null
+      },
+      "renderer_match": true
+    },
+    {
+      "sample_id": "08__二处-人行天桥K25+304报告（原B级，现A级）",
+      "field": "superstructure_grade",
+      "before": "无",
+      "after": "C级",
+      "source_kind": "bci",
+      "source_section": "8.2 上部结构BCIs值",
+      "anchor": {
+        "block_index": 316,
+        "column_index": null,
+        "paragraph_index": 302,
+        "raw_text": "根据上部结构外观检查情况，上部结构各构件评分等级、扣分表见表8.2-1-表8.2-2，经计算上部结构BCIs=86.92，且BSIs=min(BCIs)=73.83，评定等级为C级；",
+        "row_index": null,
+        "source_file": "08__二处-人行天桥K25+304报告（原B级，现A级）.docx",
+        "table_index": null
+      },
+      "renderer_match": true
+    },
+    {
+      "sample_id": "10__一处-尹家湾大桥报告（原B级，现B级）",
+      "field": "substructure_score",
+      "before": "96.29",
+      "after": "95.53",
+      "source_kind": "overall_assessment_table",
+      "source_section": "表8.4-1 尹家湾大桥技术状况评定表",
+      "anchor": {
+        "block_index": 310,
+        "column_index": 1,
+        "paragraph_index": null,
+        "raw_text": "95.53",
+        "row_index": 3,
+        "source_file": "10__一处-尹家湾大桥报告（原B级，现B级）.docx",
+        "table_index": 16
+      },
+      "renderer_match": true
+    }
+  ],
+  "platform_score_verified": false
+}

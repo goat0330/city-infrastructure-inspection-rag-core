@@ -38,6 +38,8 @@ _FACILITY_SUFFIXES: tuple[tuple[str, str, str], ...] = (
     ("地下通道", "pedestrian_underpass", "人行通道"),
     ("人行通道", "pedestrian_underpass", "人行通道"),
     ("车行下穿道", "vehicle_underpass", "车行下穿道"),
+    ("车行地通道", "vehicle_underpass", "车行地通道"),
+    ("车行通道", "vehicle_underpass", "车行通道"),
     ("下穿道", "vehicle_underpass", "下穿道"),
     ("隧道", "tunnel", "隧道"),
     ("涵洞", "culvert", "涵洞"),

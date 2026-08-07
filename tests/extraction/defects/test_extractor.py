@@ -221,7 +221,7 @@ def test_defect_description_preserves_photo_reference_and_measurements() -> None
     assert result[0].description == "伸缩缝处3处纵向裂缝，宽度约2mm，见图2.1.1、照片5.1.1-1"
 
 
-def test_missing_status_fields_use_auditable_gold_template_defaults() -> None:
+def test_missing_status_fields_remain_internal_missing_for_v10() -> None:
     xml = document_xml(
         table(
             row(cell("位置"), cell("病害种类"), cell("具体位置")),
@@ -232,9 +232,9 @@ def test_missing_status_fields_use_auditable_gold_template_defaults() -> None:
 
     result = extract_defects(document)
 
-    assert result[0].is_new == "否"
-    assert result[0].previous_status == "无"
-    assert result[0].development == "无"
+    assert result[0].is_new == ""
+    assert result[0].previous_status == ""
+    assert result[0].development == ""
     assert "defaulted_defect_fields" in {flag["code"] for flag in result.quality_flags}
 
 
@@ -621,3 +621,79 @@ def test_no_hard_defect_count_cap() -> None:
 
     assert len(result) == 40
     assert result[-1].description == "第40处桥面局部裂缝，L=40m"
+
+
+def test_history_table_matches_location_column_without_repeating_location_in_disease_cells() -> None:
+    xml = document_xml(
+        paragraph("5.1 病害明细表"),
+        table(
+            row(cell("序号"), cell("位置"), cell("病害种类"), cell("病害情况")),
+            row(cell("1"), cell("主梁"), cell("裂缝"), cell("第1跨主梁局部裂缝")),
+        ),
+        paragraph("7.1 外观检测结果对比分析"),
+        table(
+            row(cell("位置"), cell("上一次检测结果"), cell("本次检测结果"), cell("发展状况")),
+            row(cell("主梁"), cell("无"), cell("裂缝"), cell("新增")),
+        ),
+    )
+    document = parse_document_xml(xml, source_file="history-location.docx")
+
+    result = extract_defects(document)
+
+    target = next(record for record in result if record.defect_type == "裂缝")
+    assert target.is_new == "是"
+    assert target.previous_status == "无"
+    assert target.development == "新增"
+    assert any(anchor.table_index == 1 for anchor in target.evidence)
+    assert "history_comparison_enriched" in {flag["code"] for flag in result.quality_flags}
+
+
+def test_history_table_inherits_merged_location_and_enriches_multiple_diseases() -> None:
+    xml = document_xml(
+        paragraph("5.1 病害明细表"),
+        table(
+            row(cell("序号"), cell("位置"), cell("病害种类"), cell("病害情况")),
+            row(cell("1"), cell("主梁"), cell("裂缝"), cell("主梁裂缝")),
+            row(cell("2"), cell("主梁"), cell("露筋"), cell("主梁露筋")),
+        ),
+        paragraph("7.1 外观检测结果对比分析"),
+        table(
+            row(cell("位置"), cell("上一次检测结果"), cell("本次检测结果"), cell("发展状况")),
+            row(cell("主梁", vmerge="restart"), cell("裂缝"), cell("裂缝"), cell("无变化")),
+            row(cell("", vmerge="continue"), cell("无"), cell("露筋"), cell("新增")),
+        ),
+    )
+    document = parse_document_xml(xml, source_file="history-merged.docx")
+
+    result = extract_defects(document)
+    by_type = {record.defect_type: record for record in result}
+
+    assert by_type["裂缝"].previous_status == "裂缝"
+    assert by_type["裂缝"].development == "无变化"
+    assert by_type["裂缝"].is_new == "否"
+    assert by_type["露筋"].is_new == "是"
+    assert by_type["露筋"].previous_status == "无"
+    assert by_type["露筋"].development == "新增"
+
+
+def test_headerless_history_table_is_used_only_with_explicit_history_context() -> None:
+    xml = document_xml(
+        paragraph("5.1 病害明细表"),
+        table(
+            row(cell("序号"), cell("位置"), cell("病害种类"), cell("病害情况")),
+            row(cell("1"), cell("桥面"), cell("破损"), cell("桥面局部破损")),
+        ),
+        paragraph("7 历次检测结果对比分析"),
+        paragraph("7.1 外观检测结果对比"),
+        table(
+            row(cell("1"), cell("桥面"), cell("无"), cell("破损"), cell("新增")),
+            row(cell("2"), cell("栏杆"), cell("锈蚀"), cell("锈蚀"), cell("无变化")),
+        ),
+    )
+    document = parse_document_xml(xml, source_file="history-headerless.docx")
+
+    result = extract_defects(document)
+    target = next(record for record in result if record.defect_type == "破损")
+
+    assert target.is_new == "是"
+    assert target.development == "新增"

@@ -1,0 +1,331 @@
+{
+  "after_records": 130,
+  "before_records": 130,
+  "changed": [
+    {
+      "after": {
+        "renderer_match": true,
+        "source_kind": "facility_name",
+        "state": "extracted",
+        "value": "太平水库大桥"
+      },
+      "before": {
+        "renderer_match": true,
+        "source_kind": "facility_name",
+        "state": "ambiguous",
+        "value": "太平水库大桥"
+      },
+      "field": "bridge_name",
+      "sample_id": "01__一处-太平水库大桥报告（原B级，现B级）"
+    },
+    {
+      "after": {
+        "renderer_match": true,
+        "source_kind": "bci",
+        "state": "extracted",
+        "value": "86.10"
+      },
+      "before": {
+        "renderer_match": true,
+        "source_kind": "bci",
+        "state": "ambiguous",
+        "value": "86.10"
+      },
+      "field": "superstructure_score",
+      "sample_id": "01__一处-太平水库大桥报告（原B级，现B级）"
+    },
+    {
+      "after": {
+        "renderer_match": true,
+        "source_kind": "facility_name",
+        "state": "extracted",
+        "value": "界石立交主线IV号桥"
+      },
+      "before": {
+        "renderer_match": true,
+        "source_kind": "facility_name",
+        "state": "ambiguous",
+        "value": "界石立交主线IV号桥"
+      },
+      "field": "bridge_name",
+      "sample_id": "02__二处-界石立交主线IV号桥报告（原A级，现B级）"
+    },
+    {
+      "after": {
+        "renderer_match": true,
+        "source_kind": "facility_name",
+        "state": "extracted",
+        "value": "官方院子桥式通道"
+      },
+      "before": {
+        "renderer_match": true,
+        "source_kind": "facility_name",
+        "state": "ambiguous",
+        "value": "官方院子桥式通道"
+      },
+      "field": "bridge_name",
+      "sample_id": "03__一处-官方院子桥式通道报告(原B级，现A级）"
+    },
+    {
+      "after": {
+        "renderer_match": true,
+        "source_kind": "bci",
+        "state": "extracted",
+        "value": "97.80"
+      },
+      "before": {
+        "renderer_match": true,
+        "source_kind": "bci",
+        "state": "ambiguous",
+        "value": "97.80"
+      },
+      "field": "deck_score",
+      "sample_id": "03__一处-官方院子桥式通道报告(原B级，现A级）"
+    },
+    {
+      "after": {
+        "renderer_match": true,
+        "source_kind": "paragraph",
+        "state": "extracted",
+        "value": "A级"
+      },
+      "before": {
+        "renderer_match": true,
+        "source_kind": "",
+        "state": "explicit_none",
+        "value": "无"
+      },
+      "field": "substructure_grade",
+      "sample_id": "03__一处-官方院子桥式通道报告(原B级，现A级）"
+    },
+    {
+      "after": {
+        "renderer_match": true,
+        "source_kind": "facility_name",
+        "state": "extracted",
+        "value": "小四沟人行天桥"
+      },
+      "before": {
+        "renderer_match": true,
+        "source_kind": "facility_name",
+        "state": "ambiguous",
+        "value": "小四沟人行天桥"
+      },
+      "field": "bridge_name",
+      "sample_id": "04__一处-小四沟人行天桥报告（原A级，现A级）"
+    },
+    {
+      "after": {
+        "renderer_match": true,
+        "source_kind": "facility_name",
+        "state": "extracted",
+        "value": "还建人行天桥"
+      },
+      "before": {
+        "renderer_match": true,
+        "source_kind": "facility_name",
+        "state": "ambiguous",
+        "value": "还建人行天桥"
+      },
+      "field": "bridge_name",
+      "sample_id": "05__一处-还建人行天桥报告（原A级，现A级）"
+    },
+    {
+      "after": {
+        "renderer_match": true,
+        "source_kind": "facility_name",
+        "state": "extracted",
+        "value": "青龙嘴桥式通道"
+      },
+      "before": {
+        "renderer_match": true,
+        "source_kind": "facility_name",
+        "state": "ambiguous",
+        "value": "青龙嘴桥式通道"
+      },
+      "field": "bridge_name",
+      "sample_id": "06__一处-青龙嘴桥式通道报告（原A级，现B级）"
+    },
+    {
+      "after": {
+        "renderer_match": true,
+        "source_kind": "facility_name",
+        "state": "extracted",
+        "value": "尹家湾桥式通道"
+      },
+      "before": {
+        "renderer_match": true,
+        "source_kind": "facility_name",
+        "state": "ambiguous",
+        "value": "尹家湾桥式通道"
+      },
+      "field": "bridge_name",
+      "sample_id": "07__一处-尹家湾桥式通道报告（原B级，现B级）"
+    },
+    {
+      "after": {
+        "renderer_match": true,
+        "source_kind": "paragraph",
+        "state": "extracted",
+        "value": "B级"
+      },
+      "before": {
+        "renderer_match": true,
+        "source_kind": "",
+        "state": "explicit_none",
+        "value": "无"
+      },
+      "field": "substructure_grade",
+      "sample_id": "07__一处-尹家湾桥式通道报告（原B级，现B级）"
+    },
+    {
+      "after": {
+        "renderer_match": true,
+        "source_kind": "paragraph",
+        "state": "extracted",
+        "value": "B级"
+      },
+      "before": {
+        "renderer_match": true,
+        "source_kind": "",
+        "state": "explicit_none",
+        "value": "无"
+      },
+      "field": "superstructure_grade",
+      "sample_id": "07__一处-尹家湾桥式通道报告（原B级，现B级）"
+    },
+    {
+      "after": {
+        "renderer_match": true,
+        "source_kind": "facility_name",
+        "state": "extracted",
+        "value": "人行天桥K25+304"
+      },
+      "before": {
+        "renderer_match": true,
+        "source_kind": "facility_name",
+        "state": "ambiguous",
+        "value": "人行天桥K25+304"
+      },
+      "field": "bridge_name",
+      "sample_id": "08__二处-人行天桥K25+304报告（原B级，现A级）"
+    },
+    {
+      "after": {
+        "renderer_match": true,
+        "source_kind": "bci",
+        "state": "extracted",
+        "value": "C级"
+      },
+      "before": {
+        "renderer_match": true,
+        "source_kind": "",
+        "state": "explicit_none",
+        "value": "无"
+      },
+      "field": "deck_grade",
+      "sample_id": "08__二处-人行天桥K25+304报告（原B级，现A级）"
+    },
+    {
+      "after": {
+        "renderer_match": true,
+        "source_kind": "bci",
+        "state": "extracted",
+        "value": "A级"
+      },
+      "before": {
+        "renderer_match": true,
+        "source_kind": "",
+        "state": "explicit_none",
+        "value": "无"
+      },
+      "field": "substructure_grade",
+      "sample_id": "08__二处-人行天桥K25+304报告（原B级，现A级）"
+    },
+    {
+      "after": {
+        "renderer_match": true,
+        "source_kind": "bci",
+        "state": "extracted",
+        "value": "C级"
+      },
+      "before": {
+        "renderer_match": true,
+        "source_kind": "",
+        "state": "explicit_none",
+        "value": "无"
+      },
+      "field": "superstructure_grade",
+      "sample_id": "08__二处-人行天桥K25+304报告（原B级，现A级）"
+    },
+    {
+      "after": {
+        "renderer_match": true,
+        "source_kind": "facility_name",
+        "state": "extracted",
+        "value": "丁家院大桥右侧拼宽桥"
+      },
+      "before": {
+        "renderer_match": true,
+        "source_kind": "facility_name",
+        "state": "ambiguous",
+        "value": "丁家院大桥右侧拼宽桥"
+      },
+      "field": "bridge_name",
+      "sample_id": "09__快二处-丁家院大桥右侧拼宽桥报告 （现A级）"
+    },
+    {
+      "after": {
+        "renderer_match": true,
+        "source_kind": "bci",
+        "state": "extracted",
+        "value": "98.0"
+      },
+      "before": {
+        "renderer_match": true,
+        "source_kind": "bci",
+        "state": "ambiguous",
+        "value": "98.0"
+      },
+      "field": "superstructure_score",
+      "sample_id": "09__快二处-丁家院大桥右侧拼宽桥报告 （现A级）"
+    },
+    {
+      "after": {
+        "renderer_match": true,
+        "source_kind": "facility_name",
+        "state": "extracted",
+        "value": "尹家湾大桥"
+      },
+      "before": {
+        "renderer_match": true,
+        "source_kind": "facility_name",
+        "state": "ambiguous",
+        "value": "尹家湾大桥"
+      },
+      "field": "bridge_name",
+      "sample_id": "10__一处-尹家湾大桥报告（原B级，现B级）"
+    },
+    {
+      "after": {
+        "renderer_match": true,
+        "source_kind": "overall_assessment_table",
+        "state": "extracted",
+        "value": "95.53"
+      },
+      "before": {
+        "renderer_match": true,
+        "source_kind": "bci",
+        "state": "ambiguous",
+        "value": "96.29"
+      },
+      "field": "substructure_score",
+      "sample_id": "10__一处-尹家湾大桥报告（原B级，现B级）"
+    }
+  ],
+  "changed_count": 20,
+  "current_input_count": 10,
+  "expected_input_count": 10,
+  "platform_score_verified": false,
+  "status": "compared"
+}

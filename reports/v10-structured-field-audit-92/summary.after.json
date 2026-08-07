@@ -1,0 +1,82 @@
+{
+  "by_field": {
+    "bridge_name": {
+      "ambiguous": 92
+    },
+    "deck_grade": {
+      "explicit_none": 20,
+      "extracted": 72
+    },
+    "deck_score": {
+      "ambiguous": 8,
+      "explicit_none": 4,
+      "extracted": 80
+    },
+    "overall_grade": {
+      "ambiguous": 1,
+      "extracted": 91
+    },
+    "overall_score": {
+      "ambiguous": 2,
+      "explicit_none": 3,
+      "extracted": 87
+    },
+    "previous_overall_grade": {
+      "ambiguous": 3,
+      "explicit_none": 34,
+      "extracted": 55
+    },
+    "previous_overall_score": {
+      "explicit_none": 42,
+      "extracted": 50
+    },
+    "report_date": {
+      "extracted": 92
+    },
+    "substructure_grade": {
+      "explicit_none": 38,
+      "extracted": 54
+    },
+    "substructure_score": {
+      "ambiguous": 14,
+      "explicit_none": 4,
+      "extracted": 74
+    },
+    "superstructure_grade": {
+      "ambiguous": 4,
+      "explicit_none": 28,
+      "extracted": 60
+    },
+    "superstructure_score": {
+      "ambiguous": 14,
+      "explicit_none": 4,
+      "extracted": 74
+    },
+    "trend": {
+      "explicit_none": 30,
+      "extracted": 62
+    }
+  },
+  "common_report_dates": [
+    [
+      "2019年11月20日",
+      88
+    ],
+    [
+      "2019年10月30日",
+      4
+    ]
+  ],
+  "errors": [],
+  "field_record_count": 1196,
+  "input_count": 92,
+  "platform_score_verified": false,
+  "renderer_mismatch_count": 0,
+  "renderer_mismatch_samples": [],
+  "stage": "after",
+  "states": {
+    "ambiguous": 138,
+    "explicit_none": 207,
+    "extracted": 851
+  }
+}

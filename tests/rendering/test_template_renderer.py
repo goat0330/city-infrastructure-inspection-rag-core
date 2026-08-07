@@ -239,3 +239,58 @@ def test_facility_render_has_no_unresolved_placeholders(tmp_path: Path) -> None:
     )
 
     assert "{{" not in _all_text(Document(output))
+
+
+def test_structured_aliases_land_in_exact_official_scalar_rows(tmp_path: Path) -> None:
+    record = {
+        "summary": {
+            "bridge_name": "官方院子桥式通道",
+            "report_date": "2019年11月20日",
+            "overall_score": "94.80",
+            "overall_grade": "A级",
+            "superstructure_score": "93.10",
+            "superstructure_grade": "A级",
+            "substructure_score": "92.20",
+            "substructure_grade": "A级",
+            "deck_score": "91.30",
+            "deck_grade": "A级",
+            "previous_overall_score": "86.05",
+            "previous_overall_grade": "B级",
+            "trend": "桥面系：新增局部破损",
+            "risk_points": "桥面局部破损影响耐久性。",
+        },
+        "recommendations": [],
+        "defects": [],
+    }
+
+    submission = build_submission_document(record)
+    assert submission.scalars["deck_system_score"] == "91.30"
+    assert submission.scalars["deck_system_grade"] == "A级"
+    assert submission.scalars["defect_development_trend"] == "桥面系：新增局部破损"
+    assert submission.scalars["major_risks"] == "桥面局部破损影响耐久性。"
+
+    output = render_template_report(
+        record,
+        tmp_path / "structured-aliases.docx",
+        template_path=TEMPLATE,
+        fields_path=FIELDS,
+    )
+    document = Document(output)
+    expected = {
+        1: "官方院子桥式通道",
+        2: "2019年11月20日",
+        3: "94.80",
+        4: "A级",
+        5: "93.10",
+        6: "A级",
+        7: "92.20",
+        8: "A级",
+        9: "91.30",
+        10: "A级",
+        11: "86.05",
+        12: "B级",
+        13: "桥面系：新增局部破损",
+        15: "桥面局部破损影响耐久性。",
+    }
+    for row_index, value in expected.items():
+        assert document.tables[0].rows[row_index].cells[1].text == value

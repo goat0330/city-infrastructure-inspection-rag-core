@@ -39,7 +39,7 @@ _FIELD_ORDER = (
 )
 _REQUIRED_FIELDS = frozenset(("index", "location", "defect_type", "description"))
 _INHERITED_FIELDS = frozenset(("index", "location", "defect_type"))
-_DEFAULT_FIELDS = {"is_new": "否", "previous_status": "无", "development": "无"}
+_DEFAULT_FIELDS = {"is_new": "", "previous_status": "", "development": ""}
 
 _HEADER_ALIASES: dict[str, tuple[str, ...]] = {
     "index": ("序号", "编号", "病害编号", "缺陷编号", "病害序号", "缺陷序号"),
@@ -444,9 +444,9 @@ def extract_defects(
 
 _HISTORY_TABLE_HEADERS = {
     "location": ("位置", "部位", "结构部位"),
-    "previous": ("上一次检测结果", "上次检测结果", "上一次定检结果", "历史检测结果"),
-    "current": ("本次检测结果", "本次定检结果", "当前检测结果"),
-    "development": ("发展状况", "发展情况", "变化情况", "病害发展"),
+    "previous": ("上一次检测结果", "上次检测结果", "上一次定检结果", "历史检测结果", "上次病害", "历史病害", "既往病害"),
+    "current": ("本次检测结果", "本次定检结果", "当前检测结果", "本次病害", "当前病害"),
+    "development": ("发展状况", "发展情况", "变化情况", "病害发展", "发展程度", "变化趋势"),
 }
 _HISTORY_COMPONENT_TERMS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("上部结构", ("上部结构", "主梁", "梁", "板", "翼板", "腹板", "横隔", "铰缝", "索", "桥面板")),
@@ -464,48 +464,160 @@ _HISTORY_DISEASE_TERMS = tuple(
 )
 
 def _history_table_mapping(table: TableBlock) -> tuple[int, dict[str, int]] | None:
-    for row_index, row in enumerate(table.rows[:4]):
-        mapping: dict[str, int] = {}
-        for column_index, cell in enumerate(row.cells):
+    """Resolve history columns across up to four header rows.
+
+    Word often splits “上一次/本次/发展” labels across a multi-level header.
+    Logical ``column_index`` must be used instead of the physical ``row.cells``
+    position because horizontally merged cells make those two indexes diverge.
+    """
+
+    mapping: dict[str, int] = {}
+    for row in table.rows[:4]:
+        for cell in row.cells:
             value = _normalise_header(cell.raw_text)
             for field, aliases in _HISTORY_TABLE_HEADERS.items():
                 if field in mapping:
                     continue
                 if any(_normalise_header(alias) in value for alias in aliases):
-                    mapping[field] = column_index
+                    mapping[field] = cell.column_index
                     break
         if {"previous", "current", "development"}.issubset(mapping):
-            return row_index, mapping
+            return row.row_index, mapping
+    return None
+
+def _history_cell(row: TableRow, column: int | None) -> TableCell | None:
+    if column is None or column < 0:
+        return None
+    for cell in row.cells:
+        start = cell.column_index
+        span = max(1, cell.column_span)
+        if start <= column < start + span:
+            return cell
     return None
 
 def _history_cell_text(row: TableRow, column: int | None) -> str:
-    if column is None or column < 0 or column >= len(row.cells):
+    cell = _history_cell(row, column)
+    if cell is None:
         return ""
-    return _display_text(row.cells[column].raw_text).strip("，,；;。 ")
+    return _display_text(cell.raw_text).strip("，,；;。 ")
 
-def _history_groups(document: DocumentModel) -> tuple[dict[str, str], ...]:
-    groups: list[dict[str, str]] = []
+def _history_context_before(document: DocumentModel, table: TableBlock) -> str:
+    position = next(
+        (index for index, block in enumerate(document.blocks) if block is table),
+        -1,
+    )
+    if position < 0:
+        return ""
+    values: list[str] = []
+    for block in reversed(document.blocks[max(0, position - 4):position]):
+        if not isinstance(block, ParagraphBlock):
+            continue
+        text = _display_text(block.raw_text)
+        if text:
+            values.append(text)
+        if len(values) == 2:
+            break
+    return " ".join(reversed(values))
+
+def _history_positional_mapping(
+    document: DocumentModel,
+    table: TableBlock,
+) -> tuple[int, dict[str, int]] | None:
+    """Conservative fallback for chapter-7 comparison tables without headers.
+
+    This is intentionally narrow: the nearby text must explicitly identify a
+    historical/comparison section, the table must have a four-field comparison
+    shape (optionally preceded by a serial column), and the prospective
+    development column must contain change-language.
+    """
+
+    context = _normalise_header(_history_context_before(document, table))
+    if not any(marker in context for marker in (
+        "历次检测", "历史检测", "检测结果对比", "外观检测结果对比",
+        "病害发展", "对比分析",
+    )):
+        return None
+    if not table.rows:
+        return None
+    columns = sorted({
+        column
+        for row in table.rows[:8]
+        for cell in row.cells
+        for column in range(cell.column_index, cell.column_index + max(1, cell.column_span))
+    })
+    if len(columns) not in {4, 5}:
+        return None
+    offset = 0
+    if len(columns) == 5:
+        first_values = [
+            _history_cell_text(row, columns[0])
+            for row in table.rows[:8]
+            if _history_cell_text(row, columns[0])
+        ]
+        if not first_values or sum(bool(re.fullmatch(r"[0-9一二三四五六七八九十]+", value)) for value in first_values) < max(1, len(first_values) // 2):
+            return None
+        offset = 1
+    mapping = {
+        "location": columns[offset],
+        "previous": columns[offset + 1],
+        "current": columns[offset + 2],
+        "development": columns[offset + 3],
+    }
+    change_hits = 0
+    evidence_rows = 0
+    for row in table.rows[:10]:
+        previous = _history_cell_text(row, mapping["previous"])
+        current = _history_cell_text(row, mapping["current"])
+        development = _history_cell_text(row, mapping["development"])
+        if any((previous, current, development)):
+            evidence_rows += 1
+        if any(term in development for term in (
+            "新增", "新出现", "发展", "加重", "扩大", "减轻", "减少",
+            "修复", "消失", "无变化", "未见明显变化", "基本稳定", "稳定",
+        )):
+            change_hits += 1
+    if evidence_rows < 2 or change_hits < 1:
+        return None
+    return -1, mapping
+
+def _history_groups(document: DocumentModel) -> tuple[dict[str, object], ...]:
+    groups: list[dict[str, object]] = []
     for block in document.blocks:
         if not isinstance(block, TableBlock):
             continue
         header = _history_table_mapping(block)
+        mapping_kind = "header"
+        if header is None:
+            header = _history_positional_mapping(document, block)
+            mapping_kind = "positional_history"
         if header is None:
             continue
         header_row, mapping = header
-        for row in block.rows[header_row + 1 :]:
-            location = _history_cell_text(row, mapping.get("location"))
-            previous = _history_cell_text(row, mapping.get("previous"))
-            current = _history_cell_text(row, mapping.get("current"))
-            development = _history_cell_text(row, mapping.get("development"))
-            if not any((previous, current, development)):
+        inherited: dict[str, str] = {}
+        start = header_row + 1 if header_row >= 0 else 0
+        for row in block.rows[start:]:
+            values: dict[str, str] = {}
+            for field in ("location", "previous", "current", "development"):
+                cell = _history_cell(row, mapping.get(field))
+                value = _history_cell_text(row, mapping.get(field))
+                if value:
+                    inherited[field] = value
+                elif field == "location" and inherited.get(field):
+                    # Blank group labels conventionally inherit down rows.
+                    value = inherited[field]
+                elif cell is not None and cell.is_merge_continuation and inherited.get(field):
+                    value = inherited[field]
+                values[field] = value
+            if not any((values["previous"], values["current"], values["development"])):
                 continue
             groups.append(
                 {
-                    "location": location,
-                    "previous": previous,
-                    "current": current,
-                    "development": development,
-                    "block_index": str(block.block_index),
+                    **values,
+                    "block_index": block.block_index,
+                    "table_index": block.table_index,
+                    "row_index": row.row_index,
+                    "mapping_kind": mapping_kind,
+                    "source": block.source,
                 }
             )
     return tuple(groups)
@@ -557,15 +669,19 @@ def _history_location_match(record: DefectObservation, text: str) -> bool:
     return any(_normalise_header(token) in compact for token in tokens)
 
 
-def _best_history_group(record: DefectObservation, groups: Sequence[dict[str, str]]) -> dict[str, str] | None:
+def _best_history_group(record: DefectObservation, groups: Sequence[dict[str, object]]) -> dict[str, object] | None:
     component = _defect_component_key(record)
     text = _display_text(" ".join((record.location, record.defect_type, record.description)))
     disease_terms = _disease_terms(text)
-    ranked: list[tuple[int, int, dict[str, str]]] = []
+    ranked: list[tuple[int, int, dict[str, object]]] = []
     for order, group in enumerate(groups):
         score = 0
-        location = group.get("location", "")
-        group_text = " ".join((group.get("current", ""), group.get("development", ""), group.get("previous", "")))
+        location = _display_text(group.get("location", ""))
+        group_text = " ".join((
+            _display_text(group.get("current", "")),
+            _display_text(group.get("development", "")),
+            _display_text(group.get("previous", "")),
+        ))
         disease_hits = sum(1 for term in disease_terms if term in group_text)
         if not disease_hits and not (record.defect_type and record.defect_type in group_text):
             continue
@@ -595,55 +711,91 @@ def _enrich_defect_history(
     for record in records:
         # Respect explicit row-level history columns if the source defect table
         # already contains them.  Chapter-7 evidence only fills defaults.
-        if (record.previous_status not in {"", "无"} or record.development not in {"", "无"} or record.is_new not in {"", "否"}):
+        if (
+            record.previous_status not in {"", "无"}
+            or record.development not in {"", "无"}
+            or record.is_new not in {"", "否"}
+        ):
             enriched.append(record)
             continue
         group = _best_history_group(record, groups)
         if group is None:
             enriched.append(record)
             continue
+
         defect_terms = _disease_terms(" ".join((record.defect_type, record.description)))
-        previous = group.get("previous", "")
-        current = group.get("current", "")
-        development = group.get("development", "")
+        location = _display_text(group.get("location", ""))
+        previous = _display_text(group.get("previous", ""))
+        current = _display_text(group.get("current", ""))
+        development = _display_text(group.get("development", ""))
+
+        # A separate location column may carry the row identity while the
+        # previous/current cells contain only disease text.  Accept that layout
+        # only when the location is an exact generic label (e.g. 主梁/桥面) or a
+        # specific location token matches.  Do not promote a broad component
+        # row such as “上部结构” to every individual girder disease.
+        same_location = (
+            bool(_normalise_header(record.location))
+            and _normalise_header(record.location) == _normalise_header(location)
+        )
+        location_match = same_location or _history_location_match(record, location)
         previous_match = (
             bool(defect_terms)
-            and _history_location_match(record, previous)
+            and (_history_location_match(record, previous) or location_match)
             and any(term in previous for term in defect_terms)
         )
         current_match = (
             bool(defect_terms)
-            and _history_location_match(record, current)
+            and (_history_location_match(record, current) or location_match)
             and any(term in current for term in defect_terms)
         )
-        # Development is component-level in many reports.  Only copy it to an
-        # individual defect when the development text names the same disease;
-        # otherwise the existing Gold-template defaults are safer.
         development_match = bool(defect_terms) and any(term in development for term in defect_terms)
+        development_compact = _normalise_header(development)
+        generic_new = development_compact in {"新增", "新出现", "本次新增", "新发", "新增病害"}
+        generic_stable = development_compact in {"无", "无变化", "未见明显变化", "基本稳定", "较稳定", "稳定"}
+        previous_none = _normalise_header(previous) in {"", "无", "未见", "未发现", "无病害", "未发现病害"}
 
-        is_new = record.is_new or "否"
-        previous_status = record.previous_status or "无"
-        development_value = record.development or "无"
+        is_new = record.is_new
+        previous_status = record.previous_status
+        development_value = record.development
         if previous_match:
             previous_status = previous[:220]
-        if "新增" in development and current_match and development_match:
+        if "新增" in development and current_match and (development_match or generic_new):
             is_new = "是"
-            development_value = development[:220]
+            if previous_none:
+                previous_status = "无"
+            development_value = development[:220] or "新增"
         elif development_match and current_match and any(
-            term in development for term in ("发展", "加重", "扩大", "修复", "减轻", "变化")
+            term in development for term in ("发展", "加重", "扩大", "修复", "减轻", "减少", "变化")
         ):
+            if previous_match:
+                is_new = "否"
             development_value = development[:220]
-        elif _normalise_header(development) in {"无", "无变化", "未见明显变化"}:
-            development_value = "无"
+        elif generic_stable and previous_match and current_match:
+            is_new = "否"
+            development_value = "无" if development_compact == "无" else development[:220]
+        elif previous_match and current_match:
+            # The same disease is explicitly present in both periods even when
+            # the table omits a development phrase.
+            is_new = "否"
 
-        if (is_new, previous_status, development_value) != (record.is_new, record.previous_status, record.development):
+        if (is_new, previous_status, development_value) != (
+            record.is_new,
+            record.previous_status,
+            record.development,
+        ):
             updated += 1
+            history_source = group.get("source")
+            evidence = list(record.evidence)
+            if isinstance(history_source, SourceAnchor) and history_source not in evidence:
+                evidence.append(history_source)
             enriched.append(
                 replace(
                     record,
                     is_new=is_new,
                     previous_status=previous_status,
                     development=development_value,
+                    evidence=tuple(evidence),
                 )
             )
         else:
@@ -968,7 +1120,7 @@ def _extract_table(
         flags.append(
             _flag(
                 "defaulted_defect_fields",
-                "Missing defect status fields use the current Gold template defaults.",
+                "Missing defect history fields remain internally missing; the official renderer displays them as 无.",
                 fields=_ordered_fields(defaulted_fields),
             )
         )
