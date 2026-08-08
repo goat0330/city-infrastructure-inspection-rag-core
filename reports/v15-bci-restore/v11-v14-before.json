@@ -1,0 +1,54 @@
+{
+  "version": "v15-before-v11-v14",
+  "evidence_basis": "user-provided validated 92-run statistics; raw V11/V14 prediction.jsonl paths are not mounted in this sandbox",
+  "platform": {
+    "v11": {
+      "total": 47.42,
+      "brief_accuracy_pct": 31,
+      "brief_text_consistency_pct": 49,
+      "detail_text_consistency_pct": 43,
+      "brief_logic_pct": 64,
+      "detail_logic_pct": 66
+    },
+    "v14": {
+      "total": 37.71,
+      "brief_accuracy_pct": 31,
+      "brief_text_consistency_pct": 25,
+      "detail_text_consistency_pct": 22,
+      "brief_logic_pct": 59,
+      "detail_logic_pct": 63
+    }
+  },
+  "v11_v14_confirmed_92_diff_counts": {
+    "overall_score": 4,
+    "superstructure_score": 59,
+    "substructure_score": 64,
+    "deck_score": 81,
+    "overall_grade": "exact per-field count unavailable in mounted evidence",
+    "superstructure_grade": "exact per-field count unavailable in mounted evidence",
+    "substructure_grade": "exact per-field count unavailable in mounted evidence",
+    "deck_grade": "exact per-field count unavailable in mounted evidence",
+    "any_summary_score_or_grade": 92,
+    "defects": 0,
+    "recommendations": 0,
+    "treatments": 0,
+    "detailed_conclusion": 92,
+    "causes": 88,
+    "safety_impact": 79,
+    "rag_retrieval_ids_changed": 0,
+    "rag_retrieval_ids_same": 92
+  },
+  "root_cause": "V14 gave paired_score_grade (BSI) production selection priority 820, above V11 BCI/final assessment table semantics.",
+  "v11_selection_semantics": {
+    "overall_assessment_table_component": 650,
+    "bci": 500,
+    "section_score_table": 300,
+    "section_score": 280
+  },
+  "v14_regression": {
+    "paired_score_grade": 820,
+    "component_dr": 760
+  },
+  "raw_prediction_files_available": false,
+  "platform_score_verified_for_v15": false
+}

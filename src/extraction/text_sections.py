@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+import os
 import re
 from typing import Iterable, Mapping, Sequence
 
@@ -63,6 +64,126 @@ _SECTION_PATTERNS = {
     "overview": re.compile(r"(?:\d+(?:\.\d+)*\s*)?(?:外观检查结果|外观病害检查)"),
     "cause": re.compile(r"(?:\d+(?:\.\d+)*\s*)?(?:病害原因分析|病害成因分析|原因分析)"),
 }
+
+SUMMARY_STYLE_ENV = "SUMMARY_STYLE"
+SUMMARY_STYLE = os.getenv(SUMMARY_STYLE_ENV, "legacy").strip().lower() or "legacy"
+VALID_SUMMARY_STYLES = frozenset({"legacy", "official"})
+
+
+def normalize_summary_style(style: str | None = None) -> str:
+    """Resolve the optional deterministic summary-style experiment."""
+
+    resolved = (
+        str(style).strip().lower()
+        if style is not None
+        else os.getenv(SUMMARY_STYLE_ENV, "legacy").strip().lower()
+    ) or "legacy"
+    if resolved not in VALID_SUMMARY_STYLES:
+        allowed = ", ".join(sorted(VALID_SUMMARY_STYLES))
+        raise ValueError(f"invalid {SUMMARY_STYLE_ENV}={resolved!r}; expected one of: {allowed}")
+    return resolved
+
+
+def _official_component(location: str, description: str) -> str:
+    compact = re.sub(r"\s+", "", f"{location}{description}")
+    if any(token in compact for token in (
+        "桥面", "铺装", "伸缩缝", "栏杆", "护栏", "人行道", "泄水", "排水", "防撞墙",
+    )):
+        return "桥面系"
+    if any(token in compact for token in (
+        "桥墩", "桥台", "墩柱", "台身", "台帽", "基础", "承台", "盖梁", "翼墙", "锥坡",
+    )):
+        return "下部结构"
+    if any(token in compact for token in (
+        "主梁", "横梁", "纵梁", "横隔", "腹板", "翼板", "湿接缝", "支座", "梁体", "梁板",
+    )):
+        return "上部结构"
+    return ""
+
+
+def _official_overall_conclusion(
+    current: str,
+    defects: Sequence[object],
+    *,
+    facility_context: object | None = None,
+) -> str:
+    grouped: dict[str, list[str]] = {
+        "上部结构": [],
+        "下部结构": [],
+        "桥面系": [],
+    }
+    for defect in defects:
+        location = _field_value(defect, "location")
+        defect_type = _field_value(defect, "defect_type")
+        description = _field_value(defect, "description")
+        component = _official_component(location, description or defect_type)
+        if not component:
+            continue
+        fact = _clean_text(defect_type or description, strip_number=False).strip("，,；;。 ")
+        if fact and fact not in grouped[component]:
+            grouped[component].append(fact)
+
+    clauses: list[str] = []
+    for component in ("上部结构", "下部结构", "桥面系"):
+        facts = grouped[component][:5]
+        if facts:
+            clauses.append(f"{component}存在{'、'.join(facts)}")
+    if not clauses:
+        return current
+
+    noun = _context_value(facility_context, "facility_noun", "桥梁") or "桥梁"
+    # Keep the official bridge wording exact for bridges while preserving the
+    # facility noun for pedestrian/underpass/tunnel reports.
+    return f"本次定检结果表明，{noun}" + "；".join(clauses) + "。"
+
+
+def _official_trend(value: str) -> str:
+    text = _clean_text(value, strip_number=False).strip("，,；;。 ")
+    if not text or text in {"无", "暂无", "不适用"}:
+        return "无" if text else text
+    text = re.sub(r"^与上一次(?:定检|检测|检查)相比[，,:：\s]*", "", text)
+    parts: list[str] = []
+    for raw in re.split(r"[；;]+", text):
+        part = raw.strip("，,；;。 ")
+        if not part:
+            continue
+        part = part.replace(":", "：")
+        match = re.match(r"^(上部结构|下部结构|桥面系|总体|整体|桥梁)(?:：)?(.*)$", part)
+        component = match.group(1) if match else ""
+        content = match.group(2).strip("：，,；;。 ") if match else part
+        content = re.sub(r"^新增病害[：]?", "新增", content)
+        content = re.sub(r"^病害发展(?:趋势)?[：]?", "", content)
+        if content in {"", "无", "暂无", "无变化", "新增无", "新增病害无"}:
+            continue
+        content = re.sub(r"[,，]+", "、", content)
+        cleaned = f"{component}{content}" if component else content
+        if cleaned and cleaned not in parts:
+            parts.append(cleaned)
+    if not parts:
+        return "无"
+    return "与上一次定检相比，" + "；".join(parts) + "。"
+
+
+def apply_summary_style(
+    summary: BridgeSummary,
+    defects: Sequence[object],
+    *,
+    facility_context: object | None = None,
+    style: str | None = None,
+) -> BridgeSummary:
+    """Apply the optional official summary wording without changing facts."""
+
+    resolved = normalize_summary_style(style)
+    if resolved == "legacy":
+        return summary
+    return replace(
+        summary,
+        overall_conclusion=_official_overall_conclusion(
+            summary.overall_conclusion, defects, facility_context=facility_context
+        ),
+        trend=_official_trend(summary.trend),
+    )
+
 _TITLE_RE = re.compile(
     r"^(?:第?\d+(?:\.\d+)*\s*)?(?:检测结论|评估结论|检查结论|总体结论|安全性评估|"
     r"桥梁安全性评估|安全性评估等级|安全性评估内容|现状评估|预测评估|综合评估|"

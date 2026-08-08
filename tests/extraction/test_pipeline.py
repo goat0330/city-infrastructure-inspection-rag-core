@@ -154,3 +154,55 @@ def test_predict_batch_keeps_successes_when_one_docx_fails(tmp_path: Path) -> No
     assert json.loads(lines[0])["schema_version"] == "prediction-v1"
     payload = json.loads(report.read_text(encoding="utf-8"))
     assert {item["status"] for item in payload["records"]} == {"succeeded", "failed"}
+
+
+def test_extract_report_reads_grade_mode_environment_at_runtime(tmp_path: Path, monkeypatch) -> None:
+    source = write_docx(
+        tmp_path / "等级口径桥.docx",
+        paragraph("桥梁概要"),
+        table(
+            row(cell("字段"), cell("内容")),
+            row(cell("桥梁名称"), cell("等级口径桥")),
+            row(cell("总体评分"), cell("92.0")),
+            row(cell("总体等级"), cell("B级")),
+        ),
+    )
+
+    monkeypatch.setenv("GRADE_MODE", "report")
+    report = extract_report(source)
+    monkeypatch.setenv("GRADE_MODE", "generic")
+    generic = extract_report(source)
+
+    assert report.prediction.summary.overall_score == generic.prediction.summary.overall_score == "92.0"
+    assert report.prediction.summary.overall_grade == "B级"
+    assert generic.prediction.summary.overall_grade == "A级"
+
+
+def test_extract_report_official_summary_style_is_explicit_opt_in(tmp_path: Path, monkeypatch) -> None:
+    source = _write_fixture(tmp_path / "摘要句式桥.docx")
+
+    monkeypatch.setenv("SUMMARY_STYLE", "legacy")
+    legacy = extract_report(source)
+    monkeypatch.setenv("SUMMARY_STYLE", "official")
+    official = extract_report(source)
+
+    assert legacy.prediction.summary.overall_conclusion == ""
+    assert official.prediction.summary.overall_conclusion.startswith("本次定检结果表明，桥梁")
+    assert "桥面系存在裂缝" in official.prediction.summary.overall_conclusion
+
+
+def test_deterministic_risk_points_keep_defect_consequence_pair_without_invention(tmp_path: Path) -> None:
+    source = write_docx(
+        tmp_path / "风险证据桥.docx",
+        paragraph("桥梁概要"),
+        _summary_table(),
+        paragraph("病害明细表"),
+        _defect_table(),
+        paragraph("评估结论"),
+        paragraph("桥面裂缝进一步发展可能影响结构耐久性。"),
+    )
+
+    result = extract_report(source)
+
+    assert "裂缝" in result.prediction.summary.risk_points
+    assert "耐久性" in result.prediction.summary.risk_points

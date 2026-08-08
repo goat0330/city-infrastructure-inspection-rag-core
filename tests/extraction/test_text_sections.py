@@ -145,3 +145,56 @@ def test_detailed_conclusion_uses_only_clean_conclusion_evidence() -> None:
     assert "温度收缩" not in text
     assert "按结构部位归纳病害" not in text
     assert "记录4条" not in text
+
+
+def test_official_summary_style_uses_fixed_opening_and_component_order() -> None:
+    from src.extraction.text_sections import apply_summary_style
+    from src.extraction.summary.facility_context import FacilityContext
+
+    summary = BridgeSummary(overall_conclusion="原报告概述")
+    defects = (
+        DefectObservation("1", "桥面铺装", "裂缝", "桥面铺装存在裂缝"),
+        DefectObservation("2", "桥墩", "渗水泛碱", "桥墩渗水泛碱"),
+        DefectObservation("3", "主梁", "露筋", "主梁局部露筋"),
+    )
+    result = apply_summary_style(
+        summary,
+        defects,
+        facility_context=FacilityContext(facility_name="测试桥", facility_type="bridge", facility_noun="桥梁"),
+        style="official",
+    )
+
+    assert result.overall_conclusion.startswith("本次定检结果表明，桥梁")
+    assert result.overall_conclusion.index("上部结构") < result.overall_conclusion.index("下部结构")
+    assert result.overall_conclusion.index("下部结构") < result.overall_conclusion.index("桥面系")
+    assert "露筋" in result.overall_conclusion
+    assert "渗水泛碱" in result.overall_conclusion
+    assert "裂缝" in result.overall_conclusion
+
+
+def test_official_summary_style_cleans_mechanical_trend_prefixes() -> None:
+    from src.extraction.text_sections import apply_summary_style
+
+    summary = BridgeSummary(
+        trend="上部结构:新增病害:局部渗水泛碱,部分主梁破损露筋。;下部结构:无;桥面系:新增病害:铺装裂缝"
+    )
+    result = apply_summary_style(summary, (), style="official")
+
+    assert result.trend.startswith("与上一次定检相比，")
+    assert "新增病害:" not in result.trend
+    assert "下部结构无" not in result.trend
+    assert ":" not in result.trend
+    assert "上部结构新增局部渗水泛碱、部分主梁破损露筋" in result.trend
+    assert "桥面系新增铺装裂缝" in result.trend
+
+
+def test_legacy_summary_style_is_noop_and_preserves_risk_points() -> None:
+    from src.extraction.text_sections import apply_summary_style
+
+    summary = BridgeSummary(
+        overall_conclusion="报告原句",
+        trend="上部结构：新增裂缝",
+        risk_points="裂缝进一步发展可能影响耐久性",
+    )
+    result = apply_summary_style(summary, _facts(), style="legacy")
+    assert result == summary

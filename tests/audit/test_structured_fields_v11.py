@@ -120,3 +120,216 @@ def test_prediction_baseline_diff_reports_field_level_changes(tmp_path: Path) ->
     assert payload["matched_sample_count"] == 1
     assert payload["changed_count"] == 1
     assert payload["changed_by_field"] == {"overall_score": 1}
+
+
+def test_grade_mode_diff_reports_only_changed_grade_fields() -> None:
+    report = SimpleNamespace(
+        summary=SimpleNamespace(
+            overall_score="89.46",
+            overall_grade="B级",
+            superstructure_score="86.10",
+            superstructure_grade="D级",
+            substructure_score="92.00",
+            substructure_grade="B级",
+            deck_score="85.75",
+            deck_grade="D级",
+        )
+    )
+    generic = SimpleNamespace(
+        summary=SimpleNamespace(
+            overall_score="89.46",
+            overall_grade="B级",
+            superstructure_score="86.10",
+            superstructure_grade="B级",
+            substructure_score="92.00",
+            substructure_grade="A级",
+            deck_score="85.75",
+            deck_grade="B级",
+        )
+    )
+
+    decisions = module._grade_mode_differences(
+        "太平水库大桥", "太平水库大桥.docx", report, generic
+    )
+
+    changed = [item for item in decisions if item["changed"]]
+    assert {item["field"] for item in changed} == {
+        "superstructure_grade", "substructure_grade", "deck_grade"
+    }
+    assert all(item["score"] for item in decisions)
+    payload = module._grade_mode_diff_payload(decisions, input_count=1)
+    assert payload["decision_count"] == 4
+    assert payload["changed_count"] == 3
+    assert payload["changed_sample_count"] == 1
+    assert payload["platform_score_verified"] is False
+
+
+def test_generic_grade_audit_uses_score_anchor_not_report_grade_anchor() -> None:
+    selected_score = _candidate(
+        "superstructure_score", "86.10", "bci", "上部结构BCIs=86.10，评定为D级"
+    )
+    report_grade = _candidate(
+        "superstructure_grade", "D级", "bci", "上部结构BCIs=86.10，评定为D级"
+    )
+    summary = SimpleNamespace(
+        summary=SimpleNamespace(superstructure_score="86.10", superstructure_grade="B级"),
+        candidates={
+            "superstructure_score": (selected_score,),
+            "superstructure_grade": (report_grade,),
+        },
+        facility_context=SimpleNamespace(facility_type_raw="桥梁", facility_type="bridge"),
+    )
+    submission = SimpleNamespace(scalars={"superstructure_grade": "B级"})
+    rendered = {"superstructure_grade": "B级"}
+    fake_path = Path("/tmp/root/sample.docx")
+    fake_root = Path("/tmp/root")
+    document = SimpleNamespace(blocks=())
+
+    row = module._record_for_field(
+        fake_path,
+        fake_root,
+        document,
+        (),
+        summary,
+        submission,
+        rendered,
+        "superstructure_grade",
+        grade_mode="generic",
+    )
+
+    assert row["state"] == "extracted"
+    assert row["source_kind"] == "generic_grade_mapping"
+    assert row["derived_from_score"] == "superstructure_score"
+    assert row["renderer_match"] is True
+
+
+def test_grade_mode_change_kind_mapped_filled_preserved() -> None:
+    report = SimpleNamespace(
+        summary=SimpleNamespace(
+            overall_score="86.10", overall_grade="D级",
+            superstructure_score="86.10", superstructure_grade="无",
+            substructure_score="95.39", substructure_grade="二类",
+            deck_score="无", deck_grade="B级",
+        )
+    )
+    generic = SimpleNamespace(
+        summary=SimpleNamespace(
+            overall_score="86.10", overall_grade="B级",
+            superstructure_score="86.10", superstructure_grade="B级",
+            substructure_score="95.39", substructure_grade="二类",
+            deck_score="无", deck_grade="B级",
+        )
+    )
+    decisions = module._grade_mode_differences("sample", "sample.docx", report, generic)
+    kinds = {item["field"]: item["change_kind"] for item in decisions}
+    assert kinds["overall_grade"] == "mapped"
+    assert kinds["superstructure_grade"] == "filled"
+    assert kinds["substructure_grade"] == "preserved"
+    assert kinds["deck_grade"] == "preserved"
+
+
+def test_generic_preserved_class_grade_keeps_report_anchor() -> None:
+    report_grade = _candidate(
+        "overall_grade", "二类", "section_score_table", "综合评定分数Dr=70.4\t二类"
+    )
+    score = _candidate(
+        "overall_score", "70.4", "section_score_table", "综合评定分数Dr=70.4"
+    )
+    summary = SimpleNamespace(
+        summary=SimpleNamespace(overall_score="70.4", overall_grade="二类"),
+        candidates={"overall_score": (score,), "overall_grade": (report_grade,)},
+        facility_context=SimpleNamespace(facility_type_raw="大桥", facility_type="bridge"),
+    )
+    submission = SimpleNamespace(scalars={"overall_grade": "二类"})
+    rendered = {"overall_grade": "二类"}
+    row = module._record_for_field(
+        Path("/tmp/root/sample.docx"), Path("/tmp/root"), SimpleNamespace(blocks=()), (),
+        summary, submission, rendered, "overall_grade", grade_mode="generic",
+    )
+    assert row["change_kind"] == "preserved"
+    assert row["source_kind"] == "section_score_table"
+    assert row["derived_from_score"] == ""
+
+
+def test_paired_score_grade_audit_records_counterpart_and_rejected_candidate() -> None:
+    source = SourceAnchor(source_file="sample.docx", block_index=8, raw_text="BSIs=81.36（B级）")
+    paired_score = SimpleNamespace(
+        field="superstructure_score", value="81.36", source_kind="paired_score_grade",
+        label="BSIs评分等级配对", date_kind=None, priority=820, source=source,
+    )
+    old_score = _candidate("superstructure_score", "97.80", "bci", "上部结构BCIs=97.80")
+    paired_grade = SimpleNamespace(
+        field="superstructure_grade", value="B级", source_kind="paired_score_grade",
+        label="BSIs评分等级配对", date_kind=None, priority=820, source=source,
+    )
+    summary = SimpleNamespace(
+        summary=SimpleNamespace(superstructure_score="81.36", superstructure_grade="B级"),
+        candidates={
+            "superstructure_score": (paired_score, old_score),
+            "superstructure_grade": (paired_grade,),
+        },
+        facility_context=SimpleNamespace(facility_type_raw="桥梁", facility_type="bridge"),
+    )
+    submission = SimpleNamespace(scalars={"superstructure_score": "81.36"})
+    rendered = {"superstructure_score": "81.36"}
+    row = module._record_for_field(
+        Path("/tmp/root/sample.docx"), Path("/tmp/root"), SimpleNamespace(blocks=()), (),
+        summary, submission, rendered, "superstructure_score", grade_mode="report",
+    )
+
+    assert row["source_kind"] == "paired_score_grade"
+    assert row["paired_grade"] == "B级"
+    assert row["bsi_kind"].lower() == "bsis"
+    assert row["selection_reason"] == "paired_final_assessment_preferred"
+    assert any(item["value"] == "97.80" for item in row["rejected_candidates"])
+
+
+def test_bsi_only_component_fact_is_audit_evidence_not_selected() -> None:
+    source = SourceAnchor(source_file="sample.docx", block_index=8, raw_text="BSIs=78.83（C级）")
+    bsi_score = SimpleNamespace(
+        field="superstructure_score", value="78.83", source_kind="paired_score_grade",
+        label="BSIs评分等级配对", date_kind=None, priority=820, source=source,
+    )
+    summary = SimpleNamespace(
+        summary=SimpleNamespace(superstructure_score="无", superstructure_grade="无"),
+        candidates={"superstructure_score": (bsi_score,), "superstructure_grade": ()},
+        facility_context=SimpleNamespace(facility_type_raw="桥梁", facility_type="bridge"),
+    )
+    submission = SimpleNamespace(scalars={"superstructure_score": "无"})
+    rendered = {"superstructure_score": "无"}
+    row = module._record_for_field(
+        Path("/tmp/root/sample.docx"), Path("/tmp/root"), SimpleNamespace(blocks=()), (),
+        summary, submission, rendered, "superstructure_score", grade_mode="report",
+    )
+    assert row["source_kind"] == ""
+    assert row["bsi_only_not_mapped"] is True
+    assert row["bsi_selection_reason"] == "bsi_only_not_mapped"
+    assert row["bsi_evidence"][0]["value"] == "78.83"
+
+
+def test_bci_selected_component_keeps_bsi_as_rejected_audit_evidence() -> None:
+    bci_source = SourceAnchor(source_file="sample.docx", block_index=7, raw_text="BCIs=86.91")
+    bsi_source = SourceAnchor(source_file="sample.docx", block_index=8, raw_text="BSIs=78.83（C级）")
+    bci_score = SimpleNamespace(
+        field="superstructure_score", value="86.91", source_kind="bci",
+        label="BCI指数", date_kind=None, priority=500, source=bci_source,
+    )
+    bsi_score = SimpleNamespace(
+        field="superstructure_score", value="78.83", source_kind="paired_score_grade",
+        label="BSIs评分等级配对", date_kind=None, priority=820, source=bsi_source,
+    )
+    summary = SimpleNamespace(
+        summary=SimpleNamespace(superstructure_score="86.91", superstructure_grade="无"),
+        candidates={"superstructure_score": (bsi_score, bci_score), "superstructure_grade": ()},
+        facility_context=SimpleNamespace(facility_type_raw="桥梁", facility_type="bridge"),
+    )
+    submission = SimpleNamespace(scalars={"superstructure_score": "86.91"})
+    rendered = {"superstructure_score": "86.91"}
+    row = module._record_for_field(
+        Path("/tmp/root/sample.docx"), Path("/tmp/root"), SimpleNamespace(blocks=()), (),
+        summary, submission, rendered, "superstructure_score", grade_mode="report",
+    )
+    assert row["source_kind"] == "bci"
+    assert row["bsi_only_not_mapped"] is False
+    assert row["bsi_selection_reason"] == "bci_primary_bsi_not_mapped"
+    assert row["bsi_evidence"][0]["value"] == "78.83"

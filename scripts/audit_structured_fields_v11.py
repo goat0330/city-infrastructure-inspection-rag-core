@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Audit v11 structured facts from source DOCX through the official DOCX table.
+"""Audit v12 structured facts and report/generic grade A/B output.
 
 This is a deliberately small, read-only audit utility.  It does not score Gold,
 call an LLM, change templates, or write predictions back into the source tree.
@@ -10,7 +10,7 @@ Typical use on the full preliminary set::
 
     python scripts/audit_structured_fields_v11.py \
       --input-root <92-docx-root> \
-      --output-dir reports/v11-structured-field-audit \
+      --output-dir reports/v12-structured-field-audit \
       --stage before --expected-count 92
 
 After applying a patch, rerun with ``--stage after`` and the same input root.
@@ -38,6 +38,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from docx import Document
 
 from src.extraction.summary import extract_summary
+from src.extraction.grade_mapping import GRADE_SCORE_PAIRS, generic_change_kind, normalize_grade_mode
 from src.extraction.output_normalizer import normalize_prediction_output
 from src.contracts import InspectionPrediction
 from src.parsing import parse_docx
@@ -85,6 +86,10 @@ PUBLIC_DATE_KINDS = {
     "detection_end": "inspection_date",
     "range": "date_range",
 }
+
+GRADE_TO_SCORE = {grade: score for score, grade in GRADE_SCORE_PAIRS}
+GRADE_FIELDS = tuple(GRADE_TO_SCORE)
+
 
 
 def _jsonl(path: Path) -> list[dict[str, object]]:
@@ -180,7 +185,15 @@ def _table_labels(document, source) -> tuple[str, str]:
 
 def _candidate_for_value(candidates, value: str):
     matching = [candidate for candidate in candidates if candidate.value == value]
-    pool = matching or list(candidates)
+    if matching:
+        pool = matching
+    elif str(value or "").strip() in {"", "无", "暂无", "不适用"}:
+        # Do not attach an unrelated evidence candidate to an explicitly
+        # missing production value.  V15 keeps BSI-only facts visible through
+        # dedicated audit metadata instead.
+        return None
+    else:
+        pool = list(candidates)
     if not pool:
         return None
     return sorted(
@@ -229,7 +242,9 @@ def _strong_selected_source(field: str, selected) -> bool:
     if field == "report_date":
         return getattr(selected, "date_kind", None) in {"cover", "sign", "cover_range_end"}
     if field in {"superstructure_score", "substructure_score", "deck_score"}:
-        return kind in {"overall_assessment_table", "bci"}
+        return kind in {"overall_assessment_table", "bci", "component_dr"}
+    if field in {"superstructure_grade", "substructure_grade", "deck_grade"}:
+        return kind in {"overall_assessment_table", "bci", "component_dr", "section_score_table", "section_score"}
     if field in {"overall_score", "overall_grade"}:
         return kind in {"bci", "overall_assessment_table", "underpass_conclusion"}
     if field.startswith("previous_"):
@@ -292,7 +307,7 @@ def _template_scalar_locations(fields_path: Path) -> dict[str, tuple[int, int, i
 
 def _rendered_scalars(payload: dict[str, object], template: Path, fields: Path) -> dict[str, str]:
     locations = _template_scalar_locations(fields)
-    with tempfile.TemporaryDirectory(prefix="v10-field-audit-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="v12-field-audit-") as tmp:
         output = Path(tmp) / "audit.docx"
         render_template_report(payload, output, template_path=template, fields_path=fields)
         document = Document(output)
@@ -302,10 +317,132 @@ def _rendered_scalars(payload: dict[str, object], template: Path, fields: Path) 
         return result
 
 
-def _record_for_field(path: Path, root: Path, document, routes, summary, submission, rendered, field: str) -> dict[str, object]:
+_PAIR_COUNTERPART = {
+    "deck_score": "deck_grade",
+    "deck_grade": "deck_score",
+    "superstructure_score": "superstructure_grade",
+    "superstructure_grade": "superstructure_score",
+    "substructure_score": "substructure_grade",
+    "substructure_grade": "substructure_score",
+}
+
+
+def _same_source_location(left, right) -> bool:
+    if left is None or right is None:
+        return False
+    return (
+        left.source_file == right.source_file
+        and left.block_index == right.block_index
+        and left.table_index == right.table_index
+        and left.row_index == right.row_index
+    )
+
+
+def _pairing_metadata(field: str, summary, selected) -> dict[str, object]:
+    if selected is None or getattr(selected, "source_kind", "") != "paired_score_grade":
+        return {
+            "paired_score": "", "paired_grade": "", "bsi_kind": "",
+            "selection_reason": "", "rejected_candidates": [],
+        }
+    label = str(getattr(selected, "label", "") or "")
+    match = re.search(r"BSI([msx])", label, flags=re.IGNORECASE)
+    bsi_kind = f"BSI{match.group(1)}" if match else ""
+    counterpart_field = _PAIR_COUNTERPART.get(field, "")
+    counterpart_value = ""
+    if counterpart_field:
+        candidates = tuple(summary.candidates.get(counterpart_field, ()))
+        same = [
+            candidate for candidate in candidates
+            if getattr(candidate, "source_kind", "") == "paired_score_grade"
+            and _same_source_location(getattr(candidate, "source", None), getattr(selected, "source", None))
+            and (not label or getattr(candidate, "label", "") == label)
+        ]
+        if same:
+            counterpart_value = str(same[0].value or "")
+    all_candidates = tuple(summary.candidates.get(field, ()))
+    rejected = []
+    selected_canonical = _canonical_value(field, getattr(selected, "value", ""))
+    for candidate in all_candidates:
+        candidate_value = str(getattr(candidate, "value", "") or "")
+        if not candidate_value or _canonical_value(field, candidate_value) == selected_canonical:
+            continue
+        rejected.append({
+            "value": candidate_value,
+            "source_kind": str(getattr(candidate, "source_kind", "") or ""),
+            "label": str(getattr(candidate, "label", "") or ""),
+        })
+    return {
+        "paired_score": counterpart_value if field.endswith("_grade") else str(getattr(selected, "value", "") or ""),
+        "paired_grade": counterpart_value if field.endswith("_score") else str(getattr(selected, "value", "") or ""),
+        "bsi_kind": bsi_kind,
+        "selection_reason": "paired_final_assessment_preferred",
+        "rejected_candidates": rejected[:8],
+    }
+
+
+def _bsi_evidence_metadata(field: str, summary, selected, value: str) -> dict[str, object]:
+    if field not in _PAIR_COUNTERPART:
+        return {"bsi_evidence": [], "bsi_only_not_mapped": False, "bsi_selection_reason": ""}
+    evidence = []
+    for candidate in tuple(summary.candidates.get(field, ())):
+        if getattr(candidate, "source_kind", "") != "paired_score_grade":
+            continue
+        source = getattr(candidate, "source", None)
+        evidence.append({
+            "value": str(getattr(candidate, "value", "") or ""),
+            "label": str(getattr(candidate, "label", "") or ""),
+            "anchor": source.to_dict() if source is not None else None,
+        })
+    if not evidence:
+        return {"bsi_evidence": [], "bsi_only_not_mapped": False, "bsi_selection_reason": ""}
+    visible_missing = str(value or "").strip() in {"", "无", "暂无", "不适用"}
+    selected_kind = str(getattr(selected, "source_kind", "") or "") if selected is not None else ""
+    if visible_missing:
+        reason = "bsi_only_not_mapped"
+    elif selected_kind in {"overall_assessment_table", "bci", "component_dr"}:
+        reason = "bci_primary_bsi_not_mapped"
+    else:
+        reason = "non_bsi_production_candidate_preferred"
+    return {
+        "bsi_evidence": evidence,
+        "bsi_only_not_mapped": visible_missing,
+        "bsi_selection_reason": reason,
+    }
+
+
+def _record_for_field(
+    path: Path,
+    root: Path,
+    document,
+    routes,
+    summary,
+    submission,
+    rendered,
+    field: str,
+    *,
+    grade_mode: str = "report",
+) -> dict[str, object]:
     value = str(getattr(summary.summary, field, "") or "")
     candidates = tuple(summary.candidates.get(field, ()))
     selected = _candidate_for_value(candidates, value)
+    derived_from_score = ""
+    grade_change_kind = ""
+    if grade_mode == "generic" and field in GRADE_TO_SCORE:
+        score_field = GRADE_TO_SCORE[field]
+        score_value = str(getattr(summary.summary, score_field, "") or "")
+        report_grade = next(
+            (str(candidate.value or "") for candidate in candidates if str(candidate.value or "").strip()),
+            "无",
+        )
+        grade_change_kind = generic_change_kind(score_value, report_grade)
+        if grade_change_kind in {"mapped", "filled"}:
+            score_candidates = tuple(summary.candidates.get(score_field, ()))
+            selected = _candidate_for_value(score_candidates, score_value)
+            derived_from_score = score_field
+        else:
+            # Preserved class-system or standalone report grades keep their
+            # report anchor; do not relabel them as score-derived facts.
+            selected = _candidate_for_value(candidates, value)
     source = getattr(selected, "source", None)
     row_label, column_label = _table_labels(document, source)
     renderer_key = RENDERER_KEYS[field]
@@ -315,14 +452,28 @@ def _record_for_field(path: Path, root: Path, document, routes, summary, submiss
     if expected_visible == "":
         expected_visible = "无"
     renderer_match = submission_value == expected_visible and rendered_value == expected_visible
-    state, conflict, selection_resolved, distinct_candidate_count = _audit_state(
-        field, value, candidates, selected, renderer_match=renderer_match
-    )
-    anchor_value_match = _anchor_supports_value(field, value, selected)
+    if grade_mode == "generic" and field in GRADE_TO_SCORE and grade_change_kind in {"mapped", "filled"}:
+        if value in {"无", "暂无", "不适用"}:
+            state, conflict, selection_resolved, distinct_candidate_count = (
+                "explicit_none", False, False, len({_canonical_value(field, c.value) for c in candidates if _canonical_value(field, c.value)})
+            )
+            anchor_value_match = False
+        else:
+            state, conflict, selection_resolved, distinct_candidate_count = (
+                "extracted", False, bool(selected is not None and renderer_match), len({_canonical_value(field, c.value) for c in candidates if _canonical_value(field, c.value)})
+            )
+            anchor_value_match = bool(selected is not None)
+    else:
+        state, conflict, selection_resolved, distinct_candidate_count = _audit_state(
+            field, value, candidates, selected, renderer_match=renderer_match
+        )
+        anchor_value_match = _anchor_supports_value(field, value, selected)
     date_kind = None
     if field == "report_date":
         internal_kind = getattr(selected, "date_kind", None) if selected else None
         date_kind = PUBLIC_DATE_KINDS.get(str(internal_kind or ""), "unknown")
+    pairing = _pairing_metadata(field, summary, selected)
+    bsi_evidence = _bsi_evidence_metadata(field, summary, selected, value)
     return {
         "sample_id": path.relative_to(root).with_suffix("").as_posix(),
         "filename": path.name,
@@ -330,7 +481,11 @@ def _record_for_field(path: Path, root: Path, document, routes, summary, submiss
         "field": field,
         "value": value,
         "state": state,
-        "source_kind": getattr(selected, "source_kind", "") if selected else "",
+        "source_kind": (
+            "generic_grade_mapping"
+            if grade_mode == "generic" and field in GRADE_TO_SCORE and grade_change_kind in {"mapped", "filled"}
+            else getattr(selected, "source_kind", "") if selected else ""
+        ),
         "source_section": _source_section(document, routes, getattr(source, "block_index", None)),
         "anchor": source.to_dict() if source is not None else None,
         "row_label": row_label,
@@ -345,10 +500,15 @@ def _record_for_field(path: Path, root: Path, document, routes, summary, submiss
         "rendered_docx_value": rendered_value,
         "renderer_match": renderer_match,
         "date_kind": date_kind,
+        "grade_mode": grade_mode,
+        "derived_from_score": derived_from_score,
+        "change_kind": grade_change_kind,
+        **pairing,
+        **bsi_evidence,
     }
 
 
-def _summarize(rows: list[dict[str, object]], *, stage: str, input_count: int, errors: list[dict[str, str]]) -> dict[str, object]:
+def _summarize(rows: list[dict[str, object]], *, stage: str, input_count: int, errors: list[dict[str, str]], grade_mode: str = "report") -> dict[str, object]:
     states = Counter(str(row["state"]) for row in rows)
     renderer_mismatches = [row for row in rows if not bool(row.get("renderer_match"))]
     by_field: dict[str, Counter[str]] = defaultdict(Counter)
@@ -358,6 +518,7 @@ def _summarize(rows: list[dict[str, object]], *, stage: str, input_count: int, e
     common_dates = Counter(report_dates).most_common(5)
     return {
         "stage": stage,
+        "grade_mode": grade_mode,
         "input_count": input_count,
         "field_record_count": len(rows),
         "states": dict(states),
@@ -373,9 +534,10 @@ def _summarize(rows: list[dict[str, object]], *, stage: str, input_count: int, e
 def _write_markdown(path: Path, summary: dict[str, object], *, expected_count: int) -> None:
     input_count = int(summary.get("input_count", 0))
     lines = [
-        "# v11 structured-field audit",
+        "# v12 structured-field audit",
         "",
         f"- stage: `{summary.get('stage')}`",
+        f"- grade mode: `{summary.get('grade_mode', 'report')}`",
         f"- inputs audited: **{input_count}** / expected **{expected_count}**",
         f"- field records: **{summary.get('field_record_count', 0)}**",
         f"- renderer mismatches: **{summary.get('renderer_mismatch_count', 0)}**",
@@ -569,18 +731,74 @@ def _write_baseline_diff_markdown(path: Path, payload: dict[str, object]) -> Non
         lines.extend(f"- `{value}`" for value in payload["missing_baseline_samples"])
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
+def _grade_mode_differences(
+    sample_id: str,
+    filename: str,
+    report_summary: object,
+    generic_summary: object,
+) -> list[dict[str, object]]:
+    """Return report-vs-generic decisions for all four grade fields.
+
+    ``changed`` remains an explicit boolean so ``grade_mode_diff.json`` can
+    retain classic diff counts while also recording V13 ``preserved`` cases
+    where the visible grade correctly does not change.
+    """
+
+    report_values = getattr(report_summary, "summary", report_summary)
+    generic_values = getattr(generic_summary, "summary", generic_summary)
+    decisions: list[dict[str, object]] = []
+    for score_field, grade_field in GRADE_SCORE_PAIRS:
+        score = str(getattr(report_values, score_field, "") or "")
+        report_grade = str(getattr(report_values, grade_field, "") or "")
+        generic_grade = str(getattr(generic_values, grade_field, "") or "")
+        changed = _canonical_value(grade_field, report_grade) != _canonical_value(grade_field, generic_grade)
+        decisions.append({
+            "sample_id": sample_id,
+            "filename": filename,
+            "field": grade_field,
+            "score_field": score_field,
+            "score": score,
+            "report_grade": report_grade,
+            "generic_grade": generic_grade,
+            "change_kind": generic_change_kind(score, report_grade),
+            "changed": changed,
+        })
+    return decisions
+
+
+def _grade_mode_diff_payload(decisions: list[dict[str, object]], *, input_count: int) -> dict[str, object]:
+    changed = [item for item in decisions if bool(item.get("changed"))]
+    by_field = Counter(str(item["field"]) for item in changed)
+    by_kind = Counter(str(item.get("change_kind", "")) for item in decisions)
+    return {
+        "report_mode": "report",
+        "generic_mode": "generic",
+        "input_count": input_count,
+        "decision_count": len(decisions),
+        "change_kind_counts": dict(sorted(by_kind.items())),
+        "changed_count": len(changed),
+        "changed_sample_count": len({str(item["sample_id"]) for item in changed}),
+        "changed_by_field": dict(sorted(by_field.items())),
+        "decisions": decisions,
+        "changed": changed,
+        "platform_score_verified": False,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input-root", type=Path, required=True)
-    parser.add_argument("--output-dir", type=Path, default=Path("reports/v11-structured-field-audit"))
+    parser.add_argument("--output-dir", type=Path, default=Path("reports/v12-structured-field-audit"))
     parser.add_argument("--stage", choices=("before", "after"), default="after")
     parser.add_argument("--expected-count", type=int, default=92)
     parser.add_argument("--template", type=Path, default=Path("assets/templates/information_extraction_v1.docx"))
     parser.add_argument("--fields", type=Path, default=Path("assets/templates/template_fields.json"))
     parser.add_argument("--baseline-prediction-jsonl", type=Path)
     parser.add_argument("--baseline-label", default="v8")
-    parser.add_argument("--current-label", default="v11")
+    parser.add_argument("--current-label", default="v12")
+    parser.add_argument("--grade-mode", choices=("report", "generic"), default="report")
     args = parser.parse_args()
+    grade_mode = normalize_grade_mode(args.grade_mode)
 
     root = args.input_root
     paths = sorted(root.rglob("*.docx"), key=lambda path: path.relative_to(root).as_posix()) if root.is_dir() else []
@@ -588,13 +806,24 @@ def main() -> int:
         raise SystemExit(f"no DOCX inputs found under: {root}")
 
     rows: list[dict[str, object]] = []
+    grade_mode_changes: list[dict[str, object]] = []
     errors: list[dict[str, str]] = []
     for path in paths:
         source_file = path.relative_to(root).as_posix()
         try:
             document = parse_docx(path, source_file=source_file)
             routes = route_sections(document)
-            summary = extract_summary(document, routes)
+            report_summary = extract_summary(document, routes, grade_mode="report")
+            generic_summary = extract_summary(document, routes, grade_mode="generic")
+            summary = report_summary if grade_mode == "report" else generic_summary
+            grade_mode_changes.extend(
+                _grade_mode_differences(
+                    path.relative_to(root).with_suffix("").as_posix(),
+                    path.name,
+                    report_summary,
+                    generic_summary,
+                )
+            )
             prediction = normalize_prediction_output(
                 InspectionPrediction(
                     sample_id=path.relative_to(root).with_suffix("").as_posix(),
@@ -610,7 +839,9 @@ def main() -> int:
             submission = build_submission_document(payload)
             rendered = _rendered_scalars(payload, args.template, args.fields)
             for field in AUDIT_FIELDS:
-                rows.append(_record_for_field(path, root, document, routes, summary, submission, rendered, field))
+                rows.append(_record_for_field(
+                    path, root, document, routes, summary, submission, rendered, field, grade_mode=grade_mode
+                ))
         except Exception as error:  # audit every remaining input; report failures explicitly
             errors.append({"source_file": source_file, "error": f"{type(error).__name__}: {error}"[:500]})
 
@@ -620,12 +851,20 @@ def main() -> int:
     _write_jsonl(current, rows)
     snapshot = output / f"field_audit.{args.stage}.jsonl"
     _write_jsonl(snapshot, rows)
-    summary = _summarize(rows, stage=args.stage, input_count=len(paths), errors=errors)
+    summary = _summarize(
+        rows, stage=args.stage, input_count=len(paths), errors=errors, grade_mode=grade_mode
+    )
     (output / f"summary.{args.stage}.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
     _write_markdown(output / "field_audit.md", summary, expected_count=args.expected_count)
+
+    grade_mode_diff = _grade_mode_diff_payload(grade_mode_changes, input_count=len(paths))
+    (output / "grade_mode_diff.json").write_text(
+        json.dumps(grade_mode_diff, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
 
     before = _jsonl(output / "field_audit.before.jsonl")
     after = _jsonl(output / "field_audit.after.jsonl")
@@ -669,6 +908,8 @@ def main() -> int:
         "output_dir": str(output),
         "complete_92": len(paths) == args.expected_count and not errors,
         "baseline_diff_changes": baseline_diff.get("changed_count") if baseline_diff else None,
+        "grade_mode": grade_mode,
+        "grade_mode_diff_changes": grade_mode_diff.get("changed_count"),
     }, ensure_ascii=False, indent=2))
     return 0 if not errors else 2
 

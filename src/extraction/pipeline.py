@@ -26,7 +26,7 @@ from .official_answer_composer import compose_official_answers
 from .summary import SummaryExtraction, extract_summary
 from .summary.facility_context import FacilityContext
 from .semantic_candidates import build_semantic_candidates
-from .text_sections import TextSectionExtraction, extract_text_sections
+from .text_sections import TextSectionExtraction, apply_summary_style, extract_text_sections
 
 
 UNIMPLEMENTED_SECTIONS: tuple[str, ...] = ()
@@ -443,6 +443,11 @@ def extract_report(
             recommendations.records,
             source_summary=source_recommendations_summary,
         ),
+    )
+    summary_value = apply_summary_style(
+        summary_value,
+        defects.records,
+        facility_context=summary.facility_context,
     )
     field_states = dict(summary.field_states)
     field_states["recommendations_summary"] = "present"

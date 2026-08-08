@@ -20,6 +20,7 @@ from ...contracts import (
     TableBlock,
 )
 from ...routing import route_sections
+from ..grade_mapping import GRADE_SCORE_PAIRS, apply_grade_mode, normalize_grade_mode
 from .facility_context import (
     FacilityContext,
     FieldState,
@@ -252,6 +253,8 @@ _SOURCE_PRIORITY = {
     "safety_assessment": 100,
     "paragraph": 80,
     "recommendations_table": 300,
+    "paired_score_grade": 820,
+    "component_dr": 760,
     "bci": 500,
     "underpass_conclusion": 520,
     "project_name": 80,
@@ -305,12 +308,27 @@ _RECOMMENDATION_COUNT_RE = re.compile(r"(\d+)\s*条")
 
 _BCI_SCORE_RE = re.compile(r"BCI\s*([mMkKsSxX]?)\s*[=＝]\s*(\d+(?:\.\d+)?)")
 _BCI_COMPONENT = {"m": "deck", "s": "superstructure", "k": "superstructure", "x": "substructure"}
+_BSI_COMPONENT = {"m": "deck", "s": "superstructure", "x": "substructure"}
+_BSI_TOKEN_RE = re.compile(r"BSI\s*([mMsSxX])", flags=re.IGNORECASE)
+_BSI_PAIRED_VALUE_RE = re.compile(
+    r"(\d+(?:\.\d+)?)\s*分?\s*[（(]\s*([A-Ea-e]\s*级)\s*[）)]"
+)
+_BSI_DIRECT_PAIR_RE = re.compile(
+    r"BSI\s*([mMsSxX])\s*(?:=|＝|:|：|为|是)?\s*"
+    r"(\d+(?:\.\d+)?)\s*分?\s*[（(]\s*([A-Ea-e]\s*级)\s*[）)]",
+    flags=re.IGNORECASE,
+)
 _GRADE_AFTER_RE = re.compile(
     r"(?:结构状况)?评定(?:等级|级别)?(?:为|是|[:：=])?\s*"
     r"([A-Ea-e]\s*级|[一二三四五六]类)"
 )
 _OVERALL_GRADE_RE = re.compile(
-    r"(?<!下部结构)(?<!上部结构)(?<!桥面系)整体技术状况等级(?:评定|定)?为\s*([A-Ea-e]\s*级)"
+    r"(?<!下部结构)(?<!上部结构)(?<!桥面系)整体技术状况等级(?:评定|定)?为\s*([A-Ea-e]\s*级|[一二三四五六]类)"
+)
+_CLASS_OVERALL_GRADE_RE = re.compile(
+    r"(?<!下部结构)(?<!上部结构)(?<!桥面系)"
+    r"(?:桥梁|本桥|本设施)?(?:总体|整体)?技术状况(?:等级|级别)(?:评定)?"
+    r"(?:为|是|[:：=])?\s*([一二三四五六]类)"
 )
 _UNDERPASS_GRADE_RE = re.compile(r"技术状况总评\s*[，,、\t\s]*([一二三四五六]类)")
 _UNDERPASS_CONCLUSION_GRADE_RE = re.compile(r"满足\s*([一二三四五六]类)\s*技术标准")
@@ -810,17 +828,21 @@ class _CandidateCollector:
 def extract_summary(
     document: DocumentModel,
     routes: Iterable[object] | None = None,
+    *,
+    grade_mode: str | None = None,
 ) -> SummaryExtraction:
     """Extract a deterministic bridge summary from a parsed Word document.
 
     ``routes`` may be supplied by the shared section router.  When omitted, the
-    router is run locally.  All values are text from the document; scores and
-    grades are never derived from one another.
+    router is run locally.  ``report`` mode keeps grades stated by the report.
+    The explicit ``generic`` A/B mode maps only already-extracted scores to
+    grades; it never derives or changes a score from a grade.
     """
 
     if not isinstance(document, DocumentModel):
         raise TypeError("extract_summary expects a parsed DocumentModel")
 
+    resolved_grade_mode = normalize_grade_mode(grade_mode)
     selected_routes = tuple(route_sections(document) if routes is None else routes)
     route_categories = _route_categories(selected_routes)
     collector = _CandidateCollector()
@@ -862,6 +884,26 @@ def extract_summary(
         field: _selected_or_missing(field, collector.values[field])
         for field in _SUMMARY_FIELDS
     }
+    # Some long-span bridge reports use a class system and split the final
+    # assessment into scoped tables.  If the selected ``X类`` grade and an
+    # explicit Dr score occur on the same assessment row, pair those two
+    # observed facts instead of leaving the score empty.  This is provenance
+    # matching, not grade-to-score inference.
+    if summary_values["overall_score"] == "无" and re.fullmatch(
+        r"[一二三四五六]类", summary_values["overall_grade"] or ""
+    ):
+        paired_score = _paired_class_system_score(
+            collector.values["overall_score"],
+            collector.values["overall_grade"],
+            summary_values["overall_grade"],
+        )
+        if paired_score:
+            summary_values["overall_score"] = paired_score
+    report_grade_values = {grade_field: summary_values[grade_field] for _, grade_field in GRADE_SCORE_PAIRS}
+    # Platform A/B experiment: report mode preserves the report's explicit
+    # grades; generic mode changes only the four grade fields by mapping their
+    # already-extracted scores.  Scores are never inferred from grades.
+    summary_values = apply_grade_mode(summary_values, mode=resolved_grade_mode)
     # Current and previous scores are separated by source section, not by value.
     # Two inspections may legitimately have the same numeric score; clearing an
     # equal historical value would convert an observed fact into a false missing
@@ -927,6 +969,16 @@ def extract_summary(
         for field in _SCORE_FIELDS:
             if getattr(summary, field) == "无" and not collector.values[field]:
                 field_states[field] = "not_applicable"
+    if resolved_grade_mode == "generic":
+        for score_field, grade_field in GRADE_SCORE_PAIRS:
+            # V13 preserves standalone report grades when their score is
+            # missing and preserves all ``X类`` grades.  Field state therefore
+            # follows the final visible grade, not the old V12 assumption that
+            # every missing score forces the grade to explicit-none.
+            if getattr(summary, grade_field) not in {"", "无", "暂无", "不适用"}:
+                field_states[grade_field] = "present"
+            elif report_grade_values.get(grade_field) in {"", "无", "暂无", "不适用"}:
+                field_states[grade_field] = "explicit_none"
     if summary.trend == "无":
         field_states["trend"] = "explicit_none"
     return SummaryExtraction(
@@ -1098,11 +1150,13 @@ def _extract_table(
                     collector,
                 )
 
+    _extract_bsi_score_grade_pairs_from_table(table, source_kind, collector)
     _extract_header_columns(table, source_kind, collector)
     if source_kind in {"overall_assessment_table", "section_score_table"}:
         _extract_score_matrix(table, source_kind, collector, scope=scope)
 
     _extract_final_assessment_row(table, source_kind, collector, scope=scope)
+    _extract_component_dr_rows(table, source_kind, collector)
 
     _extract_bci_scores(_clean(table.raw_text), table.source, collector)
 
@@ -1234,15 +1288,30 @@ def _extract_final_assessment_row(
         cells = list(row.cells)
         if not cells or "综合评定分数" not in _compact(cells[0].raw_text):
             continue
+        first_compact = _compact(cells[0].raw_text)
+        # A labelled component Dr row belongs to that component, not the whole
+        # facility.  Component extraction is handled separately below.
+        if any(marker in first_compact for marker in ("上部结构", "下部结构", "桥面系")):
+            continue
         row_text = "\t".join(cell.raw_text for cell in cells)
-        score_match = re.search(r"[（(]\s*(\d+(?:\.\d+)?)\s*[）)]", row_text)
+        # Legacy long-span bridge reports often place the explicit Dr score
+        # inside the row label itself: ``综合评定分数 Dr=70.4``.  V12 already
+        # extracted the adjacent ``二类`` grade but missed this numeric fact.
+        # Keep the rule narrow to the final-assessment row and preserve scope.
+        score_match = re.search(
+            r"综合评定分数\s*D[rR]\s*(?:为|是|[:：=])?\s*(\d+(?:\.\d+)?)\s*分?",
+            _clean(cells[0].raw_text),
+            flags=re.IGNORECASE,
+        )
+        if score_match is None:
+            score_match = re.search(r"[（(]\s*(\d+(?:\.\d+)?)\s*[）)]", row_text)
         if score_match is not None:
             _add_field(
                 collector,
                 "overall_score",
                 score_match.group(1),
                 source_kind,
-                cells[-1].source or table.source,
+                cells[0].source or table.source,
                 label=_score_label(cells[0].raw_text, scope),
             )
         grade_match = _GRADE_RE.search("\t".join(cell.raw_text for cell in cells[1:]))
@@ -1255,6 +1324,50 @@ def _extract_final_assessment_row(
                 cells[-1].source or table.source,
                 label=_score_label("等级", scope),
             )
+
+
+def _same_table_row(left: SourceAnchor | None, right: SourceAnchor | None) -> bool:
+    if left is None or right is None:
+        return False
+    return (
+        left.source_file == right.source_file
+        and left.table_index is not None
+        and left.table_index == right.table_index
+        and left.row_index is not None
+        and left.row_index == right.row_index
+    )
+
+
+def _paired_class_system_score(
+    score_candidates: Sequence[SummaryCandidate],
+    grade_candidates: Sequence[SummaryCandidate],
+    selected_grade: str,
+) -> str:
+    """Pair a scoped Dr score with the selected explicit ``X类`` grade row."""
+
+    grades = [
+        candidate
+        for candidate in grade_candidates
+        if _normalise_field_value("overall_grade", candidate.value) == selected_grade
+    ]
+    grades.sort(
+        key=lambda candidate: (
+            -_selection_priority("overall_grade", candidate),
+            -candidate.priority,
+            _source_sort_key(candidate.source),
+        )
+    )
+    for grade in grades:
+        paired = [
+            candidate
+            for candidate in score_candidates
+            if "综合评定分数" in _compact(candidate.label)
+            and _same_table_row(candidate.source, grade.source)
+        ]
+        if paired:
+            paired.sort(key=lambda candidate: (-candidate.priority, _source_sort_key(candidate.source)))
+            return _normalise_field_value("overall_score", paired[0].value)
+    return ""
 
 
 def _score_label(label: str, scope: str | None = None) -> str:
@@ -1385,6 +1498,7 @@ def _extract_paragraph(
             block.source,
             collector,
         )
+    _extract_bsi_score_grade_pairs(block.raw_text, block.source, collector)
     _extract_score_phrases(block.raw_text, source_kind, block.source, collector)
 
 
@@ -1459,6 +1573,139 @@ def _extract_embedded_fields(
         )
 
     _extract_bci_scores(text, source, collector)
+
+
+def _bsi_base(token: str) -> str | None:
+    match = _BSI_TOKEN_RE.search(token or "")
+    if match is None:
+        return None
+    return _BSI_COMPONENT.get(match.group(1).lower())
+
+
+def _add_bsi_pair(
+    collector: _CandidateCollector,
+    token: str,
+    score: str,
+    grade: str,
+    source: SourceAnchor | None,
+) -> None:
+    base = _bsi_base(token)
+    if base is None:
+        return
+    suffix = token[-1].lower()
+    label = f"BSI{suffix}评分等级配对"
+    _add_field(collector, f"{base}_score", score, "paired_score_grade", source, label=label)
+    _add_field(collector, f"{base}_grade", grade, "paired_score_grade", source, label=label)
+
+
+def _extract_bsi_score_grade_pairs(
+    raw_text: str,
+    source: SourceAnchor | None,
+    collector: _CandidateCollector,
+) -> None:
+    """Extract explicit BSI score-grade pairs as one report fact.
+
+    Paired facts such as ``BSIs=81.36（B级）`` or the official triplet
+    ``BSIm、BSIs、BSIx分别为60.00（D级）、81.36（B级）、91.90（A级）``
+    outrank standalone intermediate calculations.  This function never infers
+    a score from a grade or a report-mode grade from a score.
+    """
+
+    text = _clean(raw_text)
+    if not text or "bsi" not in text.casefold():
+        return
+
+    for match in _BSI_DIRECT_PAIR_RE.finditer(text):
+        _add_bsi_pair(collector, f"BSI{match.group(1)}", match.group(2), match.group(3), source)
+
+    for marker_match in re.finditer(r"分别为", text):
+        prefix = text[max(0, marker_match.start() - 96):marker_match.start()]
+        tokens = [f"BSI{item.group(1)}" for item in _BSI_TOKEN_RE.finditer(prefix)]
+        if len(tokens) < 2:
+            continue
+        tokens = tokens[-3:]
+        tail = text[marker_match.end():marker_match.end() + 192]
+        pairs = list(_BSI_PAIRED_VALUE_RE.finditer(tail))
+        if len(pairs) < len(tokens):
+            continue
+        for token, pair in zip(tokens, pairs):
+            _add_bsi_pair(collector, token, pair.group(1), pair.group(2), source)
+
+
+def _row_source_anchor(table: TableBlock, row, raw_text: str) -> SourceAnchor | None:
+    source = next((cell.source for cell in row.cells if cell.source is not None), table.source)
+    if source is None:
+        return None
+    return SourceAnchor(
+        source_file=source.source_file,
+        block_index=source.block_index,
+        raw_text=raw_text,
+        table_index=source.table_index if source.table_index is not None else table.table_index,
+        row_index=getattr(row, "row_index", source.row_index),
+        column_index=None,
+        paragraph_index=None,
+    )
+
+
+def _extract_bsi_score_grade_pairs_from_table(
+    table: TableBlock,
+    source_kind: str,
+    collector: _CandidateCollector,
+) -> None:
+    del source_kind
+    for row in table.rows:
+        row_text = " ".join(_clean(cell.raw_text) for cell in row.cells if _clean(cell.raw_text))
+        if not row_text:
+            continue
+        _extract_bsi_score_grade_pairs(row_text, _row_source_anchor(table, row, row_text), collector)
+
+
+def _extract_component_dr_rows(
+    table: TableBlock,
+    source_kind: str,
+    collector: _CandidateCollector,
+) -> None:
+    """Extract an explicit component Dr score only when label and number share a row."""
+
+    component_markers = (
+        ("superstructure", "上部结构"),
+        ("substructure", "下部结构"),
+        ("deck", "桥面系"),
+    )
+    for row in table.rows:
+        row_text = " ".join(_clean(cell.raw_text) for cell in row.cells if _clean(cell.raw_text))
+        compact = _compact(row_text)
+        if not compact or "dr" not in compact.casefold():
+            continue
+        bases = [base for base, component in component_markers if component in compact]
+        if len(bases) != 1:
+            continue
+        match = re.search(
+            r"(?i)(?:综合评定分数|评定分数|技术状况(?:评定)?分数|技术状况评分)?\s*"
+            r"D[rR]\s*(?:为|是|[:：=])\s*(\d+(?:\.\d+)?)\s*分?",
+            row_text,
+        )
+        if match is None:
+            continue
+        source = _row_source_anchor(table, row, row_text)
+        _add_field(
+            collector,
+            f"{bases[0]}_score",
+            match.group(1),
+            "component_dr",
+            source,
+            label=f"{bases[0]}显式Dr评定分数",
+        )
+        grade_match = _GRADE_RE.search(row_text[match.end():])
+        if grade_match is not None:
+            _add_field(
+                collector,
+                f"{bases[0]}_grade",
+                grade_match.group(0),
+                "component_dr",
+                source,
+                label=f"{bases[0]}显式Dr评定等级",
+            )
 
 
 def _extract_bci_scores(
@@ -1673,6 +1920,39 @@ def _extract_score_phrases(
             source_kind,
             source,
             label="BCI评分",
+        )
+
+    # Other explicit current-summary forms used by class-system/legacy
+    # reports.  Do not accept a bare ``95.39分``: a score marker is required.
+    explicit_overall_score = re.search(
+        r"(?:"
+        r"综合(?:评定)?(?:评分|分数|得分)|"
+        r"总体(?:技术状况)?(?:评分|分数|得分)|"
+        r"整体(?:技术状况)?(?:评分|分数|得分)|"
+        r"(?<!上部结构)(?<!下部结构)(?<!桥面系)技术状况评分|"
+        r"(?:本桥|该桥|本设施|该设施|桥梁)\s*评分"
+        r")\s*(?:为|是|[:：=])?\s*(\d+(?:\.\d+)?)\s*分?",
+        text,
+    )
+    if explicit_overall_score is not None:
+        _add_field(
+            collector,
+            "overall_score",
+            explicit_overall_score.group(1),
+            source_kind,
+            source,
+            label="显式总体评分",
+        )
+
+    class_overall_grade = _CLASS_OVERALL_GRADE_RE.search(text)
+    if class_overall_grade is not None:
+        _add_field(
+            collector,
+            "overall_grade",
+            class_overall_grade.group(1),
+            source_kind,
+            source,
+            label="技术状况等级",
         )
 
     previous_patterns = (
@@ -2541,7 +2821,33 @@ def _date_candidate_priority(candidate: SummaryCandidate) -> int:
     return base
 
 
+_COMPONENT_SCORE_FIELDS = {"deck_score", "superstructure_score", "substructure_score"}
+_COMPONENT_GRADE_FIELDS = {"deck_grade", "superstructure_grade", "substructure_grade"}
+_BSI_EVIDENCE_SOURCE_KINDS = {"paired_score_grade"}
+
+
+def _production_candidates(
+    field: str, values: Sequence[SummaryCandidate]
+) -> tuple[SummaryCandidate, ...]:
+    """Return candidates eligible to populate the public Prediction field.
+
+    V14 parsed BSI score/grade pairs correctly as report evidence but then
+    treated those BSI structural-condition indices as the component BCI
+    technical-condition fields.  V15 keeps BSI candidates in the trace/audit
+    while excluding them from production component score/grade selection.
+    """
+
+    if field in _COMPONENT_SCORE_FIELDS | _COMPONENT_GRADE_FIELDS:
+        return tuple(
+            candidate
+            for candidate in values
+            if candidate.source_kind not in _BSI_EVIDENCE_SOURCE_KINDS
+        )
+    return tuple(values)
+
+
 def _select_value(field: str, values: Sequence[SummaryCandidate]) -> str:
+    values = _production_candidates(field, values)
     if not values:
         return ""
     ordered = sorted(
@@ -2647,17 +2953,23 @@ def _selected_or_missing(field: str, values: Sequence[SummaryCandidate]) -> str:
 def _selection_priority(field: str, candidate: SummaryCandidate) -> int:
     if field not in _SCORE_FIELDS:
         return candidate.priority
-    # For component scores, the final “部位名称/技术状况指数/权重/BCI”
-    # assessment table is the report's current consolidated result.  It may
-    # legitimately correct an earlier subsection calculation.  Keep the old
-    # BCI-phrase preference for overall grade/score so explicit final prose can
-    # still override a known table misprint.
+    # V15 restores the V11 production semantics: component Prediction scores
+    # are BCI technical-condition scores.  The final assessment table wins,
+    # followed by explicit BCIm/BCIs/BCIx facts.  Component Dr remains an
+    # explicit fallback for class-system reports, while paired BSI facts are
+    # audit evidence only and are filtered by _production_candidates().
     if (
-        field in {"superstructure_score", "substructure_score", "deck_score"}
+        field in _COMPONENT_SCORE_FIELDS
         and candidate.source_kind == "overall_assessment_table"
     ):
         return 650
+    if field in _COMPONENT_SCORE_FIELDS and candidate.source_kind == "bci":
+        return 500
+    if field in _COMPONENT_SCORE_FIELDS and candidate.source_kind == "component_dr":
+        return 450
     return {
+        "paired_score_grade": 0,
+        "component_dr": 450,
         "bci": 500,
         "overall_assessment_table": 400,
         "section_score_table": 300,

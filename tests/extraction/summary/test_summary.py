@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from src.extraction.summary import CONFLICTING_CANDIDATES, MISSING_VALUE, extract_summary
 from src.parsing import parse_docx
 from tests.fixtures.word.ooxml_factory import cell, paragraph, row, table, write_docx
@@ -286,7 +288,7 @@ def test_bridge_name_repairs_only_observed_suffixes_and_wrong_paragraph_source(t
         assert result.summary.bridge_name == expected
 
 
-def test_dafosi_identity_date_and_scoped_scores_keep_overall_empty(tmp_path: Path) -> None:
+def test_dafosi_class_assessment_pairs_selected_grade_with_explicit_dr_score(tmp_path: Path) -> None:
     def assessment_table(score: str) -> str:
         return table(
             row(cell("里程桩号"), cell("K3+720"), cell("桥梁名称"), cell("大佛寺长江大桥")),
@@ -314,7 +316,7 @@ def test_dafosi_identity_date_and_scoped_scores_keep_overall_empty(tmp_path: Pat
     assert result.summary.bridge_name == "大佛寺长江大桥"
     assert result.summary.report_date == ""
     assert result.facility_context.inspection_date == "2019年11月20日"
-    assert result.summary.overall_score == "无"
+    assert result.summary.overall_score == "74.0"
     assert {candidate.value for candidate in result.candidates["overall_score"]} == {
         "74.0",
         "72.6",
@@ -577,3 +579,254 @@ def test_explicit_bci_score_phrase_is_current_score_fact(tmp_path: Path) -> None
     )
 
     assert result.summary.overall_score == "95.39"
+
+
+def test_extract_summary_generic_mode_changes_only_grades(tmp_path: Path) -> None:
+    document = _parse(
+        tmp_path,
+        _score_table(
+            ("总体", "89.46", "B级"),
+            ("上部结构", "86.10", "D级"),
+            ("下部结构", "92.00", "B级"),
+            ("桥面系", "85.75", "D级"),
+        ),
+    )
+
+    report = extract_summary(document, grade_mode="report").summary
+    generic = extract_summary(document, grade_mode="generic").summary
+
+    assert report.overall_score == generic.overall_score == "89.46"
+    assert report.superstructure_score == generic.superstructure_score == "86.10"
+    assert report.substructure_score == generic.substructure_score == "92.00"
+    assert report.deck_score == generic.deck_score == "85.75"
+    assert report.overall_grade == "B级"
+    assert report.superstructure_grade == "D级"
+    assert report.substructure_grade == "B级"
+    assert report.deck_grade == "D级"
+    assert generic.overall_grade == "B级"
+    assert generic.superstructure_grade == "B级"
+    assert generic.substructure_grade == "A级"
+    assert generic.deck_grade == "B级"
+
+
+def test_extract_summary_generic_mode_preserves_report_grade_when_score_missing(tmp_path: Path) -> None:
+    document = _parse(
+        tmp_path,
+        _summary_table(("桥梁名称", "无评分桥"), ("总体评分", ""), ("总体等级", "B级")),
+    )
+
+    result = extract_summary(document, grade_mode="generic").summary
+
+    assert result.overall_score == "无"
+    assert result.overall_grade == "B级"
+
+
+def test_generic_mode_missing_score_preserves_grade_state_for_renderer(tmp_path: Path) -> None:
+    document = _parse(
+        tmp_path,
+        _summary_table(("桥梁名称", "无评分桥"), ("总体评分", ""), ("总体等级", "B级")),
+    )
+    result = extract_summary(document, grade_mode="generic")
+
+    assert result.summary.overall_score == "无"
+    assert result.summary.overall_grade == "B级"
+    assert result.field_states["overall_grade"] == "present"
+
+
+def test_score_extraction_common_variants(tmp_path: Path) -> None:
+    cases = (
+        ("综合评分为95.39分", "95.39"),
+        ("技术状况评分 82.40 分", "82.40"),
+        ("本桥评分为88.20分", "88.20"),
+        ("本桥BCI=76.60，技术状况等级为二类。", "76.60"),
+    )
+    for text, expected in cases:
+        result = extract_summary(_parse(tmp_path, paragraph(text)))
+        assert result.summary.overall_score == expected
+
+
+def test_class_grade_extraction_from_explicit_phrase(tmp_path: Path) -> None:
+    result = extract_summary(
+        _parse(tmp_path, paragraph("经评定，本桥技术状况等级为二类，处于较好状态。"))
+    )
+    assert result.summary.overall_grade == "二类"
+
+
+def test_class_assessment_inline_dr_score_is_explicit_fact(tmp_path: Path) -> None:
+    result = extract_summary(
+        _parse(
+            tmp_path,
+            table(
+                row(cell("项目"), cell("等级")),
+                row(cell("综合评定分数Dr=70.4"), cell("二类")),
+            ),
+        )
+    )
+    assert result.summary.overall_score == "70.4"
+    assert result.summary.overall_grade == "二类"
+
+
+def test_no_fabrication_when_only_class_grade_exists(tmp_path: Path) -> None:
+    result = extract_summary(
+        _parse(tmp_path, paragraph("本桥技术状况等级为二类，未提供综合评分。"))
+    )
+    assert result.summary.overall_score == "无"
+    assert result.summary.overall_grade == "二类"
+
+
+def test_overall_score_variant_does_not_steal_component_score(tmp_path: Path) -> None:
+    result = extract_summary(
+        _parse(tmp_path, paragraph("上部结构技术状况评分为86.10分，评定为B级。"))
+    )
+    assert result.summary.superstructure_score == "86.10"
+    assert result.summary.overall_score == "无"
+
+
+@pytest.mark.parametrize("label, expected", [
+    ("综合评定分数Dr=70.4", "70.4"),
+    ("综合评定分数Dr=76.6", "76.6"),
+    ("综合评定分数 Dr=67.80", "67.80"),
+    ("综合评定分数Dr=82.4", "82.4"),
+])
+def test_long_span_class_system_dr_variants(label: str, expected: str, tmp_path: Path) -> None:
+    result = extract_summary(
+        _parse(tmp_path, table(row(cell(label), cell("二类"))))
+    )
+    assert result.summary.overall_score == expected
+    assert result.summary.overall_grade == "二类"
+    generic = extract_summary(
+        _parse(tmp_path, table(row(cell(label), cell("二类")))), grade_mode="generic"
+    )
+    assert generic.summary.overall_score == expected
+    assert generic.summary.overall_grade == "二类"
+
+
+def test_bsi_score_grade_triplet_is_audit_evidence_not_prediction_fields(tmp_path: Path) -> None:
+    text = "全桥结构状况指数BSIm、BSIs、BSIx分别为60.00（D级）、81.36（B级）、91.90（A级）。"
+    result = extract_summary(_parse(tmp_path, paragraph(text)))
+
+    assert result.summary.deck_score == "无"
+    assert result.summary.deck_grade == "无"
+    assert result.summary.superstructure_score == "无"
+    assert result.summary.superstructure_grade == "无"
+    assert result.summary.substructure_score == "无"
+    assert result.summary.substructure_grade == "无"
+    assert any(c.source_kind == "paired_score_grade" and c.value == "81.36" for c in result.candidates["superstructure_score"])
+    assert any(c.source_kind == "paired_score_grade" and c.value == "B级" for c in result.candidates["superstructure_grade"])
+
+
+def test_bci_component_scores_win_when_bsi_pairs_coexist(tmp_path: Path) -> None:
+    result = extract_summary(
+        _parse(
+            tmp_path,
+            paragraph(
+                "BCIm=72.35，BSIm=60.00（D级）；"
+                "BCIs=86.91，BSIs=78.83（C级）；"
+                "BCIx=97.01，BSIx=91.02（A级）。"
+            ),
+        )
+    )
+
+    assert result.summary.deck_score == "72.35"
+    assert result.summary.superstructure_score == "86.91"
+    assert result.summary.substructure_score == "97.01"
+    # The BSI grades are structural-condition evidence, not component BCI grades.
+    assert result.summary.deck_grade == "无"
+    assert result.summary.superstructure_grade == "无"
+    assert result.summary.substructure_grade == "无"
+
+
+def test_final_assessment_table_beats_earlier_bci_and_bsi(tmp_path: Path) -> None:
+    result = extract_summary(
+        _parse(
+            tmp_path,
+            paragraph("上部结构BCIs=97.80，BSIs=81.36（B级）。"),
+            table(
+                row(cell("部位名称"), cell("技术状况指数"), cell("权重"), cell("BCI")),
+                row(cell("上部结构"), cell("81.36"), cell("0.40"), cell("89.31")),
+            ),
+        )
+    )
+
+    assert result.summary.superstructure_score == "81.36"
+    assert result.summary.superstructure_grade == "无"
+    values = {(c.value, c.source_kind) for c in result.candidates["superstructure_score"]}
+    assert ("97.80", "bci") in values
+    assert ("81.36", "paired_score_grade") in values
+    assert ("81.36", "overall_assessment_table") in values
+
+
+def test_bsi_pair_accepts_ascii_parentheses_but_is_not_mapped(tmp_path: Path) -> None:
+    result = extract_summary(_parse(tmp_path, paragraph("BSIs=81.36(B级)")))
+    assert result.summary.superstructure_score == "无"
+    assert result.summary.superstructure_grade == "无"
+    assert any(c.source_kind == "paired_score_grade" for c in result.candidates["superstructure_score"])
+
+
+def test_generic_mode_maps_bci_score_not_bsi_score(tmp_path: Path) -> None:
+    document = _parse(
+        tmp_path,
+        paragraph("上部结构BCIs=97.80，BSIs=81.36（B级）。"),
+    )
+    report = extract_summary(document, grade_mode="report").summary
+    generic = extract_summary(document, grade_mode="generic").summary
+
+    assert report.superstructure_score == generic.superstructure_score == "97.80"
+    assert report.superstructure_grade == "无"
+    assert generic.superstructure_grade == "A级"
+
+
+def test_bsi_grade_only_does_not_fabricate_score(tmp_path: Path) -> None:
+    result = extract_summary(_parse(tmp_path, paragraph("上部结构技术状况等级为B级。")))
+    assert result.summary.superstructure_score == "无"
+    assert result.summary.superstructure_grade == "B级"
+
+
+def test_bsi_triplet_inside_table_cell_remains_audit_only(tmp_path: Path) -> None:
+    text = "BSIm、BSIs、BSIx分别为60.00（D级）、81.36（B级）、91.90（A级）"
+    result = extract_summary(_parse(tmp_path, table(row(cell("技术状况评定"), cell(text)))))
+
+    assert result.summary.deck_score == "无"
+    assert result.summary.deck_grade == "无"
+    assert result.summary.superstructure_score == "无"
+    assert result.summary.superstructure_grade == "无"
+    assert result.summary.substructure_score == "无"
+    assert result.summary.substructure_grade == "无"
+    assert any(c.source_kind == "paired_score_grade" for c in result.candidates["deck_score"])
+
+
+def test_class_system_component_dr_row_requires_explicit_component_and_dr(tmp_path: Path) -> None:
+    result = extract_summary(
+        _parse(
+            tmp_path,
+            table(
+                row(cell("上部结构综合评定分数Dr=74.6"), cell("二类")),
+                row(cell("综合评定分数Dr=70.4"), cell("二类")),
+            ),
+        )
+    )
+    assert result.summary.superstructure_score == "74.6"
+    assert result.summary.superstructure_grade == "二类"
+    assert result.summary.overall_score == "70.4"
+    assert result.summary.overall_grade == "二类"
+
+
+def test_dashancun_bci_primary_restore_regression(tmp_path: Path) -> None:
+    """V15 regression: BCI component scores must beat paired BSI indices."""
+    result = extract_summary(
+        _parse(
+            tmp_path,
+            paragraph(
+                "大山村互通Ⅰ号桥：BCIm=72.35，BSIm=60.00（D级）；"
+                "BCIs=86.91，BSIs=78.83（C级）；"
+                "BCIx=97.01，BSIx=91.02（A级）。"
+            ),
+        ),
+        grade_mode="report",
+    )
+    assert result.summary.deck_score == "72.35"
+    assert result.summary.superstructure_score == "86.91"
+    assert result.summary.substructure_score == "97.01"
+    assert any(c.source_kind == "paired_score_grade" and c.value == "60.00" for c in result.candidates["deck_score"])
+    assert any(c.source_kind == "paired_score_grade" and c.value == "78.83" for c in result.candidates["superstructure_score"])
+    assert any(c.source_kind == "paired_score_grade" and c.value == "91.02" for c in result.candidates["substructure_score"])
