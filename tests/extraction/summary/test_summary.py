@@ -308,15 +308,24 @@ def test_dafosi_class_assessment_pairs_selected_grade_with_explicit_dr_score(tmp
             ),
             paragraph("表7.1 大佛寺长江大桥技术状况评定表（主桥）"),
             assessment_table("74.0"),
+            paragraph(
+                "大佛寺长江大桥主桥总体技术状况评定分数为74.0，"
+                "据此可评定主桥总体技术状况等级为二类。"
+            ),
             paragraph("表7.2 大佛寺长江大桥技术状况评定表（引桥）"),
             assessment_table("72.6"),
+            paragraph(
+                "大佛寺长江大桥引桥总体技术状况评定分数为72.6，"
+                "据此可评定引桥总体技术状况等级为二类。"
+            ),
         )
     )
 
     assert result.summary.bridge_name == "大佛寺长江大桥"
     assert result.summary.report_date == ""
     assert result.facility_context.inspection_date == "2019年11月20日"
-    assert result.summary.overall_score == "74.0"
+    assert result.summary.overall_score == "主桥74.0；引桥72.6"
+    assert result.summary.overall_grade == "主桥二类；引桥二类"
     assert {candidate.value for candidate in result.candidates["overall_score"]} == {
         "74.0",
         "72.6",
@@ -325,6 +334,59 @@ def test_dafosi_class_assessment_pairs_selected_grade_with_explicit_dr_score(tmp
         "主桥综合评定分数Dr",
         "引桥综合评定分数Dr",
     }
+
+
+def test_scoped_current_and_previous_assessments_keep_scope_and_year_boundary(
+    tmp_path: Path,
+) -> None:
+    def assessment_table(score: str) -> str:
+        return table(
+            row(cell(f"综合评定分数Dr={score}"), cell("等级"), cell("二类")),
+        )
+
+    result = extract_summary(
+        _parse(
+            tmp_path,
+            _summary_table(("桥梁名称", "嘉悦大桥"), ("报告日期", "2019年11月20日")),
+            paragraph("1.2 上一次检查状况"),
+            table(
+                row(
+                    cell("2018年8月"),
+                    cell("外观检测荷载试验"),
+                    cell(
+                        "嘉悦大桥主桥评分为77.6，技术等级评定为二类；"
+                        "引桥评分为70.6，技术等级评定为二类。"
+                    ),
+                ),
+                row(
+                    cell("2018年11月至12月"),
+                    cell("外观检测专项检测"),
+                    cell(
+                        "嘉悦大桥主桥评分为71.0，技术等级评定为二类；"
+                        "引桥评分为75.4，技术等级评定为二类。"
+                    ),
+                ),
+                row(
+                    cell("2019年9月至10月"),
+                    cell("外观检测专项检测"),
+                    cell(
+                        "嘉悦大桥主桥评分为70.4，技术等级评定为二类；"
+                        "引桥评分为72.0，技术等级评定为二类。"
+                    ),
+                ),
+            ),
+            paragraph("2 桥梁概况"),
+            paragraph("表7.1 嘉悦大桥技术状况评定表（主桥）"),
+            assessment_table("70.4"),
+            paragraph("表7.2 嘉悦大桥技术状况评定表（引桥）"),
+            assessment_table("72.0"),
+        )
+    )
+
+    assert result.summary.overall_score == "主桥70.4；引桥72.0"
+    assert result.summary.overall_grade == "主桥二类；引桥二类"
+    assert result.summary.previous_overall_score == "主桥71.0；引桥75.4"
+    assert result.summary.previous_overall_grade == "主桥二类；引桥二类"
 
 
 def test_bci_phrase_wins_over_misprinted_matrix_grade(tmp_path: Path) -> None:
@@ -830,3 +892,30 @@ def test_dashancun_bci_primary_restore_regression(tmp_path: Path) -> None:
     assert any(c.source_kind == "paired_score_grade" and c.value == "60.00" for c in result.candidates["deck_score"])
     assert any(c.source_kind == "paired_score_grade" and c.value == "78.83" for c in result.candidates["superstructure_score"])
     assert any(c.source_kind == "paired_score_grade" and c.value == "91.02" for c in result.candidates["substructure_score"])
+
+
+def test_overall_assessment_matrix_does_not_treat_weights_as_component_scores(
+    tmp_path: Path,
+) -> None:
+    result = extract_summary(
+        _parse(
+            tmp_path,
+            table(
+                row(
+                    cell("部位名称"),
+                    cell("技术状况指数"),
+                    cell("权重"),
+                    cell("BCI"),
+                    cell("桥梁整体技术状况等级"),
+                ),
+                row(cell("桥面系"), cell("0.15"), cell("84.93"), cell("88.88"), cell("B")),
+                row(cell("上部结构"), cell("0.40"), cell("79.89"), cell(""), cell("")),
+                row(cell("下部结构"), cell("0.45"), cell("98.19"), cell(""), cell("")),
+            ),
+        )
+    )
+
+    assert result.summary.deck_score == "84.93"
+    assert result.summary.superstructure_score == "79.89"
+    assert result.summary.substructure_score == "98.19"
+    assert result.summary.overall_score == "88.88"

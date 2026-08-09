@@ -7,6 +7,7 @@ anchor; the selected value is only a deterministic view over those candidates.
 
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import asdict, dataclass, field
 import re
 import unicodedata
@@ -810,6 +811,7 @@ class _CandidateCollector:
             candidate.value,
             candidate.source_kind,
             _source_sort_key(candidate.source),
+            _scope_from_label(candidate.label),
         )
         if any(
             (
@@ -817,6 +819,7 @@ class _CandidateCollector:
                 item.value,
                 item.source_kind,
                 _source_sort_key(item.source),
+                _scope_from_label(item.label),
             )
             == identity
             for item in self.values[field]
@@ -884,6 +887,19 @@ def extract_summary(
         field: _selected_or_missing(field, collector.values[field])
         for field in _SUMMARY_FIELDS
     }
+    # Long-span reports can publish separate main-bridge and approach-bridge
+    # assessments instead of one facility-wide value.  The candidates already
+    # retain that scope; keep both observed facts rather than silently reducing
+    # the public field to the first (usually main-bridge) value.
+    for field in (
+        "overall_score",
+        "overall_grade",
+        "previous_overall_score",
+        "previous_overall_grade",
+    ):
+        scoped_value = _select_scoped_overall_value(field, collector.values[field])
+        if scoped_value:
+            summary_values[field] = scoped_value
     # Some long-span bridge reports use a class system and split the final
     # assessment into scoped tables.  If the selected ``X类`` grade and an
     # explicit Dr score occur on the same assessment row, pair those two
@@ -1226,6 +1242,43 @@ def _extract_score_matrix(
                     grade_columns[cell.column_index] = kind
                 elif kind == "score" or kind.endswith("_score"):
                     score_columns[cell.column_index] = kind
+
+        # Some official overall-assessment tables have visually merged headers
+        # whose OOXML cell order makes the weight column look like the score
+        # column.  Resolve only the unambiguous numeric shape: three component
+        # weights in [0, 1] summing to 1 and one separate three-value BCI column.
+        if source_kind == "overall_assessment_table":
+            component_values: dict[int, list[tuple[str, float]]] = defaultdict(list)
+            known_value_columns = set(score_columns) | set(grade_columns)
+            for data_row in rows[header_index + 1 :]:
+                category_cell, base = _score_category_cell(data_row, known_value_columns)
+                if category_cell is None or base not in {"deck", "superstructure", "substructure"}:
+                    continue
+                for data_cell in data_row.cells:
+                    if data_cell is category_cell or data_cell.column_index in grade_columns:
+                        continue
+                    number = _numeric_value(data_cell.raw_text)
+                    if number is not None:
+                        component_values[data_cell.column_index].append((base, number))
+            dense_columns = {
+                column: values
+                for column, values in component_values.items()
+                if {base for base, _ in values} == {"deck", "superstructure", "substructure"}
+            }
+            weight_columns = [
+                column
+                for column, values in dense_columns.items()
+                if all(0 <= value <= 1 for _, value in values)
+                and abs(sum(value for _, value in values) - 1.0) <= 0.02
+            ]
+            component_score_columns = [
+                column
+                for column, values in dense_columns.items()
+                if all(1 < value <= 100 for _, value in values)
+            ]
+            if len(weight_columns) == 1 and len(component_score_columns) == 1:
+                score_columns.pop(weight_columns[0], None)
+                score_columns[component_score_columns[0]] = "score"
         if not score_columns and not grade_columns:
             continue
         value_columns = set(score_columns) | set(grade_columns)
@@ -2696,6 +2749,11 @@ def _extract_history_facts(
     if not previous_indexes:
         return
 
+    scoped_history_block = _extract_scoped_previous_assessment(
+        blocks,
+        collector,
+    )
+
     for block in blocks:
         if getattr(block, "block_index", None) not in previous_indexes:
             continue
@@ -2703,6 +2761,11 @@ def _extract_history_facts(
             text = _clean(block.raw_text)
             source = block.source
         elif isinstance(block, TableBlock):
+            if block.block_index == scoped_history_block:
+                # The selected row was parsed cell-by-cell above.  Parsing the
+                # concatenated whole table again could mix current and earlier
+                # years into one unscoped historical value.
+                continue
             text = _clean(block.raw_text)
             source = block.source
         else:
@@ -2741,6 +2804,122 @@ def _extract_history_facts(
                 source,
                 label="上一次检测总体等级",
             )
+
+
+def _extract_scoped_previous_assessment(
+    blocks: Sequence[object],
+    collector: _CandidateCollector,
+) -> int | None:
+    """Keep the latest explicit pre-report main/approach assessment row.
+
+    Long-span reports summarize prior scores in a later chronological record
+    table rather than inside the short chapter-1.2 prose window.  A row is
+    eligible only when it has a year plus both explicit facility scopes.
+    """
+
+    current_year = _current_report_year(collector)
+    if current_year is None:
+        return None
+
+    records: list[
+        tuple[int, int, int, TableBlock, object, dict[str, tuple[str, str]]]
+    ] = []
+    for block in blocks:
+        if not isinstance(block, TableBlock):
+            continue
+        for row in block.rows:
+            row_text = _clean("；".join(cell.raw_text for cell in row.cells))
+            year_match = re.search(r"(?:19|20)\d{2}", row_text)
+            if year_match is None:
+                continue
+            year = int(year_match.group(0))
+            if year >= current_year:
+                continue
+            scoped = _scoped_assessment_values(row_text)
+            if not all(scope in scoped for scope in ("主桥", "引桥")):
+                continue
+            records.append(
+                (year, block.block_index, row.row_index, block, row, scoped)
+            )
+
+    if not records:
+        return None
+
+    _, _, _, table_block, row, scoped = max(
+        records,
+        key=lambda item: (item[0], item[1], item[2]),
+    )
+    cells = list(getattr(row, "cells", ()))
+    source = next(
+        (cell.source for cell in reversed(cells) if cell.source is not None),
+        table_block.source,
+    )
+    for scope in ("主桥", "引桥"):
+        score, grade = scoped[scope]
+        if score:
+            collector.add(
+                "previous_overall_score",
+                score,
+                "previous_detection",
+                source,
+                label=f"{scope}上一次总体评分",
+            )
+        if grade:
+            collector.add(
+                "previous_overall_grade",
+                grade,
+                "previous_detection",
+                source,
+                label=f"{scope}上一次总体等级",
+            )
+    return table_block.block_index
+
+
+def _current_report_year(collector: _CandidateCollector) -> int | None:
+    for field in ("report_date", "inspection_date"):
+        selected = _select_value(field, collector.values[field])
+        match = re.search(r"(?:19|20)\d{2}", selected)
+        if match is not None:
+            return int(match.group(0))
+    return None
+
+
+def _scoped_assessment_values(text: str) -> dict[str, tuple[str, str]]:
+    """Parse explicit main/approach score-grade facts from one table row."""
+
+    matches = list(re.finditer(r"主桥|引桥", text))
+    result: dict[str, tuple[str, str]] = {}
+    for index, match in enumerate(matches):
+        scope = match.group(0)
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        segment = text[match.start():end]
+        score_match = re.search(
+            r"(?:评定)?(?:评分|分数|得分)\s*(?:D[rR]\s*)?"
+            r"(?:为|是|[:：=＝])?\s*(\d+(?:\.\d+)?)",
+            segment,
+            flags=re.IGNORECASE,
+        )
+        grade_match = re.search(
+            rf"(?:技术)?等级(?:评定|评价|确定)?\s*(?:为|是|[:：=＝])?\s*({_GRADE_RE.pattern})",
+            segment,
+        )
+        if grade_match is None:
+            grade_match = re.search(
+                rf"评定为\s*({_GRADE_RE.pattern})",
+                segment,
+            )
+        if score_match is None:
+            parenthesized = re.search(
+                rf"评定为\s*{_GRADE_RE.pattern}\s*[（(]\s*(\d+(?:\.\d+)?)\s*[）)]",
+                segment,
+            )
+            score = parenthesized.group(1) if parenthesized is not None else ""
+        else:
+            score = score_match.group(1)
+        grade = grade_match.group(1) if grade_match is not None else ""
+        if score or grade:
+            result[scope] = (score, grade)
+    return result
 
 
 def _normalise_field_value(field: str, value: str) -> str:
@@ -2846,6 +3025,44 @@ def _production_candidates(
     return tuple(values)
 
 
+def _select_scoped_overall_value(
+    field: str,
+    values: Sequence[SummaryCandidate],
+) -> str:
+    """Return ``主桥…；引桥…`` only when both are the sole fact scopes."""
+
+    nonempty = [
+        candidate
+        for candidate in _production_candidates(field, values)
+        if candidate.value.strip()
+    ]
+    if not nonempty or any(
+        not _is_scoped_overall_candidate(candidate) for candidate in nonempty
+    ):
+        return ""
+
+    selected: list[str] = []
+    for scope in ("主桥", "引桥"):
+        scoped = [
+            candidate
+            for candidate in nonempty
+            if _candidate_scope(candidate) == scope
+        ]
+        if not scoped:
+            return ""
+        scoped.sort(
+            key=lambda candidate: (
+                -_selection_priority(field, candidate),
+                -candidate.priority,
+                _source_sort_key(candidate.source),
+                candidate.source_kind,
+                candidate.value,
+            )
+        )
+        selected.append(f"{scope}{scoped[0].value}")
+    return "；".join(selected)
+
+
 def _select_value(field: str, values: Sequence[SummaryCandidate]) -> str:
     values = _production_candidates(field, values)
     if not values:
@@ -2925,8 +3142,31 @@ def _select_value(field: str, values: Sequence[SummaryCandidate]) -> str:
 
 
 def _is_scoped_overall_score(candidate: SummaryCandidate) -> bool:
-    label = _compact(candidate.label)
-    return "主桥" in label or "引桥" in label
+    return _is_scoped_overall_candidate(candidate)
+
+
+def _is_scoped_overall_candidate(candidate: SummaryCandidate) -> bool:
+    return _candidate_scope(candidate) is not None
+
+
+def _candidate_scope(candidate: SummaryCandidate) -> str | None:
+    labelled = _scope_from_label(candidate.label)
+    if labelled is not None:
+        return labelled
+    raw_text = _compact(candidate.source.raw_text if candidate.source is not None else "")
+    has_main = "主桥" in raw_text
+    has_approach = "引桥" in raw_text
+    if has_main != has_approach:
+        return "主桥" if has_main else "引桥"
+    return None
+
+
+def _scope_from_label(label: str) -> str | None:
+    compact = _compact(label)
+    for scope in ("主桥", "引桥"):
+        if scope in compact:
+            return scope
+    return None
 
 
 def _strip_project_road_prefix(value: str) -> str:
