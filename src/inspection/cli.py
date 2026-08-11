@@ -134,6 +134,12 @@ def build_parser() -> argparse.ArgumentParser:
     convert_doc.add_argument("--manifest", type=Path, required=True)
     convert_doc.add_argument("--report", type=Path)
     convert_doc.add_argument("--soffice-path", type=Path)
+    convert_doc.add_argument(
+        "--engine",
+        choices=("auto", "word", "libreoffice"),
+        default="auto",
+        help="conversion engine; auto prefers Microsoft Word on Windows",
+    )
     convert_doc.add_argument("--timeout-seconds", type=float, default=300.0)
 
     validate = subparsers.add_parser("validate", help="validate one rendered DOCX")
@@ -331,6 +337,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.manifest,
                 soffice_path=args.soffice_path,
                 timeout_seconds=args.timeout_seconds,
+                engine=args.engine,
             )
         except (FileNotFoundError, NotADirectoryError, OSError, ValueError, RuntimeError) as exc:
             parser.error(str(exc))
