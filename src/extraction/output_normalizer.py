@@ -83,6 +83,81 @@ def _sentences(value: object) -> tuple[str, ...]:
     return tuple(result)
 
 
+_SUMMARY_ACTION_SPLIT_RE = re.compile(
+    r"[，,；;]\s*(?=(?:建议|应(?:及时|进行|加强|对)|需及时|维修|修复|修补|处治|处置|加固|更换|清理|加强|养护|保养|小修|可采用|可直接用|环氧砂浆))"
+)
+_SPECIFIC_RISK_DEFECT_MARKERS = (
+    "裂缝", "开裂", "破损", "露筋", "锈蚀", "渗水", "泛碱", "变形",
+    "缺失", "堵塞", "脱落", "沉降", "冲刷", "剥落", "坑槽", "积水",
+)
+_RISK_STRONG_CONSEQUENCE_MARKERS = (
+    "降低", "削弱", "危及", "隐患", "安全", "耐久", "承载", "受力",
+    "使用功能", "防护不足", "功能受限", "正常使用", "运营",
+)
+_RISK_IMPACT_RE = re.compile(
+    r"(?:对[^，,；;。]{0,24})?影响(?:结构|安全|耐久|承载|受力|通行|行车|行人|使用|功能|运营)"
+)
+
+
+def _strip_trailing_summary_action(value: str) -> str:
+    """Drop a recommendation tail without rewriting the assessment fact before it."""
+
+    if re.match(r"^(?:建议|应(?:及时|进行|加强|对)|需及时|维修|修复|修补|处治|处置|加固|更换|清理|加强|养护|保养|小修|可采用|可直接用|环氧砂浆)", value):
+        return ""
+    parts = _SUMMARY_ACTION_SPLIT_RE.split(value, maxsplit=1)
+    return parts[0].strip("，,；;。 ") if parts else value
+
+
+def normalize_trend(value: object) -> str:
+    """Normalize only machine punctuation/prefixes in an extracted trend value.
+
+    This intentionally does not add an official-style lead-in or infer a trend.
+    It preserves the extracted component/content facts and only turns the legacy
+    ``component:新增病害:...;`` representation into readable Chinese text.
+    """
+
+    text = _display(value).strip("，,；;。 ")
+    if not text or text in {"无", "暂无", "不适用"}:
+        return text
+
+    clauses: list[str] = []
+    for raw in re.split(r"[；;]+", text):
+        part = raw.strip("，,；;。 ")
+        if not part:
+            continue
+        part = part.replace(":", "：")
+        match = re.match(r"^(上部结构|下部结构|桥面系|总体|整体|桥梁)\s*：\s*(.*)$", part)
+        if match:
+            component = match.group(1)
+            content = match.group(2).strip("：，,；;。 ")
+            new_match = re.match(r"^新增病害\s*：?\s*(.*)$", content)
+            if new_match:
+                body = new_match.group(1).strip("：，,；;。 ")
+                if body.startswith("无"):
+                    content = "无新增病害" + body[1:]
+                else:
+                    content = "新增" + re.sub(r"^新增", "", body)
+            content = content.replace(",", "、")
+            cleaned = f"{component}：{content}" if content else component
+        else:
+            cleaned = part.replace(",", "、")
+        if cleaned and cleaned not in clauses:
+            clauses.append(cleaned)
+    return "；".join(clauses) if clauses else text
+
+
+def _has_risk_consequence(compact: str) -> bool:
+    if any(marker in compact for marker in _RISK_STRONG_CONSEQUENCE_MARKERS):
+        return True
+    return bool(_RISK_IMPACT_RE.search(compact))
+
+
+def _normalize_summary_punctuation(value: str) -> str:
+    """Normalize display punctuation only; numbers and wording stay unchanged."""
+
+    return value.replace(",", "，").replace(":", "：")
+
+
 def normalize_overall_conclusion(value: object) -> str:
     """Final guard: keep a concise evidence-shaped overall conclusion."""
 
@@ -123,6 +198,46 @@ def normalize_overall_conclusion(value: object) -> str:
     return "；".join(selected)
 
 
+
+def normalize_public_overall_conclusion(value: object) -> str:
+    """Apply V16 summary-only hygiene after the narrative path has finished.
+
+    The V15 normalizer remains the input to RAG/LLM.  This boundary pass only
+    removes trailing recommendation clauses and normalizes visible punctuation.
+    """
+
+    selected: list[str] = []
+    total = 0
+    for sentence in _sentences(value):
+        compact = re.sub(r"\s+", "", sentence)
+        if any(marker in compact for marker in _SUMMARY_NOISE_MARKERS):
+            continue
+        sentence = _strip_trailing_summary_action(sentence)
+        compact = re.sub(r"\s+", "", sentence)
+        if not sentence:
+            continue
+        has_overall = any(marker in compact for marker in (
+            "总体", "整体", "综合评定", "技术状况", "安全性评估",
+            "承载能力", "满足要求", "符合要求", "正常使用", "安全运营",
+        ))
+        has_defect = any(marker in compact for marker in _DEFECT_MARKERS)
+        if not (has_overall or has_defect):
+            continue
+        sentence = _normalize_summary_punctuation(sentence)
+        sentence = sentence[:180].rstrip("，,；; ")
+        separator = 1 if selected else 0
+        if total + separator + len(sentence) > 250:
+            remaining = 250 - total - separator
+            if remaining < 24:
+                break
+            sentence = sentence[:remaining].rstrip("，,；; ")
+        if sentence and sentence not in selected:
+            selected.append(sentence)
+            total += separator + len(sentence)
+        if len(selected) >= 4 or total >= 250:
+            break
+    return "；".join(selected)
+
 def normalize_risk_points(value: object) -> str:
     """Final guard: keep at most three defect→consequence statements."""
 
@@ -151,6 +266,64 @@ def normalize_risk_points(value: object) -> str:
         if len(selected) >= 3 or total >= 200:
             break
     return "；".join(selected)
+
+
+def normalize_public_risk_points(value: object) -> str:
+    """Clean obvious out-of-field pollution at the public summary boundary.
+
+    V15 proved that deleting content aggressively is risky.  Therefore V16
+    prefers a strict specific-defect→consequence sentence when one exists, but
+    preserves a report-backed generic risk/defect sentence as a fallback.  The
+    only unconditional removals are history/process/advice and cause-only text.
+    """
+
+    strict: list[str] = []
+    fallback: list[str] = []
+    for sentence in _sentences(value):
+        compact = re.sub(r"\s+", "", sentence)
+        if any(marker in compact for marker in (*_SUMMARY_NOISE_MARKERS, *_LEGACY_GENERATED_MARKERS)):
+            continue
+        if re.search(r"(?:19|20)\d{2}年.*(?:检测|检查|维修|加固)", compact):
+            continue
+        sentence = _strip_trailing_summary_action(sentence)
+        compact = re.sub(r"\s+", "", sentence)
+        if not sentence:
+            continue
+
+        # A cause belongs to causes, not major risks, unless the same clause
+        # also states an explicit engineering consequence.
+        cause_only = any(marker in compact for marker in ("由于", "因为", "原因", "所致")) and not _has_risk_consequence(compact)
+        if cause_only:
+            continue
+        if not any(marker in compact for marker in _DEFECT_MARKERS):
+            continue
+
+        cleaned = _normalize_summary_punctuation(sentence)[:120].rstrip("，,；; ")
+        if cleaned and cleaned not in fallback:
+            fallback.append(cleaned)
+        if (
+            any(marker in compact for marker in _SPECIFIC_RISK_DEFECT_MARKERS)
+            and _has_risk_consequence(compact)
+            and cleaned not in strict
+        ):
+            strict.append(cleaned)
+
+    chosen = strict if strict else fallback
+    result: list[str] = []
+    total = 0
+    for sentence in chosen:
+        separator = 1 if result else 0
+        if total + separator + len(sentence) > 200:
+            remaining = 200 - total - separator
+            if remaining < 24:
+                break
+            sentence = sentence[:remaining].rstrip("，,；; ")
+        if sentence and sentence not in result:
+            result.append(sentence)
+            total += separator + len(sentence)
+        if len(result) >= 3 or total >= 200:
+            break
+    return "；".join(result)
 
 
 def _normalize_text_list(values: Sequence[object], *, kind: str) -> tuple[str, ...]:
@@ -378,6 +551,25 @@ def _facility_type(facility_context: object, prediction: InspectionPrediction) -
     if "人行天桥" in identity:
         return "pedestrian_overpass"
     return "bridge"
+
+
+def normalize_public_summary_output(prediction: InspectionPrediction) -> InspectionPrediction:
+    """Apply V16 concise-summary hygiene only at the final public boundary.
+
+    This is deliberately separate from ``normalize_prediction_output`` so the
+    Qwen narrative receives the exact V15 baseline summary.  Only the three
+    public concise-text fields are changed here.
+    """
+
+    summary = replace(
+        prediction.summary,
+        trend=normalize_trend(prediction.summary.trend),
+        overall_conclusion=normalize_public_overall_conclusion(
+            prediction.summary.overall_conclusion
+        ),
+        risk_points=normalize_public_risk_points(prediction.summary.risk_points),
+    )
+    return replace(prediction, summary=summary)
 
 
 def normalize_prediction_output(

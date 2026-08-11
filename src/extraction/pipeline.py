@@ -18,6 +18,7 @@ from .recommendations import RecommendationExtractionResult, extract_recommendat
 from .recommendations.extractor import summarize_recommendations
 from .output_normalizer import (
     normalize_prediction_output,
+    normalize_public_summary_output,
     normalize_recommendations_summary,
     normalize_risk_points,
     normalize_narrative_detailed,
@@ -27,6 +28,15 @@ from .summary import SummaryExtraction, extract_summary
 from .summary.facility_context import FacilityContext
 from .semantic_candidates import build_semantic_candidates
 from .text_sections import TextSectionExtraction, apply_summary_style, extract_text_sections
+from .gold_schema_normalizer import (
+    canonicalize_defects,
+    canonicalize_recommendations,
+    compose_gold_overall_conclusion,
+    compose_gold_risk_points,
+    extract_conclusion_evidence,
+    gate_previous_summary,
+    normalize_gold_schema_mode,
+)
 
 
 UNIMPLEMENTED_SECTIONS: tuple[str, ...] = ()
@@ -403,6 +413,9 @@ def extract_report(
     document = parse_docx(path, source_file=source_name)
     routes = route_sections(document)
     summary: SummaryExtraction = extract_summary(document, routes)
+    gold_schema_mode = normalize_gold_schema_mode()
+    if gold_schema_mode == "v18":
+        summary = gate_previous_summary(summary, document)
     source_recommendations_summary = summary.summary.recommendations_summary
     preserve_figure_refs = summary.facility_context.facility_type in {
         "pedestrian_underpass", "vehicle_underpass", "underpass", "pedestrian_passage"
@@ -412,6 +425,11 @@ def extract_report(
         routes,
         preserve_figure_refs=preserve_figure_refs,
     )
+    gold_schema_warnings: list[dict[str, object]] = []
+    if gold_schema_mode == "v18":
+        canonical_defects = canonicalize_defects(defects.records, warnings=gold_schema_warnings)
+        if canonical_defects != defects.records:
+            defects = replace(defects, records=canonical_defects)
     # Preserve the historical Gold-facing fallback for reports whose cover
     # name is a long project title rather than a facility name.  Recognised
     # non-bridge facilities still carry their inferred noun from the summary.
@@ -429,6 +447,13 @@ def extract_report(
     )
     if recommendation_records != recommendations.records:
         recommendations = replace(recommendations, records=recommendation_records)
+    if gold_schema_mode == "v18":
+        canonical_recommendations = canonicalize_recommendations(
+            recommendations.records,
+            facility_noun=recommendation_facility_noun,
+        )
+        if canonical_recommendations != recommendations.records:
+            recommendations = replace(recommendations, records=canonical_recommendations)
 
     summary_text = summarize_recommendations(
         recommendations.records if recommendations.records else None,
@@ -524,6 +549,7 @@ def extract_report(
         *_flags("summary", summary.quality_flags),
         *_flags("defects", defects.quality_flags),
         *_flags("recommendations", recommendations.quality_flags),
+        *_flags("gold_schema", gold_schema_warnings),
     )
     if summary_text.get("conflict"):
         quality_flags += _flags("recommendations", summary_text.get("diagnostics"))
@@ -605,6 +631,28 @@ def extract_report(
                 }
             )
             semantic_trace.update(candidate_trace)
+
+    # V16 experiment B: clean only the public concise-summary fields after
+    # narrative generation, so Qwen/RAG sees the exact V15 baseline input.
+    prediction = normalize_public_summary_output(prediction)
+    if gold_schema_mode == "v18":
+        conclusion_evidence = extract_conclusion_evidence(document)
+        prediction = replace(
+            prediction,
+            summary=replace(
+                prediction.summary,
+                overall_conclusion=compose_gold_overall_conclusion(
+                    prediction.summary,
+                    prediction.defects,
+                    facility_noun=summary.facility_context.facility_noun or "桥梁",
+                    facility_name=prediction.summary.bridge_name,
+                    evidence_texts=conclusion_evidence,
+                ),
+                risk_points=compose_gold_risk_points(
+                    prediction.summary.risk_points, prediction.defects
+                ),
+            ),
+        )
     return ReportExtraction(
         prediction=prediction,
         route_count=len(routes),

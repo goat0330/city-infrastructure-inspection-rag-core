@@ -206,3 +206,97 @@ def test_deterministic_risk_points_keep_defect_consequence_pair_without_inventio
 
     assert "裂缝" in result.prediction.summary.risk_points
     assert "耐久性" in result.prediction.summary.risk_points
+
+
+def test_v16_public_summary_hygiene_runs_after_live_narrative(monkeypatch, tmp_path: Path) -> None:
+    source = _write_fixture(tmp_path / "V16顺序桥.docx")
+    from src.extraction import pipeline as pipeline_module
+
+    events: list[str] = []
+    real_public = pipeline_module.normalize_public_summary_output
+
+    def fake_narrative(**kwargs):
+        events.append("narrative")
+        return {
+            "enhanced_prediction": kwargs["baseline_prediction"],
+            "field_results": {},
+            "retrieval_results": [],
+            "selection_reasons": {},
+            "validation_errors": [],
+            "field_fallbacks": [],
+            "used_fallback": False,
+            "retrieval_count": 0,
+            "call_metrics": {},
+        }
+
+    def public_after(prediction):
+        events.append("public")
+        return real_public(prediction)
+
+    monkeypatch.setattr(pipeline_module, "_run_live_narrative", fake_narrative)
+    monkeypatch.setattr(pipeline_module, "normalize_public_summary_output", public_after)
+
+    pipeline_module.extract_report(
+        source,
+        semantic_enabled=True,
+        semantic_client=object(),
+        semantic_index=object(),
+    )
+
+    assert events == ["narrative", "public"]
+
+
+def test_v18_gold_schema_mode_is_opt_in_and_canonicalizes_field_granularity(
+    tmp_path: Path, monkeypatch
+) -> None:
+    source = write_docx(
+        tmp_path / "V18粒度桥.docx",
+        paragraph("桥梁概要"),
+        _summary_table(),
+        paragraph("病害明细表"),
+        table(
+            row(cell("序号"), cell("病害部位"), cell("病害类型"), cell("病害描述")),
+            row(cell("1"), cell("拱腰"), cell("泛碱"), cell("2#孔右拱腰距左洞口33m～40m处局部泛碱")),
+        ),
+        paragraph("处置建议"),
+        table(
+            row(cell("序号"), cell("建议类别"), cell("建议内容"), cell("病害部位")),
+            row(cell("1"), cell("尽快维修"), cell("对于盖梁露筋，挡块破损等病害，建议及时维修处理。"), cell("盖梁")),
+        ),
+    )
+
+    monkeypatch.setenv("GOLD_SCHEMA_MODE", "legacy")
+    legacy = extract_report(source)
+    monkeypatch.setenv("GOLD_SCHEMA_MODE", "v18")
+    v18 = extract_report(source)
+
+    assert legacy.prediction.defects[0].location == "拱腰"
+    assert v18.prediction.defects[0].location == "右拱腰"
+    assert "33m" in v18.prediction.defects[0].description
+    assert legacy.prediction.recommendations[0].location == "盖梁"
+    assert v18.prediction.recommendations[0].location == "盖梁、挡块"
+
+
+def test_v18_gold_schema_risk_rewrite_is_opt_in_and_runs_at_final_boundary(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from src.extraction import pipeline as pipeline_module
+
+    source = _write_fixture(tmp_path / "V18风险桥.docx")
+    calls: list[tuple[str, int]] = []
+
+    def fake_risk(current, defects, *, limit=5):
+        calls.append((str(current), len(defects)))
+        return "V18具体突出病害。"
+
+    monkeypatch.setattr(pipeline_module, "compose_gold_risk_points", fake_risk)
+
+    monkeypatch.setenv("GOLD_SCHEMA_MODE", "legacy")
+    legacy = pipeline_module.extract_report(source)
+    assert calls == []
+    assert legacy.prediction.summary.risk_points != "V18具体突出病害。"
+
+    monkeypatch.setenv("GOLD_SCHEMA_MODE", "v18")
+    v18 = pipeline_module.extract_report(source)
+    assert calls and calls[-1][1] == len(v18.prediction.defects)
+    assert v18.prediction.summary.risk_points == "V18具体突出病害。"
