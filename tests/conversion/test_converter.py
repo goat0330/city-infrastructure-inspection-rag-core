@@ -6,7 +6,7 @@ from subprocess import CompletedProcess
 
 from docx import Document
 
-from src.conversion import convert_directory
+from src.conversion import convert_directory, convert_docx_directory
 
 
 class FakeSoffice:
@@ -23,6 +23,19 @@ class FakeSoffice:
         outdir = Path(command[command.index("--outdir") + 1])
         output = outdir / f"{source.stem}.docx"
         Document().save(output)
+        return CompletedProcess(command, 0, stdout="converted", stderr="")
+
+
+class FakeDocxSoffice:
+    def __init__(self) -> None:
+        self.calls: list[list[str]] = []
+
+    def __call__(self, command: list[str]) -> CompletedProcess[str]:
+        self.calls.append(command)
+        source = Path(command[-1])
+        outdir = Path(command[command.index("--outdir") + 1])
+        output = outdir / f"{source.stem}.doc"
+        output.write_bytes(b"synthetic legacy doc")
         return CompletedProcess(command, 0, stdout="converted", stderr="")
 
 
@@ -150,6 +163,36 @@ class ConversionTests(unittest.TestCase):
             self.assertEqual(result.counts["failed"], 1)
             self.assertIn("TimeoutError", result.records[0]["error"])
             self.assertFalse(result.records[0]["target_is_usable"])
+
+    def test_docx_conversion_uses_public_temp_paths(self) -> None:
+        holder = tempfile.TemporaryDirectory(prefix="conversion-docx-test-")
+        root = Path(holder.name)
+        try:
+            input_dir = root / "input"
+            output_dir = root / "output"
+            input_dir.mkdir()
+            for name in ("one.docx", "two.docx"):
+                Document().save(input_dir / name)
+
+            fake = FakeDocxSoffice()
+            result = convert_docx_directory(
+                input_dir,
+                output_dir,
+                soffice_path="fake-soffice",
+                runner=fake,
+                engine="libreoffice",
+            )
+
+            self.assertEqual(result.counts, {"success": 2, "skipped": 0, "failed": 0})
+            self.assertEqual(len(fake.calls), 2)
+            for call in fake.calls:
+                profile_argument = next(
+                    value for value in call if value.startswith("-env:UserInstallation=")
+                )
+                self.assertNotIn("/.docx-to-doc-", profile_argument.replace("\\", "/"))
+                self.assertNotIn("/.conversion-", profile_argument.replace("\\", "/"))
+        finally:
+            holder.cleanup()
 
 
 if __name__ == "__main__":

@@ -8,13 +8,13 @@
 
 ```text
 原始 DOC/DOCX
-→ LibreOffice（必要时 DOC 转 DOCX）
+→ Word/LibreOffice（按环境选择，必要时 DOC 转 DOCX）
 → python-docx + OOXML 结构读取
 → 章节路由
 → 概要/评分、病害、建议抽取
 → prediction.jsonl
 → 固定模板 DOCX 渲染
-→ LibreOffice 转最终 DOC
+→ Word COM 优先转最终 DOC；无 Word 时 LibreOffice 逐份转换
 → code/design/result 官方提交包
 ```
 
@@ -37,6 +37,10 @@ submission.tar.gz
 ```
 
 `result/` 只直接包含结果 `.doc` 文件。打包前后检查 gzip/tar 可读性、结果文件名、数量、扩展名、临时文件和目录层级，确保输入测试报告、预测记录、最终 DOC 和提交结果数量一致。
+
+### 转换器运行约束
+
+Windows 下 `convert-doc` 默认使用已安装的 Microsoft Word COM，以兼容大表格 DOCX；没有 Word 时才使用 LibreOffice。LibreOffice 路径逐份启动，临时目录使用公开 ASCII 名称，并等待输出文件稳定后再移动到 `final-doc/`，不再把整批报告一次性交给同一个进程。
 
 ## 5. 当前边界
 

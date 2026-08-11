@@ -2,7 +2,7 @@
 
 ## 当前已完成
 
-- `.doc` 经 LibreOffice 批量转换为 `.docx`，161份报告全部转换可用。
+- `.doc` 可经 LibreOffice 逐份转换为 `.docx`；Windows 有 Word 时优先使用 Word COM，避免大表格和批量进程崩溃。
 - `python-docx + OOXML` 保留段落、标题、表格、合并单元格、行延续和图片关系。
 - 标签 DOCX 形成 Gold JSON；当前86份成功、8份明确失败。
 - 本地加权评分、章节路由、最小 DOCX 渲染、单文档校验和 Gate 0 错题本已完成。

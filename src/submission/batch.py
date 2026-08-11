@@ -262,6 +262,7 @@ def convert_docx_batch(
     soffice_path: str | Path | None = None,
     timeout_seconds: float = 300.0,
     runner: Any | None = None,
+    engine: str = "auto",
 ) -> dict[str, Any]:
     """Convert rendered DOCX files and enforce manifest-named DOC outputs."""
 
@@ -272,6 +273,7 @@ def convert_docx_batch(
         soffice_path=soffice_path,
         timeout_seconds=timeout_seconds,
         runner=runner,
+        engine=engine,
     )
     output_root = Path(output_dir)
     actual = sorted(
