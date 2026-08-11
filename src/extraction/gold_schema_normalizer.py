@@ -26,6 +26,10 @@ VALID_GOLD_SCHEMA_MODES = frozenset({"legacy", "v18"})
 GOLD_SCHEMA_LOCATION_VOCAB_ENV = "GOLD_SCHEMA_LOCATION_VOCAB_PATH"
 GOLD_SCHEMA_TYPE_VOCAB_ENV = "GOLD_SCHEMA_TYPE_VOCAB_PATH"
 GOLD_SCHEMA_HISTORY_ANCHOR_ENV = "GOLD_SCHEMA_HISTORY_ANCHOR_PATH"
+LEGACY_LOCATION_VOCAB_ENV = "V18_LOCATION_VOCAB_JSON"
+LEGACY_TYPE_VOCAB_ENV = "V18_TYPE_VOCAB_JSON"
+_GOLD94_LOCATION_VOCAB = Path(__file__).resolve().parents[2] / "data/core/gold94_location_frequency.json"
+_GOLD94_TYPE_VOCAB = Path(__file__).resolve().parents[2] / "data/core/gold94_type_frequency.json"
 
 # Gold-10 is the built-in calibration fallback.  A local Gold-94 frequency
 # dictionary can be injected with the two environment variables above without
@@ -43,7 +47,11 @@ def _vocabulary_keys(value: object) -> frozenset[str]:
     return frozenset()
 
 
-def _load_frequency_vocab(path_value: str | None, *, nested_key: str | None = None) -> frozenset[str]:
+def _load_frequency_vocab(
+    path_value: str | None,
+    *,
+    nested_keys: Sequence[str] = (),
+) -> frozenset[str]:
     if not path_value:
         return frozenset()
     path = Path(path_value)
@@ -53,8 +61,12 @@ def _load_frequency_vocab(path_value: str | None, *, nested_key: str | None = No
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError, TypeError):
         return frozenset()
-    if nested_key and isinstance(payload, Mapping) and isinstance(payload.get(nested_key), Mapping):
-        payload = payload[nested_key]
+    if isinstance(payload, Mapping):
+        for nested_key in nested_keys:
+            nested = payload.get(nested_key)
+            if isinstance(nested, (Mapping, list, tuple, set)):
+                payload = nested
+                break
     return _vocabulary_keys(payload)
 
 
@@ -63,18 +75,40 @@ def gold_schema_location_vocab(value: object | None = None) -> tuple[frozenset[s
 
     if value is not None:
         return _vocabulary_keys(value), True
-    external = _load_frequency_vocab(os.getenv(GOLD_SCHEMA_LOCATION_VOCAB_ENV), nested_key="defect_locations")
+    path_value = (
+        os.getenv(GOLD_SCHEMA_LOCATION_VOCAB_ENV)
+        or os.getenv(LEGACY_LOCATION_VOCAB_ENV)
+        or str(_GOLD94_LOCATION_VOCAB)
+    )
+    external = _load_frequency_vocab(
+        path_value,
+        nested_keys=("defect_locations", "location_frequency", "location_vocab"),
+    )
     return (external, True) if external else (_DEFAULT_GOLD10_LOCATIONS, False)
 
 
 def gold_schema_type_vocab(value: object | None = None) -> tuple[frozenset[str], bool]:
     if value is not None:
         return _vocabulary_keys(value), True
-    external = _load_frequency_vocab(os.getenv(GOLD_SCHEMA_TYPE_VOCAB_ENV), nested_key="defect_types")
+    path_value = (
+        os.getenv(GOLD_SCHEMA_TYPE_VOCAB_ENV)
+        or os.getenv(LEGACY_TYPE_VOCAB_ENV)
+        or str(_GOLD94_TYPE_VOCAB)
+    )
+    external = _load_frequency_vocab(
+        path_value,
+        nested_keys=("defect_types", "type_frequency", "type_vocab"),
+    )
     return (external, True) if external else (_DEFAULT_GOLD10_TYPES, False)
 
 _NONE = frozenset({"", "无", "暂无", "未提供", "未提取到", "不适用", "无此项"})
 _SIDE_RE = re.compile(r"左右幅连接处|左幅|右幅|左侧|右侧")
+_EXPLICIT_SIDE_RE = re.compile(r"(?<!左)左幅|(?<!右)右幅|左侧|右侧")
+_LOCATION_COMPONENT_RE = re.compile(
+    r"左右幅连接处板间|桥面铺装|防撞栏杆|防撞护栏|右拱腰|左拱腰|拱腰|拱顶|"
+    r"伸缩缝|桥台|台帽|盖梁|支座(?:挡块|垫石|底板)?|箱梁底板|中央盖板|梁底|腹板|翼缘板|翼板|"
+    r"箱梁|板底|板间|顶板|侧墙|前墙|护栏|栏杆|防抛网|排水孔|泄水孔|泄水管"
+)
 _DEFECT_WORD_RE = re.compile(
     r"裂缝|开裂|破损|剥落|脱落|露筋|锈蚀|渗水|泛碱|变形|错台|高差|"
     r"缺失|堵塞|积水|积淤|磨损|车辙|坑洞|刮痕|胀模|蜂窝|麻面|松动|凸起"
@@ -102,114 +136,40 @@ def _side_from_description(description: str) -> str:
     return match.group(0) if match else ""
 
 
-_LOCATION_SIDE_WORDS = ("左右幅连接处", "左幅", "右幅", "左侧", "右侧")
-
-_LOCATION_GROSS_WORDS = (
-    "上部结构|下部结构|桥面系|桥面|路面|梁体|主桥|引桥|人行道|车行道|车道|"
-    "防撞墙|台背|锥坡|翼墙|索塔|塔柱|塔|缆索|拉索|吊杆|第[一二三四五六七八九十\d]+跨"
-)
-
-_LOCATION_COMPONENT_RE = re.compile(
-    r"(?:左右幅连接处|左幅|右幅|左侧|右侧)?"
-    r"(?:第\d+跨)?"
-    r"(?:桥台台帽|台帽|桥台|盖梁|墩身|挡块|横梁|系梁|横隔板|垫石|锚头|底座|保护带|泄水孔|"
-    r"立柱|人行道板|桥面铺装|防撞栏杆|防撞护栏|伸缩缝|栏杆|护栏|栏杆底座|修补带|"
-    r"梁底|腹板|翼板|箱梁底板|箱梁|板底|板间|中央盖板|顶板|侧墙|前墙|底板|梁端|湿接缝|"
-    r"主梁|边主梁|横隔梁|支座|拱腰|拱顶|桥墩|桩基|承台|墩柱|" + _LOCATION_GROSS_WORDS + r")"
-)
-
-_LOCATION_SPECIFIC_PATTERNS = (
-    r"((?:左右幅连接处|左幅|右幅|左侧|右侧)?(?:第\d+跨)?(?:右拱腰|左拱腰|拱腰|拱顶))",
-    r"((?:左右幅连接处|左幅|右幅|左侧|右侧)?(?:第\d+跨)?(?:桥面桥台|板底铰缝|防撞栏杆装饰砖|防撞栏杆上部|"
-    r"护栏底座|桥台处护栏|桥墩盖梁|左翼墙|右翼墙|桥台台帽|台帽|桥台|盖梁|墩身|挡块|横梁|系梁|横隔板|垫石|"
-    r"锚头|底座|保护带|泄水孔|立柱|人行道板|桥面铺装|防撞栏杆|防撞护栏|伸缩缝|栏杆|护栏|栏杆底座|修补带|"
-    r"梁底|腹板|翼板|箱梁底板|箱梁|板底|板间|中央盖板|顶板|侧墙|前墙|底板|梁端|湿接缝|主梁|边主梁|"
-    r"横隔梁|支座(?:挡块|垫石|底板)?|桥墩|桩基|承台|墩柱|铰缝|翼墙|路面|车行道|人行道|车道|防撞墙|"
-    r"台背|锥坡|索塔|塔柱|塔|缆索|拉索|吊杆))",
-)
-
-_LOCATION_GROSS_PATTERNS = (
-    r"((?:左右幅连接处|左幅|右幅|左侧|右侧)?(?:上部结构|下部结构|桥面系|桥面|主桥|引桥|梁体|"
-    r"第[一二三四五六七八九十\d]+跨))",
-)
-
-_NAMED_SIDE_PREFIX_RE = re.compile(r"^(巴南侧|江北侧|茶园侧|南侧|北侧|东侧|西侧|中央|中间)")
-
-
-def _location_from_description(description: str) -> str:
-    """Fill a component noun from the row description when the location was
-    stripped empty or left a bare side word."""
-    desc = _text(description)
-    if not desc:
-        return ""
-    hits = list(_LOCATION_COMPONENT_RE.finditer(desc))
-    if not hits:
-        return ""
-    span = hits[-1]
-    matched = span.group(0)
-    before = desc[: span.start()]
-    for side in _LOCATION_SIDE_WORDS:
-        if side in before:
-            matched = side + matched
-            break
-    return matched
-
-
-_LOCATION_ID_KEEP_RE = re.compile(r"(?<!第)\d+#(?=(?:台|墩|跨|桥台|桥墩))")
-
-
-def _location_id_before(value: str, result: str) -> re.Match[str] | None:
-    """Return the last kept member ID (8#, 2#) that precedes ``result``."""
-    if not result:
-        return None
-    index = value.find(result)
-    if index < 0:
-        return None
-    kept: re.Match[str] | None = None
-    for match in _LOCATION_ID_KEEP_RE.finditer(value[: index + 2]):
-        kept = match
-    return kept
-
-
 def _strip_instance_location(location: str) -> str:
     """Drop coordinates/member IDs while retaining side/span and component nouns."""
 
     value = _text(location)
     if not value:
         return value
+    # Common OCR/layout noise: ``副`` is a frequent misread of the bridge
+    # side marker ``幅``.  This is a spelling normalisation, not a new fact.
     value = value.replace("左副", "左幅").replace("右副", "右幅")
+    # Preserve multi-span grouping while removing slash-style layout noise.
+    value = re.sub(r"(?<!第)(\d+)\s*/\s*(\d+)跨", r"第\1、\2跨", value)
+    value = re.sub(r"\b\d+[A-Za-z]\s*/\s*\d+处", "", value)
+    # Deduplicate immediately repeated comma-separated location tokens.
+    parts = [item for item in re.split(r"[、,，]", value) if item]
+    if len(parts) > 1:
+        deduped: list[str] = []
+        for item in parts:
+            if not deduped or item != deduped[-1]:
+                deduped.append(item)
+        value = "、".join(deduped)
     value = re.sub(r"(?:见|参见)?(?:照片|图片|图)\s*[\d.\-～~]+.*$", "", value)
     value = re.sub(r"[（(][^）)]*(?:m|mm|cm|㎡|m²)[^）)]*[）)]", "", value, flags=re.IGNORECASE)
-    value = re.sub(r"距[^，,；;。]{0,48}?(?:m|mm|cm|米)处?", "", value, flags=re.IGNORECASE)
-    value = re.sub(r"\d+(?:\.\d+)?\s*(?:m|mm|cm|㎡|m²|米)", "", value, flags=re.IGNORECASE)
+    value = re.sub(r"距[^，,；;。]{0,36}?(?:m|mm|cm)处?", "", value, flags=re.IGNORECASE)
+    value = re.sub(r"\d+(?:\.\d+)?\s*(?:m|mm|cm|㎡|m²)", "", value, flags=re.IGNORECASE)
     # Hole/member identifiers are instance coordinates.  Span labels are kept
     # because Gold frequently retains a coarse span grouping (e.g. 第5跨箱梁).
     value = re.sub(r"(?:\d+|[一二三四五六七八九十]+)#孔", "", value)
-    # Member ranges such as ``11~12#梁`` or ``6#-7#板`` are instance detail.
-    value = re.sub(r"\d+#?\s*[~～\-—]\s*\d+#?", "", value)
-    # A truncated range such as ``6#-板之间`` keeps only the left member ID.
-    value = re.sub(r"\d+#?\s*[~～\-—]", "", value)
-    # Fractional position inside a span (2/3跨, 1/2处, 3L/4处) is instance detail.
-    value = re.sub(r"\d+\s*L?\s*/\s*\d+\s*(?:跨|处|位置)?", "", value)
     # Member IDs are instance detail.  Preserve span groups such as ``5#跨``
     # while removing IDs in front of any Chinese component noun (1#伸缩缝,
     # 3#板, 2#盖梁, ...).  The old narrow noun list caused the matcher to
-    # restart at the component and silently drop ``左幅/右幅``.  IDs before
-    # pier/abutment/span nouns (8#台, 2#桥台, 1#桥墩, 5#跨) are kept because
-    # Gold keeps them and removing them leaves bare single characters.
-    _protected_ids: list[str] = []
-    def _keep_id(match: re.Match[str]) -> str:
-        _protected_ids.append(match.group(0))
-        return "\x00%02d\x00" % len(_protected_ids)
-    value = re.sub(r"(?<!第)\d+#(?=(?:台|墩|跨|桥台|桥墩))", _keep_id, value)
-    value = re.sub(r"(?<!第)\d+#(?=[\u4e00-\u9fff])", "", value)
-    for index in range(len(_protected_ids), 0, -1):
-        value = value.replace("\x00%02d\x00" % index, _protected_ids[index - 1])
+    # restart at the component and silently drop ``左幅/右幅``.
+    value = re.sub(r"(?<!第)\d+#(?=(?!跨)[\u4e00-\u9fff])", "", value)
     value = re.sub(r"(?:左|右)?洞口[^，,；;。]*", "", value)
     value = re.sub(r"\s+", "", value).strip("，,；;。．-—_ ")
-    # Fold duplicated first characters left by ID removal (墩墩身 -> 墩身,
-    # 台台帽 -> 台帽, 左侧侧墙 -> 左侧侧墙).
-    value = re.sub(r"([墩台梁板跨桥缝栏帽柱墙])[\1](?=[身帽柱墙板梁缝])", r"\1", value)
 
     # A repeated span/member expression such as
     # ``右幅4#跨3#与右幅4#跨4#板间`` denotes one coarse Gold location.
@@ -219,39 +179,35 @@ def _strip_instance_location(location: str) -> str:
         if side_matches and ("与" in value or value.count(side_matches[0]) > 1):
             return f"{side_matches[0]}板间"
 
+    # Coordinates may sit between an explicit side marker and the component
+    # (``右幅1#跨...支座``), or before a side-qualified component
+    # (``2#伸缩缝处右侧护栏``).  Keep the side nearest to a known component;
+    # do not synthesize a component when none remains after stripping.
+    side_matches = list(_EXPLICIT_SIDE_RE.finditer(value))
+    for side_match in reversed(side_matches):
+        # ``台右侧墙`` contains the side marker inside the component token
+        # ``侧墙``.  Treat it as the Gold term ``右侧墙``/``左侧墙`` rather
+        # than letting the generic component matcher return ``侧墙``.
+        if side_match.group(0) in {"左侧", "右侧"} and value[side_match.end():].startswith("墙"):
+            return f"{side_match.group(0)}墙"
+        component_match = _LOCATION_COMPONENT_RE.search(value, side_match.end())
+        if component_match:
+            return f"{side_match.group(0)}{component_match.group(0)}"
+        preceding_components = list(_LOCATION_COMPONENT_RE.finditer(value, 0, side_match.start()))
+        if preceding_components:
+            return f"{side_match.group(0)}{preceding_components[-1].group(0)}"
+    if side_matches and value == side_matches[-1].group(0):
+        return side_matches[-1].group(0)
+
     # Keep only the semantic core when a raw location itself contains detail.
-    for pattern in _LOCATION_SPECIFIC_PATTERNS:
+    patterns = (
+        r"((?:左右幅连接处|左幅|右幅|左侧|右侧)?(?:第\d+跨)?(?:右拱腰|左拱腰|拱腰|拱顶))",
+        r"((?:左幅|右幅|左侧|右侧)?(?:第\d+跨)?(?:桥面铺装|防撞栏杆|防撞护栏|伸缩缝|桥台|盖梁|支座(?:挡块|垫石|底板)?|梁底|腹板|翼板|箱梁底板|箱梁|板底|板间|中央盖板|顶板|侧墙|前墙))",
+    )
+    for pattern in patterns:
         match = re.search(pattern, value)
         if match:
-            result = match.group(1)
-            if not result:
-                continue
-            id_prefix = _location_id_before(value, result)
-            if id_prefix and not result.startswith(id_prefix.group(0)):
-                result = id_prefix.group(0) + result
-            head = re.match(r"(?:左幅|右幅|左侧|右侧|左右幅连接处|左右幅|上部结构|下部结构|桥面系)", value)
-            if head and not result.startswith(head.group(0)) and not result.startswith(("左幅", "右幅", "左侧", "右侧")):
-                result = head.group(0) + result
-            named = _NAMED_SIDE_PREFIX_RE.match(value)
-            if named and not result.startswith(named.group(0)):
-                result = named.group(0) + result
-            return result
-    for pattern in _LOCATION_GROSS_PATTERNS:
-        match = re.search(pattern, value)
-        if match:
-            result = match.group(1)
-            if not result:
-                continue
-            id_prefix = _location_id_before(value, result)
-            if id_prefix and not result.startswith(id_prefix.group(0)):
-                result = id_prefix.group(0) + result
-            head = re.match(r"(?:左幅|右幅|左侧|右侧|左右幅连接处|左右幅)", value)
-            if head and not result.startswith(head.group(0)) and not result.startswith(("左幅", "右幅", "左侧", "右侧")):
-                result = head.group(0) + result
-            named = _NAMED_SIDE_PREFIX_RE.match(value)
-            if named and not result.startswith(named.group(0)):
-                result = named.group(0) + result
-            return result
+            return match.group(1)
     return value
 
 
@@ -278,11 +234,13 @@ def canonicalize_defect_location(
             return "桥面"
         return location
 
-    # External Gold-94 input is the authority requested by the calibration
-    # workflow.  Built-in Gold-10 keeps a handful of broad buckets refinable,
-    # because those exact calibration pairs prove the source bucket can still
-    # be too coarse for the output field.
-    if location in vocab and (external_vocab or location not in _BROAD_LOCATION_BUCKETS):
+    # A known term is preserved unless it is one of the explicitly broad
+    # buckets that the same row can refine (for example 拱腰 -> 右拱腰).
+    # Gold94 contains both broad and refined terms, so loading the larger
+    # vocabulary must not disable this evidence-backed refinement.
+    if location in vocab and (
+        canonical_locations is not None or location not in _BROAD_LOCATION_BUCKETS
+    ):
         return location
 
     if location == "拱腰":
@@ -334,13 +292,25 @@ def canonicalize_defect_location(
     stripped = _strip_instance_location(location)
     if stripped in vocab:
         return stripped
-    if stripped and _LOCATION_COMPONENT_RE.search(stripped):
+    if stripped and stripped not in {"台", "墩"}:
         return stripped
-    filled = _location_from_description(description)
-    if filled:
-        return filled
-    if stripped:
-        return stripped
+
+    # V21 residuals: some source tables put only a distance/instance locator in
+    # the location column (e.g. ``距0#台7m处``) while the description names the
+    # real component.  Recover only that explicitly named component; keep all
+    # distance/size text in description.
+    description_clean = _text(description).replace("左副", "左幅").replace("右副", "右幅")
+    side_match = _SIDE_RE.search(description_clean)
+    component_match = _LOCATION_COMPONENT_RE.search(description_clean)
+    if component_match:
+        component = component_match.group(0)
+        if component == "翼缘板":
+            component = "翼板"
+        if component == "桥台" and "台帽" in description_clean:
+            component = "台帽"
+        side_value = side_match.group(0) if side_match else ""
+        candidate = f"{side_value}{component}" if side_value else component
+        return candidate
     return location
 
 def canonicalize_defect_type(
@@ -1044,30 +1014,113 @@ def _find_evidence(evidence: Sequence[str], *markers: str) -> str:
     return ""
 
 
-def _pedestrian_bridge_conclusion(evidence: Sequence[str], summary: BridgeSummary) -> str:
-    joined = "\n".join(evidence)
+def _pedestrian_bridge_conclusion(
+    evidence: Sequence[str],
+    summary: BridgeSummary,
+    defects: Sequence[DefectObservation] = (),
+) -> str:
+    """Compose the pedestrian-overpass OC without ever returning an empty prefix.
+
+    Gold-10-proven phrases remain first priority.  Real reports use many
+    equivalent expressions, so missing systems fall back to generic report
+    evidence, then to already-extracted defects.  If neither has substance,
+    preserve the legacy OC instead of emitting ``本次定检结果表明，`` alone.
+    """
+
+    joined = "\n".join(_text(item) for item in evidence)
     deck: list[str] = []
     if "桥面无泄水孔" in joined:
         deck.append("桥面无泄水孔")
     if "栏杆局部锈蚀" in joined and "松动" in joined:
         deck.append("栏杆局部锈蚀松动")
+
+    # Evidence-driven fallback for real pedestrian-overpass wording.
+    if not deck:
+        deck_clause = _best_system_clause(evidence, "桥面系")
+        if deck_clause:
+            deck.append(deck_clause)
+        else:
+            for raw in evidence:
+                text = _text(raw).strip("| ")
+                if (
+                    any(word in text for word in ("桥面", "栏杆", "护栏", "伸缩缝", "铺装", "人行道"))
+                    and _DEFECT_WORD_RE.search(text)
+                    and not _OC_EXCLUDE_RE.search(text)
+                ):
+                    clean = re.sub(r"^[|\s]*(?:[⑴⑵⑶⑷⑸⑹⑺⑻⑼⑽]|[（(]?\d+[）).、]?)\s*", "", text).strip("| ，,；;。")
+                    if clean:
+                        deck.append(clean)
+                        break
+
     upper = ""
     crack_line = _find_evidence(evidence, "第2跨", "贯通裂缝") or _find_evidence(evidence, "梁体", "裂缝")
     if crack_line:
         crack_line = re.sub(r"^[|\s]*(?:[⑴⑵⑶⑷⑸⑹⑺⑻⑼⑽]|[（(]?\d+[）).、]?)\s*", "", crack_line).strip("| ")
         crack_line = re.sub(r"，宽[^，；。]+", "", crack_line)
         crack_line = re.sub(r"，长[^，；。]+", "", crack_line)
-        crack_line = crack_line.replace("梁体底板", "梁体底板")
         upper = crack_line.rstrip("；。")
+    if not upper:
+        upper = _best_system_clause(evidence, "上部结构")
+    if not upper:
+        for raw in evidence:
+            text = _text(raw).strip("| ")
+            if (
+                re.search(r"(?:主梁|梁体|梁底|腹板|底板|板底)", text)
+                and _DEFECT_WORD_RE.search(text)
+                and not _OC_EXCLUDE_RE.search(text)
+            ):
+                upper = re.sub(r"^[|\s]*(?:[⑴⑵⑶⑷⑸⑹⑺⑻⑼⑽]|[（(]?\d+[）).、]?)\s*", "", text).strip("| ，,；;。")
+                break
+
     lower = "下部结构及墩台外观良好" if ("桥墩护栏及限高牌外观状况良好" in joined or "下部结构外观状况良好" in joined) else ""
+    if not lower:
+        lower_clause = _best_system_clause(evidence, "下部结构")
+        if lower_clause:
+            lower = "下部结构" + lower_clause
+        else:
+            for raw in evidence:
+                text = _text(raw).strip("| ")
+                if (
+                    any(word in text for word in ("下部结构", "墩台", "桥墩", "桥台", "盖梁"))
+                    and (
+                        _DEFECT_WORD_RE.search(text)
+                        or any(word in text for word in ("良好", "完好", "未见明显病害"))
+                    )
+                    and not _OC_EXCLUDE_RE.search(text)
+                ):
+                    clean = re.sub(r"^[|\s]*(?:[⑴⑵⑶⑷⑸⑹⑺⑻⑼⑽]|[（(]?\d+[）).、]?)\s*", "", text).strip("| ，,；;。")
+                    lower = clean if clean.startswith("下部结构") else "下部结构" + clean
+                    break
+
     clauses: list[str] = []
     if deck:
-        clauses.append("桥梁" + "，".join(deck))
+        clauses.append("桥梁" + "，".join(dict.fromkeys(deck)))
     if upper:
         clauses.append("上部结构" + upper)
     if lower:
         clauses.append(lower)
-    text = "本次定检结果表明，" + "；".join(clauses) + ("。" if clauses else "")
+
+    # If the report conclusion window is sparse, retain the pedestrian-bridge
+    # schema using current-report defect facts.  This is a fallback only.
+    if not clauses and defects:
+        groups = {"桥面系": [], "上部结构": [], "下部结构": []}
+        for record in defects:
+            system = _system_for(record)
+            if system in groups:
+                groups[system].append(record)
+        for system in ("桥面系", "上部结构", "下部结构"):
+            phrases = _merge_defect_phrases(groups[system], limit=4)
+            if not phrases:
+                continue
+            if system == "桥面系":
+                clauses.append("桥梁" + "，".join(phrases))
+            else:
+                clauses.append(system + "，".join(phrases))
+
+    if not clauses:
+        return _text(summary.overall_conclusion)
+
+    text = "本次定检结果表明，" + "；".join(clauses) + "。"
     specials: list[str] = []
     if "满足设计30#混凝土强度" in joined or "满足设计30号混凝土强度" in joined:
         specials.append("专项检测混凝土强度满足设计30#要求")
@@ -1085,7 +1138,7 @@ def _pedestrian_bridge_conclusion(evidence: Sequence[str], summary: BridgeSummar
         if upper_grade:
             text += f"，上部结构评定为{upper_grade.group(1)}（{upper_grade.group(2)}状态）"
         text += "。"
-    return text or summary.overall_conclusion
+    return text
 
 
 def _pedestrian_passage_conclusion(evidence: Sequence[str], summary: BridgeSummary) -> str:
@@ -1146,7 +1199,7 @@ def compose_gold_overall_conclusion(
     if facility_type == "人行通道":
         return _pedestrian_passage_conclusion(evidence, summary)
     if facility_type == "人行天桥":
-        return _pedestrian_bridge_conclusion(evidence, summary)
+        return _pedestrian_bridge_conclusion(evidence, summary, defects)
     card = _OC_FACILITY_CARDS[facility_type]
     groups = {"桥面系": [], "上部结构": [], "支座": [], "下部结构": []}
     for record in defects:

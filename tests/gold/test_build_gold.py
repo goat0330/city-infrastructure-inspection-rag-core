@@ -137,5 +137,36 @@ class GoldBuildTests(unittest.TestCase):
             self.assertEqual(record["defects"][0]["description"], "裂缝一条")
 
 
+    def test_parser_accepts_defect_header_aliases(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            labels = root / "labels"
+            reports = root / "reports"
+            path = labels / "2012年/别名桥-无对比年度的信息提取报告.docx"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            document = Document()
+            summary = document.add_table(rows=2, cols=2)
+            for cell, value in zip(summary.rows[0].cells, ("项目", "值")):
+                cell.text = value
+            for cell, value in zip(summary.rows[1].cells, ("桥梁名称", "别名桥")):
+                cell.text = value
+            recommendations = document.add_table(rows=1, cols=4)
+            for cell, value in zip(recommendations.rows[0].cells, ("序号", "建议类别", "建议内容", "病害部位")):
+                cell.text = value
+            defects = document.add_table(rows=2, cols=7)
+            for cell, value in zip(defects.rows[0].cells, ("序号", "位置", "病害种类", "具体位置", "是否新增", "历史状态", "发展")):
+                cell.text = value
+            for cell, value in zip(defects.rows[1].cells, ("1", "桥面", "裂缝", "桥面纵向裂缝", "否", "无", "无")):
+                cell.text = value
+            document.save(path)
+            reports.mkdir()
+            (reports / "别名桥.doc").write_bytes(b"report")
+
+            record = build_gold(labels, reports, root / "out")["records"][0]
+            assert record["defects"][0]["location"] == "桥面"
+            assert record["defects"][0]["defect_type"] == "裂缝"
+            assert record["defects"][0]["previous_status"] == "无"
+
+
 if __name__ == "__main__":
     unittest.main()

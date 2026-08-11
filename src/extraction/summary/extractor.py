@@ -307,7 +307,7 @@ _SCORE_RE = re.compile(r"(?<![\d.])\d+(?:\.\d+)?")
 _GRADE_RE = re.compile(r"(?:[A-Ea-e]\s*级?|[一二三四五六]类|优等?|良好?|中等?|差)")
 _RECOMMENDATION_COUNT_RE = re.compile(r"(\d+)\s*条")
 
-_BCI_SCORE_RE = re.compile(r"BCI\s*([mMkKsSxX]?)\s*[=＝]\s*(\d+(?:\.\d+)?)")
+_BCI_SCORE_RE = re.compile(r"BCI\s*([mMkKsSxX]?)\s*(?:[=＝:：]{1,2}|为|是)\s*(\d+(?:\.\d+)?)")
 _BCI_COMPONENT = {"m": "deck", "s": "superstructure", "k": "superstructure", "x": "substructure"}
 _BSI_COMPONENT = {"m": "deck", "s": "superstructure", "x": "substructure"}
 _BSI_TOKEN_RE = re.compile(r"BSI\s*([mMsSxX])", flags=re.IGNORECASE)

@@ -1131,6 +1131,10 @@ def _resolve_category(
     if hint_categories:
         if content_categories and content_categories != hint_categories:
             return "", True
+        if infer_categories:
+            inferred = _infer_category(content)
+            if inferred and inferred != hint_categories[0]:
+                return inferred, False
         return hint_categories[0], False
     if len(content_categories) == 1:
         return content_categories[0], False
@@ -1177,8 +1181,8 @@ def _infer_category(content: str) -> str | None:
         return "立即处置"
     # Cleaning a named defect is corrective work; generic routine cleaning
     # remains preventive below.
-    if "清理" in compact and any(
-        marker in compact for marker in ("堵塞", "积土", "积水", "淤积")
+    if any(marker in compact for marker in ("清理", "清除")) and any(
+        marker in compact for marker in ("堵塞", "积土", "积水", "淤积", "泥沙", "垃圾")
     ):
         return "尽快维修"
     # A report-level maintenance instruction is preventive care, even when
@@ -1188,6 +1192,7 @@ def _infer_category(content: str) -> str | None:
         any(marker in compact for marker in (
             "相关养护维修", "有关养护维修", "日常养护维修", "常规养护维修"
         ))
+        or ("其他常规缺陷" in compact and "养护维修" in compact)
         or (
             "参照" in compact
             and any(marker in compact for marker in ("养护规范", "养护技术规范"))
@@ -1205,6 +1210,8 @@ def _infer_category(content: str) -> str | None:
             "重新铺装", "重新勾缝", "勾缝", "抹灰", "灌封",
             "凿除重做", "凿除后", "恢复面层", "重新安装",
             "布置排水设施", "增设排水设施",
+            "疏通", "灌缝", "填塞", "捣实", "抹平", "凿去",
+            "刷洗", "抹压", "压实",
         )
     ):
         return "尽快维修"
@@ -1249,6 +1256,7 @@ def _infer_category(content: str) -> str | None:
             "连续性技术档案",
             "技术档案",
             "加强观察",
+            "加强日常观察",
             "定期观察",
             "加强监测",
             "定期监测",

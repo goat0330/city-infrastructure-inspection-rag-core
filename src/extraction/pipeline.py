@@ -14,7 +14,11 @@ from ..contracts import InspectionPrediction, ParagraphBlock
 from ..parsing import parse_docx
 from ..routing import route_sections
 from .defects import DefectExtractionResult, extract_defects
-from .recommendations import RecommendationExtractionResult, extract_recommendations
+from .recommendations import (
+    RecommendationExtractionResult,
+    extract_recommendations,
+    map_recommendation_locations,
+)
 from .recommendations.extractor import summarize_recommendations
 from .output_normalizer import (
     normalize_prediction_output,
@@ -452,8 +456,14 @@ def extract_report(
             recommendations.records,
             facility_noun=recommendation_facility_noun,
         )
-        if canonical_recommendations != recommendations.records:
-            recommendations = replace(recommendations, records=canonical_recommendations)
+        mapped_recommendations = map_recommendation_locations(
+            canonical_recommendations,
+            defects.records,
+            facility_noun=recommendation_facility_noun,
+            client=semantic_client if semantic_enabled else None,
+        )
+        if mapped_recommendations != recommendations.records:
+            recommendations = replace(recommendations, records=mapped_recommendations)
 
     summary_text = summarize_recommendations(
         recommendations.records if recommendations.records else None,
@@ -653,6 +663,17 @@ def extract_report(
                 ),
             ),
         )
+    # Counts must follow the final resolved rows. Keep the established output
+    # wording; Gold labels are inconsistent about a trailing “建议”.
+    recommendation_summary = str(
+        summarize_recommendations(prediction.recommendations).get("summary", "")
+    )
+    prediction = replace(
+        prediction,
+        summary=replace(
+            prediction.summary, recommendations_summary=recommendation_summary
+        ),
+    )
     return ReportExtraction(
         prediction=prediction,
         route_count=len(routes),

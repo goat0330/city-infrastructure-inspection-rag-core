@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 from src.contracts import (
+    DefectObservation,
     DocumentModel,
     ParagraphBlock,
+    Recommendation,
     SourceAnchor,
     TableBlock,
     TableCell,
     TableRow,
 )
-from src.extraction.recommendations import extract_recommendations
+from src.extraction.recommendations import extract_recommendations, map_recommendation_locations
 from src.extraction.recommendations.extractor import (
     _looks_like_recommendation_paragraph,
     _location_fields,
@@ -706,3 +708,60 @@ def test_zero_filled_summary_reconciles_source_and_exposes_conflict() -> None:
         "预防性养护": 0,
     }
     assert without_source["conflict"] is False
+
+
+def test_preventive_hint_is_overridden_by_explicit_repair_action() -> None:
+    model = _model(
+        _paragraph(0, "处理建议", heading_level=1),
+        _paragraph(1, "（1）预防性养护：桥面：建议加强日常观察。"),
+        _paragraph(2, "（2）预防性养护：伸缩缝：应及时清除伸缩缝内泥沙。"),
+    )
+    result = extract_recommendations(model, infer_categories=True)
+    assert [item.category for item in result.records] == ["预防性养护", "尽快维修"]
+
+
+class _FakeLocationClient:
+    def __init__(self, payload):
+        self.payload = payload
+
+    class _Result:
+        def __init__(self, value):
+            self.value = value
+
+    def chat_json(self, messages, temperature=0, max_tokens=800):
+        return self._Result(self.payload)
+
+
+def test_recommendation_location_mapping_accepts_only_legal_component() -> None:
+    recommendation = Recommendation(
+        index="1",
+        category="尽快维修",
+        content="针对右幅2#跨主梁左侧翼板大面积破损露筋，建议修补。",
+        location="右幅2#跨主梁左侧翼板大面积破损露筋S=0.3m×5.0m",
+    )
+    defects = (DefectObservation(
+        location="右幅主梁",
+        defect_type="破损露筋",
+        description="右幅2#跨主梁左侧翼板大面积破损露筋S=0.3m×5.0m",
+    ),)
+    mapped = map_recommendation_locations(
+        (recommendation,), defects,
+        client=_FakeLocationClient({"locations": [{"item_id": 0, "location": "主梁"}]}),
+    )
+    assert mapped[0].location == "主梁"
+    assert mapped[0].content == recommendation.content
+
+
+def test_invalid_location_mapping_falls_back_without_rewriting_content() -> None:
+    recommendation = Recommendation(
+        index="1",
+        category="尽快维修",
+        content="针对伸缩缝堵塞，应及时清除伸缩缝内泥沙。",
+        location="针对1#伸缩缝堵塞应及时清除泥沙",
+    )
+    mapped = map_recommendation_locations(
+        (recommendation,), (),
+        client=_FakeLocationClient({"locations": [{"item_id": 0, "location": "1#伸缩缝及时维修"}]}),
+    )
+    assert mapped[0].location == "伸缩缝"
+    assert mapped[0].content == recommendation.content

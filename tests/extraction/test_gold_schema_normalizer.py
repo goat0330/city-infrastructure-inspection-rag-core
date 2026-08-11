@@ -316,3 +316,40 @@ def test_unnamed_bridge_facility_card_preserves_bridge_system_schema():
     assert value.startswith("本次定检结果表明，桥面系")
     assert "上部结构" in value and "下部结构" in value
     assert "主体结构承载能力满足汽-超20，挂-120级荷载等级要求" in value
+
+
+def test_gold94_frequency_and_list_vocab_shapes_are_loaded(tmp_path, monkeypatch):
+    import json
+    from src.extraction.gold_schema_normalizer import (
+        GOLD_SCHEMA_LOCATION_VOCAB_ENV,
+        GOLD_SCHEMA_TYPE_VOCAB_ENV,
+        gold_schema_location_vocab,
+        gold_schema_type_vocab,
+    )
+
+    location_path = tmp_path / "locations.json"
+    type_path = tmp_path / "types.json"
+    location_path.write_text(
+        json.dumps({"location_frequency": {"右幅桥面": 8}}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    type_path.write_text(
+        json.dumps({"type_vocab": ["剥落", "划痕"]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv(GOLD_SCHEMA_LOCATION_VOCAB_ENV, str(location_path))
+    monkeypatch.setenv(GOLD_SCHEMA_TYPE_VOCAB_ENV, str(type_path))
+
+    assert gold_schema_location_vocab() == (frozenset({"右幅桥面"}), True)
+    assert gold_schema_type_vocab() == (frozenset({"剥落", "划痕"}), True)
+
+
+def test_location_normalizer_keeps_side_and_removes_member_number():
+    assert canonicalize_defect_location(
+        "右幅1#伸缩缝", "右幅1#伸缩缝保护带破损", "破损"
+    ) == "右幅伸缩缝"
+    assert canonicalize_defect_location(
+        "距3#墩4m处右幅4#跨3#与右幅4#跨4#板间",
+        "距3#墩4m处右幅4#跨3#与右幅4#跨4#板间渗水",
+        "渗水",
+    ) == "右幅板间"

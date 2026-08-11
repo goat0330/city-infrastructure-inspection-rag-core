@@ -162,26 +162,68 @@ def _recommendations(document: object) -> list[dict[str, str]]:
     return result
 
 
+DEFECT_FIELD_ALIASES = {
+    "index": ("序号", "编号"),
+    "location": ("病害部位", "位置"),
+    "defect_type": ("病害类型", "病害种类"),
+    "description": ("病害描述", "具体位置", "病害情况"),
+    "is_new": ("是否新增",),
+    "previous_status": ("上一次定检状态", "历史状态"),
+    "development": ("发展程度", "发展"),
+}
+
+
+def _normalise_header_cell(value: str) -> str:
+    return clean(value).rstrip("：:").replace(" ", "")
+
+
+def _defect_table(document: object) -> tuple[object, int, dict[str, int]] | None:
+    matches: list[tuple[object, int, dict[str, int]]] = []
+    required = {"location", "defect_type", "description"}
+    for table in document.tables:  # type: ignore[attr-defined]
+        rows = [_row_cells(row) for row in table.rows]  # type: ignore[attr-defined]
+        for header_index, cells in enumerate(rows[:8]):
+            columns: dict[str, int] = {}
+            for column_index, cell in enumerate(cells):
+                header = _normalise_header_cell(cell)
+                for field, aliases in DEFECT_FIELD_ALIASES.items():
+                    if header in aliases and field not in columns:
+                        columns[field] = column_index
+            if required <= columns.keys():
+                matches.append((table, header_index, columns))
+                break
+    if not matches:
+        return None
+    matches.sort(key=lambda item: len(item[0].rows), reverse=True)  # type: ignore[attr-defined]
+    return matches[0]
+
+
 def _defects(document: object) -> list[dict[str, str]]:
-    table = _find_table(
-        document,
-        (("病害部位", "病害类型", "病害描述"),),
-        "defects",
-    )
-    rows = _data_rows(table, (("病害部位", "病害类型", "病害描述"),))
+    match = _defect_table(document)
+    if match is None:
+        return []
+    table, header_index, columns = match
+    rows = [_row_cells(row) for row in table.rows][header_index + 1 :]  # type: ignore[attr-defined]
+
+    def value(cells: list[str], field: str) -> str:
+        column_index = columns.get(field)
+        if column_index is None or column_index >= len(cells):
+            return ""
+        return cells[column_index]
+
     result: list[dict[str, str]] = []
     for cells in rows:
-        cells = (cells + [""] * 7)[:7]
-        if any(cells):
+        values = {field: value(cells, field) for field in DEFECT_FIELD_ALIASES}
+        if any(values.values()):
             result.append(
                 {
-                    "index": cells[0],
-                    "location": cells[1],
-                    "defect_type": cells[2],
-                    "description": cells[3],
-                    "is_new": cells[4],
-                    "previous_status": cells[5],
-                    "development": cells[6],
+                    "index": values["index"],
+                    "location": values["location"],
+                    "defect_type": values["defect_type"],
+                    "description": values["description"],
+                    "is_new": values["is_new"],
+                    "previous_status": values["previous_status"],
+                    "development": values["development"],
                 }
             )
     return result
